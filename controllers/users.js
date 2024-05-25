@@ -4,8 +4,11 @@ import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET;
+const DEFAULT_AVATAR = "https://images.unsplash.com/photo-1619946794135-5bc917a27793?ixlib=rb-0.3.5&q=80&fm=jpg&crop=faces&fit=crop&h=200&w=200&s=b616b2c5b373a80ffc9636ba24f7a4a9";
 import Role from '../models/roles.js';
 import Permission from '../models/permissions.js';
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { storage } from "../utils/firebase.js";
 
 export const register = async (req, res) => {
     const { name, email, password, role } = req.body;
@@ -15,7 +18,7 @@ export const register = async (req, res) => {
             return res.status(400).json({ message: "User already exists" });
         }
         const hashedPassword = await bcrypt.hash(password, 12);
-        const newUser = new User({ name, email, password: hashedPassword, role });
+        const newUser = new User({ name, email, password: hashedPassword, role, avatar: DEFAULT_AVATAR });
         await newUser.save();
         const data = { user: { id: newUser._id } };
         const authToken = jwt.sign(data, JWT_SECRET);
@@ -95,7 +98,7 @@ export const addUser = async (req, res) => {
             return res.status(400).json({ message: "User already exists" });
         }
         const hashedPassword = await bcrypt.hash(password, 12);
-        const newUser = new User({ name, email, password: hashedPassword, role });
+        const newUser = new User({ name, email, password: hashedPassword, role, avatar: DEFAULT_AVATAR });
         await newUser.save();
         res.status(200).json("User added successfully");
     }
@@ -150,3 +153,29 @@ export const getUser = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 }
+
+export const changeAvatar = async (req, res) => {
+    const { id } = req.body;
+    const avatar = req.files.avatar;
+    try {
+        const user = await User.findById(id);
+        if (!user) {
+            return res.status(400).json({ message: "User does not exist" });
+        }
+
+        // Upload the image to Firebase Storage
+        const avatarFile = avatar;
+        const avatarFileName = `avatars_${id}.png`;
+        const avatarFileRef = ref(storage, `avatars/${avatarFileName}`);
+        const uploadavatarFileTask = uploadBytes(avatarFileRef, avatarFile.data);
+        await uploadavatarFileTask;
+
+        const avatarURL = await getDownloadURL(avatarFileRef);
+
+        await User.findByIdAndUpdate(id, { avatar: avatarURL });
+
+        res.status(200).json({ avatar: avatarURL });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
