@@ -1,6 +1,7 @@
 import Enrollment from "../models/enrollments.js";
 import Student from "../models/students.js";
 import moment from "moment";
+import Batches from "../models/batches.js";
 
 export const getEnrollments = async (req, res) => {
   try {
@@ -24,11 +25,13 @@ export const createEnrollment = async (req, res) => {
         total_fee += parseInt(fees[i]);
       }
 
-      const start_date = batch.start_date;
-      const end_date = batch.end_date;
+      const curBatch = await Batches.findById(batch);
 
-      if (!activeBatch && moment().isBetween(start_date, end_date) && courses.length > 0) {
-        activeBatch = batch;
+      const start_date = moment(curBatch.start_date);
+      const end_date = moment(curBatch.end_date);
+
+      if (!activeBatch && courses.length > 0) {
+        activeBatch = curBatch;
       }
 
       await Enrollment.updateOne(
