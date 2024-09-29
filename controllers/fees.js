@@ -1,5 +1,6 @@
 import Fee from "../models/fees.js";
 import FeeLog from "../models/feeLogs.js";
+import User from "../models/users.js";
 import dotenv from "dotenv";
 import Student from "../models/students.js";
 import moment from "moment-timezone";
@@ -32,6 +33,9 @@ export const getFees = async (req, res) => {
         };
 
         const fees = await Fee.paginate(filter, options);
+
+        // Filter out fees where student is null (didn't match the regex)
+        fees.docs = fees.docs.filter((f) => f.student != null);
 
         res.status(200).json(fees);
     } catch (error) {
@@ -76,11 +80,14 @@ export const createFee = async (req, res) => {
             due_date: moment().tz("Asia/Karachi").format("YYYY-MM-DD"),
         });
 
+        const actionUser = await User.findById(req.user.user.id);
+
         const feeLog = new FeeLog({
             amount,
+            action_amount: amount,
             action_date: new Date(),
             action_type: "Created",
-            action_by: req.user._id,
+            action_by: actionUser._id,
             fee: newFee._id,
         });
 
@@ -114,21 +121,29 @@ export const payFee = async (req, res) => {
             return res.status(400).json({ message: "Amount must be greater than 0" });
         }
 
+        if (amount > fee.amount) {
+            return res.status(400).json({ message: "Amount exceeds the fee amount" });
+        }
+
         if (fee.status === "Paid") {
             return res.status(400).json({ message: "Fee already paid" });
         }
 
+        const orignalAmount = fee.amount;
         fee.amount -= amount;
 
         if (fee.amount <= 0) {
             fee.status = "Paid";
         }
 
+        const actionUser = await User.findById(req.user.user.id);
+
         const feeLog = new FeeLog({
-            amount,
+            amount: orignalAmount,
+            action_amount: amount,
             action_date: new Date(),
             action_type: "Paid",
-            action_by: req.user._id,
+            action_by: actionUser._id,
             fee: id,
         });
 
@@ -163,21 +178,29 @@ export const discountFee = async (req, res) => {
             return res.status(400).json({ message: "Amount must be greater than 0" });
         }
 
+        if (amount > fee.amount) {
+            return res.status(400).json({ message: "Amount exceeds the fee amount" });
+        }
+
         if (fee.status === "Paid") {
             return res.status(400).json({ message: "Fee already paid" });
         }
 
+        const orignalAmount = fee.amount;
         fee.amount -= amount;
 
         if (fee.amount <= 0) {
             fee.status = "Paid";
         }
 
+        const actionUser = await User.findById(req.user.user.id);
+
         const feeLog = new FeeLog({
-            amount,
+            amount: orignalAmount,
+            action_amount: amount,
             action_date: new Date(),
             action_type: "Discounted",
-            action_by: req.user._id,
+            action_by: actionUser._id,
             fee: id,
         });
 
@@ -199,11 +222,14 @@ export const deleteFee = async (req, res) => {
         }
         await Fee.findByIdAndDelete(id);
 
+        const actionUser = await User.findById(req.user.user.id);
+
         const feeLog = new FeeLog({
             amount: fee.amount,
+            action_amount: fee.amount,
             action_date: new Date(),
             action_type: "Deleted",
-            action_by: req.user._id,
+            action_by: actionUser._id,
             fee: id,
         });
 
@@ -218,7 +244,7 @@ export const deleteFee = async (req, res) => {
 export const getFeeLogs = async (req, res) => {
     const { id } = req.params;
     try {
-        const feeLogs = await FeeLog.find({ fee: id });
+        const feeLogs = await FeeLog.find({ fee: id }).populate("action_by").populate("fee").populate("student");
         res.status(200).json(feeLogs);
     } catch (error) {
         res.status(500).json({ message: error.message });

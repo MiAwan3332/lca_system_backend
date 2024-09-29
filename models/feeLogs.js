@@ -3,6 +3,7 @@ import mongoosePaginate from "mongoose-paginate-v2";
 
 const feeLogSchema = mongoose.Schema({
     amount: Number,
+    action_amount: Number,
     action_date: Date,
     description: String,
     action_type: {
