@@ -3,6 +3,7 @@ import Batch from "../models/batches.js";
 import User from "../models/users.js";
 import { addEmailToQueue } from "../utils/emailQueue.js";
 import dotenv, { populate } from "dotenv";
+import moment from "moment";
 import QRCode from "qrcode";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
@@ -81,24 +82,48 @@ export const addStudent = async (req, res) => {
 };
 
 export const getStudents = async (req, res) => {
-  const { query } = req.query;
+  const { query, batch_id, enrollment_status, start_date, end_date, city } =
+    req.query;
+
   try {
     const searchQuery = query ? query : "";
-    const students = await Student.paginate(
-      {
-      $or: [
+    const filter = {};
+
+    if (searchQuery) {
+      filter.$or = [
         { name: { $regex: searchQuery, $options: "i" } },
         { email: { $regex: searchQuery, $options: "i" } },
         { phone: { $regex: searchQuery, $options: "i" } },
-      ],
-      },
-      {
-      page: parseInt(req.query.page),
-      limit: parseInt(req.query.limit),
+        { city: { $regex: searchQuery, $options: "i" } },
+        { father_name: { $regex: searchQuery, $options: "i" } },
+      ];
+    }
+
+    if (batch_id) {
+      filter.batch = batch_id;
+    } else if (enrollment_status === "enrolled") {
+      filter.batch = { $ne: null };
+    } else if (enrollment_status === "unenrolled") {
+      filter.batch = null;
+    }
+
+    if (start_date || end_date) {
+      filter.admission_date = {};
+      if (start_date) filter.admission_date.$gte = start_date;
+      if (end_date) filter.admission_date.$lte = end_date;
+    }
+
+    if (city) {
+      filter.city = { $regex: city, $options: "i" };
+    }
+
+    const students = await Student.paginate(filter, {
+      page: parseInt(req.query.page, 10) || 1,
+      limit: parseInt(req.query.limit, 10) || 10,
       populate: ["batch"],
-      sort: { admission_date: -1 }, // Sort by admission_date in descending order
-      }
-    );
+      sort: { admission_date: -1 },
+    });
+
     res.status(200).json(students);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -449,30 +474,53 @@ export const basicStudentUpdate = async (req, res) => {
 
 export const getStudentsGraph = async (req, res) => {
   try {
-    const currentYear = new Date().getFullYear();
-    const months = Array.from(
-      { length: 12 },
-      (_, i) => new Date(currentYear, i, 1)
-    ).map((date) => ({
-      date,
-      month: date.toLocaleString("default", { month: "long" }),
-    }));
+    const { batch_id, start_date, end_date } = req.query;
+
+    const rangeStart = start_date ? new Date(start_date) : null;
+    const rangeEnd = end_date ? new Date(`${end_date}T23:59:59.999Z`) : null;
+    const year = rangeEnd
+      ? rangeEnd.getFullYear()
+      : rangeStart
+        ? rangeStart.getFullYear()
+        : new Date().getFullYear();
+
+    const months = Array.from({ length: 12 }, (_, i) => new Date(year, i, 1))
+      .map((date) => ({
+        date,
+        month: date.toLocaleString("default", { month: "long" }),
+      }))
+      .filter(({ date }) => {
+        const monthStart = date;
+        const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+        if (rangeStart && monthEnd < rangeStart) return false;
+        if (rangeEnd && monthStart > rangeEnd) return false;
+        return true;
+      });
 
     const studentCounts = await Promise.all(
       months.map(async ({ date }) => {
-        const students = await Student.find({
+        const monthStart = moment(date).format("YYYY-MM-DD");
+        const monthEnd = moment(date).endOf("month").format("YYYY-MM-DD");
+
+        const query = {
           admission_date: {
-            $gte: date,
-            $lt: new Date(date.getFullYear(), date.getMonth() + 1, 1),
+            $gte: rangeStart
+              ? moment.max(moment(rangeStart), moment(monthStart)).format("YYYY-MM-DD")
+              : monthStart,
+            $lte: rangeEnd
+              ? moment.min(moment(rangeEnd), moment(monthEnd)).format("YYYY-MM-DD")
+              : monthEnd,
           },
-        });
-        return students.length;
+        };
+
+        if (batch_id) query.batch = batch_id;
+
+        return Student.countDocuments(query);
       })
     );
 
-    const data = months.map(({ month, date }, index) => ({
+    const data = months.map(({ month }, index) => ({
       [month]: studentCounts[index],
-      date,
     }));
     res.json(data);
   } catch (error) {
@@ -483,11 +531,22 @@ export const getStudentsGraph = async (req, res) => {
 
 export const getStudentsByBatchesGraph = async (req, res) => {
   try {
-    const batches = await Batch.find();
+    const { batch_id, start_date, end_date } = req.query;
+    const batches = batch_id
+      ? await Batch.find({ _id: batch_id })
+      : await Batch.find();
 
     const studentCounts = await Promise.all(
       batches.map(async (batch) => {
-        const count = await Student.countDocuments({ batch: batch._id });
+        const query = { batch: batch._id };
+
+        if (start_date || end_date) {
+          query.admission_date = {};
+          if (start_date) query.admission_date.$gte = start_date;
+          if (end_date) query.admission_date.$lte = end_date;
+        }
+
+        const count = await Student.countDocuments(query);
         return { batch: batch.name, count };
       })
     );

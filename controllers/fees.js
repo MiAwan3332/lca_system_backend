@@ -1,5 +1,6 @@
 import Fee from "../models/fees.js";
 import FeeLog from "../models/feeLogs.js";
+import Expense from "../models/expenses.js";
 import User from "../models/users.js";
 import Student from "../models/students.js";
 import Batch from "../models/batches.js";
@@ -337,3 +338,324 @@ export const getFeesByStudentId = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 }
+
+const getPeriodRange = (period, date) => {
+    const refDate = date
+        ? moment(date).tz("Asia/Karachi")
+        : moment().tz("Asia/Karachi");
+
+    switch (period) {
+        case "weekly":
+            return {
+                start: refDate.clone().startOf("isoWeek"),
+                end: refDate.clone().endOf("isoWeek"),
+            };
+        case "monthly":
+            return {
+                start: refDate.clone().startOf("month"),
+                end: refDate.clone().endOf("month"),
+            };
+        case "yearly":
+            return {
+                start: refDate.clone().startOf("year"),
+                end: refDate.clone().endOf("year"),
+            };
+        case "daily":
+        default:
+            return {
+                start: refDate.clone().startOf("day"),
+                end: refDate.clone().endOf("day"),
+            };
+    }
+};
+
+const sumFeeLogs = async (action_type, dateFilter, feeIds, changed_by) => {
+    const match = { action_type, ...dateFilter };
+    if (feeIds) {
+        match.fee = { $in: feeIds };
+    }
+    if (changed_by) {
+        match.action_by = changed_by;
+    }
+
+    const amountField = action_type === "Created" || action_type === "Deleted"
+        ? "$amount"
+        : "$action_amount";
+
+    const result = await FeeLog.aggregate([
+        { $match: match },
+        { $group: { _id: null, total: { $sum: { $toDouble: amountField } } } },
+    ]);
+
+    return result.length > 0 ? result[0].total : 0;
+};
+
+const getBreakdownBuckets = (period, start, end) => {
+    const buckets = [];
+
+    if (period === "daily") {
+        buckets.push({
+            label: start.format("MMM D"),
+            start: start.clone(),
+            end: end.clone(),
+        });
+        return buckets;
+    }
+
+    if (period === "yearly") {
+        for (let month = 0; month < 12; month += 1) {
+            const monthStart = start.clone().month(month).startOf("month");
+            const monthEnd = start.clone().month(month).endOf("month");
+            buckets.push({
+                label: monthStart.format("MMM"),
+                start: monthStart,
+                end: monthEnd,
+            });
+        }
+        return buckets;
+    }
+
+    const cursor = start.clone().startOf("day");
+    const lastDay = end.clone().endOf("day");
+
+    while (cursor.isSameOrBefore(lastDay, "day")) {
+        buckets.push({
+            label: period === "weekly" ? cursor.format("ddd") : cursor.format("D"),
+            start: cursor.clone().startOf("day"),
+            end: cursor.clone().endOf("day"),
+        });
+        cursor.add(1, "day");
+    }
+
+    return buckets;
+};
+
+const getBucketTotals = async (bucket, feeIds, changed_by) => {
+    const dateFilter = {
+        action_date: {
+            $gte: bucket.start.toDate(),
+            $lte: bucket.end.toDate(),
+        },
+    };
+
+    const [created, recovered, discounted] = await Promise.all([
+        sumFeeLogs("Created", dateFilter, feeIds, changed_by),
+        sumFeeLogs("Paid", dateFilter, feeIds, changed_by),
+        sumFeeLogs("Discounted", dateFilter, feeIds, changed_by),
+    ]);
+
+    return {
+        label: bucket.label,
+        created,
+        recovered,
+        discounted,
+    };
+};
+
+const sumApprovedExpensesInRange = async (startDate, endDate) => {
+    const result = await Expense.aggregate([
+        {
+            $match: {
+                status: "Approved",
+                expense_date: {
+                    $gte: startDate,
+                    $lte: endDate,
+                },
+            },
+        },
+        { $group: { _id: null, total: { $sum: { $toDouble: "$amount" } } } },
+    ]);
+
+    return result.length > 0 ? result[0].total : 0;
+};
+
+const getApprovedExpensesBreakdown = async (period, start, end) => {
+    const buckets = getBreakdownBuckets(period, start, end);
+
+    return Promise.all(
+        buckets.map(async (bucket) => {
+            const expenses = await sumApprovedExpensesInRange(
+                bucket.start.format("YYYY-MM-DD"),
+                bucket.end.format("YYYY-MM-DD")
+            );
+
+            return expenses;
+        })
+    );
+};
+
+export const getFinanceReport = async (req, res) => {
+    try {
+        const { period = "daily", date, batch_id, changed_by } = req.query;
+        const { start, end } = getPeriodRange(period, date);
+
+        const dateFilter = {
+            action_date: {
+                $gte: start.toDate(),
+                $lte: end.toDate(),
+            },
+        };
+
+        const feeIds = batch_id
+            ? await Fee.find({ batch: batch_id }).distinct("_id")
+            : null;
+
+        const [
+            total_fee_created,
+            total_fee_recovered,
+            total_fee_discounted,
+            total_fee_deleted,
+        ] = await Promise.all([
+            sumFeeLogs("Created", dateFilter, feeIds, changed_by),
+            sumFeeLogs("Paid", dateFilter, feeIds, changed_by),
+            sumFeeLogs("Discounted", dateFilter, feeIds, changed_by),
+            sumFeeLogs("Deleted", dateFilter, feeIds, changed_by),
+        ]);
+
+        const total_fee_record = total_fee_created - total_fee_discounted - total_fee_deleted;
+        const total_fee_pending = total_fee_record - total_fee_recovered;
+
+        let total_pending_amount = 0;
+        let total_fee_defaulters = 0;
+
+        if (!changed_by) {
+            const pendingFilter = { status: "Pending" };
+            if (batch_id) pendingFilter.batch = batch_id;
+
+            const pendingFees = await Fee.find(pendingFilter);
+            total_pending_amount = pendingFees.reduce(
+                (sum, fee) => sum + (fee.amount || 0),
+                0
+            );
+
+            const defaulterFilter = {
+                status: "Pending",
+                due_date: { $lte: end.format("YYYY-MM-DD") },
+            };
+            if (batch_id) defaulterFilter.batch = batch_id;
+
+            total_fee_defaulters = await Fee.countDocuments(defaulterFilter);
+        }
+
+        const buckets = getBreakdownBuckets(period, start, end);
+        const feeBreakdown = await Promise.all(
+            buckets.map((bucket) => getBucketTotals(bucket, feeIds, changed_by))
+        );
+        const expenseBreakdown = await getApprovedExpensesBreakdown(period, start, end);
+
+        const breakdown = feeBreakdown.map((item, index) => ({
+            ...item,
+            expenses: expenseBreakdown[index] || 0,
+            net: (item.recovered || 0) - (expenseBreakdown[index] || 0),
+        }));
+
+        const total_approved_expenses = await sumApprovedExpensesInRange(
+            start.format("YYYY-MM-DD"),
+            end.format("YYYY-MM-DD")
+        );
+
+        const pending_expenses = await Expense.aggregate([
+            {
+                $match: {
+                    status: "Pending",
+                    expense_date: {
+                        $gte: start.format("YYYY-MM-DD"),
+                        $lte: end.format("YYYY-MM-DD"),
+                    },
+                },
+            },
+            { $group: { _id: null, total: { $sum: { $toDouble: "$amount" } } } },
+        ]);
+        const total_pending_expenses =
+            pending_expenses.length > 0 ? pending_expenses[0].total : 0;
+
+        const net_balance = total_fee_recovered - total_approved_expenses;
+
+        const transactionFilter = { ...dateFilter };
+        if (feeIds) {
+            transactionFilter.fee = { $in: feeIds };
+        }
+        if (changed_by) {
+            transactionFilter.action_by = changed_by;
+        }
+
+        const transactions = await FeeLog.find(transactionFilter)
+            .populate("action_by", "name email")
+            .populate({
+                path: "fee",
+                populate: [
+                    { path: "student", select: "name" },
+                    { path: "batch", select: "name" },
+                ],
+            })
+            .sort({ action_date: -1 })
+            .limit(100);
+
+        const approvedExpenseRecords = await Expense.find({
+            status: "Approved",
+            expense_date: {
+                $gte: start.format("YYYY-MM-DD"),
+                $lte: end.format("YYYY-MM-DD"),
+            },
+        })
+            .populate("created_by", "name email")
+            .populate("approved_by", "name email")
+            .sort({ approved_at: -1 })
+            .limit(100);
+
+        const feeTransactions = transactions.map((log) => ({
+            _id: log._id,
+            type: "fee",
+            action_type: log.action_type,
+            amount: log.amount,
+            action_amount: log.action_amount,
+            action_date: log.action_date,
+            action_by: log.action_by?.name || "N/A",
+            student_name: log.fee?.student?.name || "N/A",
+            batch_name: log.fee?.batch?.name || "N/A",
+            title: null,
+            category: null,
+        }));
+
+        const expenseTransactions = approvedExpenseRecords.map((expense) => ({
+            _id: expense._id,
+            type: "expense",
+            action_type: "Expense",
+            amount: expense.amount,
+            action_amount: expense.amount,
+            action_date: expense.approved_at || expense.expense_date,
+            action_by: expense.approved_by?.name || "N/A",
+            student_name: expense.title,
+            batch_name: expense.category,
+            title: expense.title,
+            category: expense.category,
+        }));
+
+        const mergedTransactions = [...feeTransactions, ...expenseTransactions]
+            .sort((a, b) => new Date(b.action_date) - new Date(a.action_date))
+            .slice(0, 100);
+
+        res.status(200).json({
+            period,
+            start_date: start.format("YYYY-MM-DD"),
+            end_date: end.format("YYYY-MM-DD"),
+            summary: {
+                total_fee_created,
+                total_fee_recovered,
+                total_fee_discounted,
+                total_fee_deleted,
+                total_fee_record,
+                total_fee_pending,
+                total_pending_amount,
+                total_fee_defaulters,
+                total_approved_expenses,
+                total_pending_expenses,
+                net_balance,
+            },
+            breakdown,
+            transactions: mergedTransactions,
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};

@@ -22,6 +22,7 @@ import statisticsRoutes from './routes/statistics.js';
 import mcqsRoutes from './routes/mcqs.js';
 import pastPaperRoutes from './routes/pastPapers.js';
 import feesRoutes from './routes/fees.js';
+import expensesRoutes from './routes/expenses.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -51,6 +52,7 @@ app.use('/statistics', statisticsRoutes);
 app.use('/mcqs', mcqsRoutes);
 app.use('/pastPapers', pastPaperRoutes);
 app.use('/fees', feesRoutes);
+app.use('/expenses', expensesRoutes);
 
 const CONNECTION_URL = process.env.MONGO_URI;
 const PORT = process.env.PORT || 5000;
