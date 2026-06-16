@@ -1,5 +1,10 @@
 import TimeTable from "../models/timeTables.js";
 import Student from "../models/students.js";
+import {
+  isStudentRole,
+  resolveStudentRecord,
+  denyUnlessOwnStudent,
+} from "../utils/studentScope.js";
 import jwt from "jsonwebtoken";
 import fs from "fs";
 import dotenv from "dotenv";
@@ -111,6 +116,10 @@ export const getTimeTableByStudentId = async (req, res) => {
   const { id } = req.params;
 
   try {
+    if (!(await denyUnlessOwnStudent(req, res, id))) {
+      return;
+    }
+
     const student = await Student.findById(id);
 
     if (!student) {
@@ -149,7 +158,17 @@ export const getTimeTableByStudentId = async (req, res) => {
 
 export const getAllTimeTables = async (req, res) => {
   try {
-      const timeTables = await TimeTable.find().populate("batch").populate("course").populate("teacher");
+      let filter = {};
+
+      if (isStudentRole(req)) {
+        const student = await resolveStudentRecord(req);
+        if (!student?.batch) {
+          return res.status(200).json([]);
+        }
+        filter.batch = student.batch._id || student.batch;
+      }
+
+      const timeTables = await TimeTable.find(filter).populate("batch").populate("course").populate("teacher");
 
       res.status(200).json(timeTables);
 

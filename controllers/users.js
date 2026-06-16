@@ -1,5 +1,9 @@
 import User from "../models/users.js";
 import Student from "../models/students.js";
+import {
+  isStudentRole,
+  denyUnlessOwnStudent,
+} from "../utils/studentScope.js";
 import { addEmailToQueue } from "../utils/emailQueue.js";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
@@ -67,12 +71,29 @@ export const login = async (req, res) => {
       _id: { $in: role.permissions },
     });
 
-    // Create a JWT token with user ID and role
+    let studentData = null;
+    let check = 1;
+    let studentId = null;
+    if (role.name === "student") {
+      const student = await Student.findOne({ email: user.email });
+      if (student) {
+        studentId = student._id;
+        studentData = student.toObject(); // Convert the Mongoose document to a plain JavaScript object
+        const hasEmptyFields = Object.values(studentData).some(
+          (field) => field === "" || field === null || field === undefined
+        );
+        if (hasEmptyFields) {
+          check = 0;
+        }
+      }
+    }
+
     const data = {
       user: {
         id: user._id,
         role: role.name,
         permissions: permissions.map((permission) => permission.name),
+        ...(studentId ? { studentId } : {}),
       },
     };
     const authToken = jwt.sign(data, JWT_SECRET);
@@ -84,27 +105,13 @@ export const login = async (req, res) => {
       sameSite: "none",
     });
 
-    let studentData = null;
-    let check = 1;
-    if (role.name === "student") {
-      const student = await Student.findOne({ email: user.email });
-      if (student) {
-        studentData = student.toObject(); // Convert the Mongoose document to a plain JavaScript object
-        const hasEmptyFields = Object.values(studentData).some(
-          (field) => field === "" || field === null || field === undefined
-        );
-        if (hasEmptyFields) {
-          check = 0;
-        }
-      }
-    }
-
     res.status(200).json({
       authToken,
       permissions: permissions.map((permission) => permission.name),
       role: role.name,
       check,
       studentData,
+      studentId,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -179,6 +186,26 @@ export const adminlogin = async (req, res) => {
 export const getUsers = async (req, res) => {
   const { query } = req.query;
   try {
+    if (isStudentRole(req)) {
+      const userId = req.user?.user?.id;
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      return res.status(200).json({
+        docs: [user],
+        totalDocs: 1,
+        limit: 1,
+        totalPages: 1,
+        page: 1,
+        pagingCounter: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
+        prevPage: null,
+        nextPage: null,
+      });
+    }
+
     let searchQuery = query ? query : "";
     const rolesToExclude = ["student", "secrateadmin"];
     const users = await User.paginate(
@@ -267,6 +294,10 @@ export const deleteUser = async (req, res) => {
 export const getUser = async (req, res) => {
   const { id } = req.params;
   try {
+    if (isStudentRole(req) && req.user?.user?.id !== id) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
     const user = await User.findById(id);
     if (!user) {
       return res.status(400).json({ message: "User does not exist" });

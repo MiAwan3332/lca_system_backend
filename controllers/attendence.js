@@ -4,6 +4,11 @@ import Student from "../models/students.js";
 import Course from "../models/courses.js";
 import TimeTable from "../models/timeTables.js";
 import Enrollment from "../models/enrollments.js";
+import {
+  isStudentRole,
+  resolveStudentId,
+  denyUnlessOwnStudent,
+} from "../utils/studentScope.js";
 import moment from "moment-timezone";
 import mongoose from "mongoose";
 
@@ -99,6 +104,15 @@ export const getAttendences = async (req, res) => {
     const searchQuery = query ? query : "";
 
     const filter = {};
+
+    if (isStudentRole(req)) {
+      const studentId = await resolveStudentId(req);
+      if (!studentId) {
+        return res.status(404).json({ message: "Student profile not found" });
+      }
+      filter.student = studentId;
+    }
+
     if (course_id) filter.course = course_id;
     if (batch_id) filter.batch = batch_id;
     if (date) filter.date = date;
@@ -168,6 +182,10 @@ export const getAttendanceByStudentId = async (req, res) => {
 export const getTodayAttendenceByStudentId = async (req, res) => {
   const { student_id } = req.params;
   try {
+    if (!(await denyUnlessOwnStudent(req, res, student_id))) {
+      return;
+    }
+
     const attendence = await Attendence.find({
       student: student_id,
       date: moment().tz("Asia/Kolkata").format("YYYY-MM-DD"),

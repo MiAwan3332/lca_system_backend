@@ -1,6 +1,7 @@
 import Expense from "../models/expenses.js";
 import User from "../models/users.js";
 import moment from "moment-timezone";
+import { isStudentRole } from "../utils/studentScope.js";
 
 const buildExpenseFilter = (query = {}) => {
   const { search, category, status, start_date, end_date } = query;
@@ -44,6 +45,10 @@ export const getExpenses = async (req, res) => {
   const { query, category, status, start_date, end_date } = req.query;
 
   try {
+    if (isStudentRole(req)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
     const filter = buildExpenseFilter({
       search: query || "",
       category,

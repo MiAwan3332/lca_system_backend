@@ -1,8 +1,45 @@
 import Batch from "../models/batches.js";
+import {
+  isStudentRole,
+  resolveStudentRecord,
+  denyUnlessOwnBatch,
+} from "../utils/studentScope.js";
 
 export const getBatches = async (req, res) => {
   const { query } = req.query;
   try {
+    if (isStudentRole(req)) {
+      const student = await resolveStudentRecord(req);
+      if (!student?.batch) {
+        return res.status(200).json({
+          docs: [],
+          totalDocs: 0,
+          limit: 1,
+          totalPages: 1,
+          page: 1,
+          pagingCounter: 1,
+          hasPrevPage: false,
+          hasNextPage: false,
+          prevPage: null,
+          nextPage: null,
+        });
+      }
+
+      const batch = await Batch.findById(student.batch).populate(["courses", "teachers"]);
+      return res.status(200).json({
+        docs: batch ? [batch] : [],
+        totalDocs: batch ? 1 : 0,
+        limit: 1,
+        totalPages: 1,
+        page: 1,
+        pagingCounter: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
+        prevPage: null,
+        nextPage: null,
+      });
+    }
+
     const searchQuery = query ? query : "";
     const batches = await Batch.paginate(
       {
@@ -27,6 +64,10 @@ export const getBatches = async (req, res) => {
 export const getBatch = async (req, res) => {
   const { id } = req.params;
   try {
+    if (!(await denyUnlessOwnBatch(req, res, id))) {
+      return;
+    }
+
     const batch = await Batch.findById(id);
     res.status(200).json(batch);
   } catch (error) {
@@ -109,6 +150,10 @@ export const assignTeachersToBatch = async (req, res) => {
 export const getBatchCourses = async (req, res) => {
   const { id } = req.params;
   try {
+    if (!(await denyUnlessOwnBatch(req, res, id))) {
+      return;
+    }
+
     const batch = await Batch.findById(id).populate("courses");
     res.status(200).json(batch.courses);
   } catch (error) {

@@ -4,6 +4,11 @@ import Expense from "../models/expenses.js";
 import User from "../models/users.js";
 import Student from "../models/students.js";
 import Batch from "../models/batches.js";
+import {
+  isStudentRole,
+  resolveStudentId,
+  denyUnlessOwnStudent,
+} from "../utils/studentScope.js";
 import dotenv from "dotenv";
 import moment from "moment-timezone";
 dotenv.config();
@@ -15,6 +20,14 @@ export const getFees = async (req, res) => {
         const searchQuery = query ? query : '';
 
         const filter = {};
+
+        if (isStudentRole(req)) {
+            const studentId = await resolveStudentId(req);
+            if (!studentId) {
+                return res.status(404).json({ message: "Student profile not found" });
+            }
+            filter.student = studentId;
+        }
 
         if (status) {
             filter.status = status;
@@ -59,6 +72,14 @@ export const getFeeById = async (req, res) => {
         if (!fee) {
             return res.status(404).json({ message: "Fee not found" });
         }
+
+        if (isStudentRole(req)) {
+            const studentId = await resolveStudentId(req);
+            if (!studentId || fee.student?._id?.toString() !== studentId) {
+                return res.status(403).json({ message: "Access denied" });
+            }
+        }
+
         res.status(200).json(fee);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -167,8 +188,14 @@ export const payFee = async (req, res) => {
 
 export const discountFee = async (req, res) => {
     const { id } = req.params;
-    const { amount } = req.body;
+    const { amount, description } = req.body;
+
     try {
+        const trimmedDescription = description?.trim();
+        if (!trimmedDescription) {
+            return res.status(400).json({ message: "Description is required for discount" });
+        }
+
         let fee = await Fee.findById(id);
         if (!fee) {
             const response = await createFee(req, res);
@@ -185,10 +212,6 @@ export const discountFee = async (req, res) => {
 
         if (amount <= 0) {
             return res.status(400).json({ message: "Amount must be greater than 0" });
-        }
-
-        if (amount > fee.amount) {
-            return res.status(400).json({ message: "Amount exceeds the fee amount" });
         }
 
         if (fee.status === "Paid") {
@@ -211,6 +234,7 @@ export const discountFee = async (req, res) => {
             action_type: "Discounted",
             action_by: actionUser._id,
             fee: id,
+            description: trimmedDescription,
         });
 
         await feeLog.save();
@@ -253,6 +277,18 @@ export const deleteFee = async (req, res) => {
 export const getFeeLogs = async (req, res) => {
     const { id } = req.params;
     try {
+        const fee = await Fee.findById(id);
+        if (!fee) {
+            return res.status(404).json({ message: "Fee not found" });
+        }
+
+        if (isStudentRole(req)) {
+            const studentId = await resolveStudentId(req);
+            if (!studentId || fee.student?.toString() !== studentId) {
+                return res.status(403).json({ message: "Access denied" });
+            }
+        }
+
         const feeLogs = await FeeLog.find({ fee: id }).populate("action_by").populate("fee").populate("student");
         res.status(200).json(feeLogs);
     } catch (error) {
@@ -263,6 +299,10 @@ export const getFeeLogs = async (req, res) => {
 export const getFeesByStudentId = async (req, res) => {
     const { id } = req.params;
     try {
+        if (!(await denyUnlessOwnStudent(req, res, id))) {
+            return;
+        }
+
         const student = await Student.findById(id);
         if (!student) {
             return res.status(404).json({ message: "Student not found" });
@@ -486,6 +526,10 @@ const getApprovedExpensesBreakdown = async (period, start, end) => {
 
 export const getFinanceReport = async (req, res) => {
     try {
+        if (isStudentRole(req)) {
+            return res.status(403).json({ message: "Access denied" });
+        }
+
         const { period = "daily", date, batch_id, changed_by } = req.query;
         const { start, end } = getPeriodRange(period, date);
 

@@ -36,6 +36,14 @@ const studentSchema = mongoose.Schema({
     type: Number,
     default: 0,
   },
+  profile_updated_once: {
+    type: Boolean,
+    default: false,
+  },
+  skip_profile_completion: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 studentSchema.plugin(mongoosePaginate);

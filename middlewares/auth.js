@@ -20,10 +20,30 @@ const auth = (req, res, next) => {
         jwt.verify(token, JWT_SECRET, (err, decoded) => {
             if (err) {
                 return res.status(401).json({ message: "Invalid or expired token" });
-            } else {
-                req.user = decoded;
-                next();
             }
+
+            req.user = decoded;
+
+            const role = decoded?.user?.role;
+            const isStudentProfileUpdate =
+                req.method === "POST" &&
+                req.originalUrl.includes("/students/studentInfoUpdate/");
+            const isStudentQuizAction =
+                req.originalUrl.includes("/quiz/") &&
+                ["POST", "PUT", "PATCH"].includes(req.method);
+
+            if (
+                role?.toLowerCase() === "student" &&
+                ["POST", "PUT", "PATCH", "DELETE"].includes(req.method) &&
+                !isStudentProfileUpdate &&
+                !isStudentQuizAction
+            ) {
+                return res
+                    .status(403)
+                    .json({ message: "Students have view-only access" });
+            }
+
+            next();
         });
     } catch (error) {
         res.status(500).json({ message: error.message });

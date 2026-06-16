@@ -2,6 +2,11 @@ import Course from "../models/courses.js";
 import Student from "../models/students.js";
 import Batch from "../models/batches.js";
 import Enrollment from "../models/enrollments.js";
+import {
+  isStudentRole,
+  resolveStudentRecord,
+  denyUnlessOwnStudent,
+} from "../utils/studentScope.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 dotenv.config();
@@ -10,6 +15,40 @@ const JWT_SECRET = process.env.JWT_SECRET;
 export const getCourses = async (req, res) => {
   const { query } = req.query;
   try {
+    if (isStudentRole(req)) {
+      const student = await resolveStudentRecord(req);
+      if (!student?.batch) {
+        return res.status(200).json({
+          docs: [],
+          totalDocs: 0,
+          limit: 1,
+          totalPages: 1,
+          page: 1,
+          pagingCounter: 1,
+          hasPrevPage: false,
+          hasNextPage: false,
+          prevPage: null,
+          nextPage: null,
+        });
+      }
+
+      const batch = await Batch.findById(student.batch).populate("courses");
+      const courses = batch?.courses || [];
+
+      return res.status(200).json({
+        docs: courses,
+        totalDocs: courses.length,
+        limit: courses.length || 1,
+        totalPages: 1,
+        page: 1,
+        pagingCounter: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
+        prevPage: null,
+        nextPage: null,
+      });
+    }
+
     const searchQuery = query ? query : "";
     const courses = await Course.paginate(
       {
@@ -36,6 +75,18 @@ export const getCourse = async (req, res) => {
     if (!course) {
       return res.status(400).json({ message: "Course does not exist" });
     }
+
+    if (isStudentRole(req)) {
+      const student = await resolveStudentRecord(req);
+      const batch = student?.batch
+        ? await Batch.findById(student.batch._id || student.batch).populate("courses")
+        : null;
+      const allowedCourseIds = (batch?.courses || []).map((c) => c._id.toString());
+      if (!allowedCourseIds.includes(id)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+    }
+
     res.status(200).json(course);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -78,6 +129,10 @@ export const getBatchAndCourses = async (req, res) => {
   const { studentId } = req.params;
 
   try {
+    if (!(await denyUnlessOwnStudent(req, res, studentId))) {
+      return;
+    }
+
     const student = await Student.findById(studentId);
     if (!student) {
       return res.status(404).json({ message: "Student not found" });

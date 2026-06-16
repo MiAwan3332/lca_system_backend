@@ -1,6 +1,12 @@
 import Student from "../models/students.js";
 import Batch from "../models/batches.js";
 import User from "../models/users.js";
+import {
+  isStudentRole,
+  resolveStudentId,
+  resolveStudentRecord,
+  denyUnlessOwnStudent,
+} from "../utils/studentScope.js";
 import { addEmailToQueue } from "../utils/emailQueue.js";
 import dotenv, { populate } from "dotenv";
 import moment from "moment";
@@ -82,21 +88,70 @@ export const addStudent = async (req, res) => {
 };
 
 export const getStudents = async (req, res) => {
-  const { query, batch_id, enrollment_status, start_date, end_date, city } =
+  const { query, batch_id, enrollment_status, start_date, end_date, city, search_field } =
     req.query;
 
   try {
-    const searchQuery = query ? query : "";
+    if (isStudentRole(req)) {
+      const studentId = await resolveStudentId(req);
+      if (!studentId) {
+        return res.status(404).json({ message: "Student profile not found" });
+      }
+
+      const student = await Student.findById(studentId).populate("batch");
+      return res.status(200).json({
+        docs: student ? [student] : [],
+        totalDocs: student ? 1 : 0,
+        limit: 1,
+        totalPages: 1,
+        page: 1,
+        pagingCounter: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
+        prevPage: null,
+        nextPage: null,
+      });
+    }
+
+    const escapeRegex = (value) =>
+      value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    const rawQuery = query ? query.trim() : "";
+    const searchQuery = rawQuery ? escapeRegex(rawQuery) : "";
     const filter = {};
 
     if (searchQuery) {
-      filter.$or = [
-        { name: { $regex: searchQuery, $options: "i" } },
-        { email: { $regex: searchQuery, $options: "i" } },
-        { phone: { $regex: searchQuery, $options: "i" } },
-        { city: { $regex: searchQuery, $options: "i" } },
-        { father_name: { $regex: searchQuery, $options: "i" } },
-      ];
+      const regex = { $regex: searchQuery, $options: "i" };
+      const field = search_field || "all";
+
+      if (field === "name") {
+        filter.name = regex;
+      } else if (field === "email") {
+        filter.email = regex;
+      } else if (field === "phone") {
+        const phoneDigits = rawQuery.replace(/\D/g, "");
+        if (phoneDigits) {
+          filter.$or = [
+            { phone: regex },
+            { father_phone: regex },
+            {
+              phone: {
+                $regex: phoneDigits.split("").join("\\D*"),
+                $options: "i",
+              },
+            },
+          ];
+        } else {
+          filter.$or = [{ phone: regex }, { father_phone: regex }];
+        }
+      } else {
+        filter.$or = [
+          { name: regex },
+          { email: regex },
+          { phone: regex },
+          { father_phone: regex },
+        ];
+      }
     }
 
     if (batch_id) {
@@ -134,6 +189,26 @@ export const getStudentsByBatch = async (req, res) => {
   const { batchId } = req.params;
   const { query } = req.query;
   try {
+    if (isStudentRole(req)) {
+      const student = await resolveStudentRecord(req);
+      const ownBatchId = student?.batch?._id?.toString() || student?.batch?.toString();
+      if (!ownBatchId || ownBatchId !== batchId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      return res.status(200).json({
+        docs: student ? [student] : [],
+        totalDocs: student ? 1 : 0,
+        limit: 1,
+        totalPages: 1,
+        page: 1,
+        pagingCounter: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
+        prevPage: null,
+        nextPage: null,
+      });
+    }
+
     const students = await Student.paginate(
       { 
         batch: batchId 
@@ -152,6 +227,10 @@ export const getStudentsByBatch = async (req, res) => {
 export const getStudent = async (req, res) => {
   const { id } = req.params;
   try {
+    if (!(await denyUnlessOwnStudent(req, res, id))) {
+      return;
+    }
+
     const student = await Student.findById(id);
     res.status(200).json(student);
   } catch (error) {
@@ -169,6 +248,37 @@ export const deleteStudent = async (req, res) => {
     await User.findOneAndDelete({ email: student.email });
     await Student.findByIdAndDelete(id);
     res.status(200).json("student deleted successfully");
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const changeStudentPassword = async (req, res) => {
+  const { id } = req.params;
+  const { password } = req.body;
+
+  try {
+    if (!password || password.length < 6) {
+      return res.status(400).json({
+        message: "Password must be at least 6 characters",
+      });
+    }
+
+    const student = await Student.findById(id);
+    if (!student) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    const user = await User.findOne({ email: student.email, role: "student" });
+    if (!user) {
+      return res.status(404).json({ message: "Student login account not found" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+    user.password = hashedPassword;
+    await user.save();
+
+    res.status(200).json({ message: "Student password updated successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -333,7 +443,8 @@ export const updateStudentinfo = async (req, res) => {
     completion_year,
     marks_cgpa,
   } = req.body;
-  const { image, cnic_image, cnic_back_image, latest_degree_image } = req.files;
+  const files = req.files || {};
+  const { image, cnic_image, cnic_back_image, latest_degree_image } = files;
 
   try {
     const student = await Student.findById(id);
@@ -341,47 +452,34 @@ export const updateStudentinfo = async (req, res) => {
       return res.status(404).json({ message: "Student not found" });
     }
 
+    if (isStudentRole(req)) {
+      if (!(await denyUnlessOwnStudent(req, res, id))) {
+        return;
+      }
+      if (student.profile_updated_once) {
+        return res
+          .status(403)
+          .json({ message: "Profile can only be updated once" });
+      }
+    }
+
     const filesStorageUrl = process.env.FILES_STORAGE_URL;
     const filesStoragePath = process.env.FILES_STORAGE_PATH;
 
-    // Save image to File Storage
-    const imageFile = image;
-    const imageFileExt = path.extname(imageFile.name);
-    const imageFileName = `avatar_${id}${imageFileExt}`;
-    await uploadFile(imageFile, imageFileName, `${filesStoragePath}/students/avatars`);
-    const imageWebpFileName = `avatar_${id}.jpeg`;
-    await compressImage(`${filesStoragePath}/students/avatars/${imageFileName}`, `${filesStoragePath}/students/avatars/${imageWebpFileName}`, 50);
-    const imagePath = `${filesStorageUrl}/files/students/avatars/${imageWebpFileName}`
+    const uploadStudentImage = async (file, folder, baseName) => {
+      const fileExt = path.extname(file.name);
+      const fileName = `${baseName}_${id}${fileExt}`;
+      await uploadFile(file, fileName, `${filesStoragePath}/students/${folder}`);
+      const webpFileName = `${baseName}_${id}.jpeg`;
+      await compressImage(
+        `${filesStoragePath}/students/${folder}/${fileName}`,
+        `${filesStoragePath}/students/${folder}/${webpFileName}`,
+        50
+      );
+      return `${filesStorageUrl}/files/students/${folder}/${webpFileName}`;
+    };
 
-    // Save CNIC image to Firebase storage
-    const cnicImageFile = cnic_image;
-    const cnicImageFileExt = path.extname(cnicImageFile.name);
-    const cnicImageFileName = `cnic_front_${id}${cnicImageFileExt}`;
-    await uploadFile(cnicImageFile, cnicImageFileName, `${filesStoragePath}/students/cnic_images`);
-    const cnicImageWebpFileName = `cnic_front_${id}.jpeg`;
-    await compressImage(`${filesStoragePath}/students/cnic_images/${cnicImageFileName}`, `${filesStoragePath}/students/cnic_images/${cnicImageWebpFileName}`, 50);
-    const cnic_imagePath = `${filesStorageUrl}/files/students/cnic_images/${cnicImageWebpFileName}`
-
-    // Save CNIC back image to Firebase storage
-    const cnicBackImageFile = cnic_back_image;
-    const cnicBackImageFileExt = path.extname(cnicBackImageFile.name);
-    const cnicBackImageFileName = `cnic_back_${id}${cnicBackImageFileExt}`;
-    await uploadFile(cnicBackImageFile, cnicBackImageFileName, `${filesStoragePath}/students/cnic_images`);
-    const cnicBackImageWebpFileName = `cnic_back_${id}.jpeg`;
-    await compressImage(`${filesStoragePath}/students/cnic_images/${cnicBackImageFileName}`, `${filesStoragePath}/students/cnic_images/${cnicBackImageWebpFileName}`, 50);
-    const cnic_back_imagePath = `${filesStorageUrl}/files/students/cnic_images/${cnicBackImageWebpFileName}`
-
-    // Save Letest Degree image to Firebase storage
-    const latestDegreeImageFile = latest_degree_image;
-    const latestDegreeImageFileExt = path.extname(latestDegreeImageFile.name);
-    const latestDegreeImageFileName = `latest_degree_${id}${latestDegreeImageFileExt}`;
-    await uploadFile(latestDegreeImageFile, latestDegreeImageFileName, `${filesStoragePath}/students/latest_degree`);
-    const latestDegreeImageWebpFileName = `latest_degree_${id}.jpeg`;
-    await compressImage(`${filesStoragePath}/students/latest_degree/${latestDegreeImageFileName}`, `${filesStoragePath}/students/latest_degree/${latestDegreeImageWebpFileName}`, 50);
-    const latest_degree_imagePath = `${filesStorageUrl}/files/students/latest_degree/${latestDegreeImageWebpFileName}`
-
-    // Update the student record
-    await Student.findByIdAndUpdate(id, {
+    const updateData = {
       cnic,
       city,
       date_of_birth,
@@ -391,13 +489,53 @@ export const updateStudentinfo = async (req, res) => {
       university,
       completion_year,
       marks_cgpa,
-      cnic_image: cnic_imagePath,
-      image: imagePath,
-      cnic_back_image: cnic_back_imagePath,
-      latest_degree_image: latest_degree_imagePath,
-    });
+    };
 
-    res.status(200).json("Student updated successfully");
+    if (image) {
+      updateData.image = await uploadStudentImage(image, "avatars", "avatar");
+    } else if (!student.image) {
+      return res.status(400).json({ message: "Student image is required" });
+    }
+
+    if (cnic_image) {
+      updateData.cnic_image = await uploadStudentImage(
+        cnic_image,
+        "cnic_images",
+        "cnic_front"
+      );
+    } else if (!student.cnic_image) {
+      return res.status(400).json({ message: "CNIC front image is required" });
+    }
+
+    if (cnic_back_image) {
+      updateData.cnic_back_image = await uploadStudentImage(
+        cnic_back_image,
+        "cnic_images",
+        "cnic_back"
+      );
+    } else if (!student.cnic_back_image) {
+      return res.status(400).json({ message: "CNIC back image is required" });
+    }
+
+    if (latest_degree_image) {
+      updateData.latest_degree_image = await uploadStudentImage(
+        latest_degree_image,
+        "latest_degree",
+        "latest_degree"
+      );
+    } else if (!student.latest_degree_image) {
+      return res
+        .status(400)
+        .json({ message: "Latest degree image is required" });
+    }
+
+    if (isStudentRole(req)) {
+      updateData.profile_updated_once = true;
+    }
+
+    await Student.findByIdAndUpdate(id, updateData);
+
+    res.status(200).json({ message: "Student updated successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -447,7 +585,7 @@ export const checkStudentFields = async (req, res) => {
 
 export const basicStudentUpdate = async (req, res) => {
   const { id } = req.params;
-  const { name, phone, paid_fee } = req.body;
+  const { name, phone, paid_fee, skip_profile_completion } = req.body;
 
   try {
     const student = await Student.findById(id);
@@ -455,16 +593,26 @@ export const basicStudentUpdate = async (req, res) => {
       return res.status(404).json({ message: "Student not found" });
     }
 
-    const newPaidFee = student.paid_fee + paid_fee;
-    const pendingFee =
-      student.total_fee > newPaidFee ? student.total_fee - newPaidFee : 0;
+    const updateData = {};
 
-    await Student.findByIdAndUpdate(id, {
-      name,
-      phone,
-      paid_fee: newPaidFee,
-      pending_fee: pendingFee,
-    });
+    if (name !== undefined) updateData.name = name;
+    if (phone !== undefined) updateData.phone = phone;
+
+    if (paid_fee !== undefined && paid_fee !== null && paid_fee !== "") {
+      const newPaidFee = student.paid_fee + Number(paid_fee);
+      const pendingFee =
+        student.total_fee > newPaidFee ? student.total_fee - newPaidFee : 0;
+      updateData.paid_fee = newPaidFee;
+      updateData.pending_fee = pendingFee;
+    }
+
+    if (!isStudentRole(req) && skip_profile_completion !== undefined) {
+      updateData.skip_profile_completion =
+        skip_profile_completion === true ||
+        skip_profile_completion === "true";
+    }
+
+    await Student.findByIdAndUpdate(id, updateData);
 
     res.status(200).json("Student updated successfully");
   } catch (error) {

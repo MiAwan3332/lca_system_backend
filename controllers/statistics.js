@@ -5,6 +5,11 @@ import Student from "../models/students.js";
 import Fee from "../models/fees.js";
 import FeeLogs from "../models/feeLogs.js";
 import Expense from "../models/expenses.js";
+import Attendence from "../models/attendence.js";
+import {
+  isStudentRole,
+  resolveStudentRecord,
+} from "../utils/studentScope.js";
 
 dotenv.config();
 
@@ -131,6 +136,52 @@ const getExpenseCategoryBreakdown = async (startDate, endDate) => {
 
 export const getStatistics = async (req, res) => {
   try {
+    if (isStudentRole(req)) {
+      const student = await resolveStudentRecord(req);
+      if (!student) {
+        return res.status(404).json({ message: "Student profile not found" });
+      }
+
+      const batchId = student.batch?._id || student.batch;
+      const fees = await Fee.find({ student: student._id });
+      const pendingFees = fees.filter((fee) => fee.status === "Pending");
+      const paidFees = fees.filter((fee) => fee.status === "Paid");
+      const attendanceCount = await Attendence.countDocuments({
+        student: student._id,
+      });
+
+      const totalFeeAmount = fees.reduce(
+        (sum, fee) => sum + Number(fee.amount || 0),
+        0
+      );
+      const totalPaidAmount = paidFees.reduce(
+        (sum, fee) => sum + Number(fee.amount || 0),
+        0
+      );
+      const totalPendingAmount = pendingFees.reduce(
+        (sum, fee) => sum + Number(fee.amount || 0),
+        0
+      );
+
+      return res.status(200).json({
+        is_student_dashboard: true,
+        student_name: student.name,
+        batch_name: student.batch?.name || "Not assigned",
+        total_fee_record: totalFeeAmount || student.total_fee || 0,
+        total_fee_recovered: totalPaidAmount || student.paid_fee || 0,
+        total_fee_pending: totalPendingAmount || student.pending_fee || 0,
+        total_fee_defaulters: pendingFees.length,
+        attendance_records_count: attendanceCount,
+        current_batches_count: batchId ? 1 : 0,
+        chart_data: {
+          fee_overview: [
+            { label: "Paid", value: totalPaidAmount },
+            { label: "Pending", value: totalPendingAmount },
+          ],
+        },
+      });
+    }
+
     const { batch_id, start_date, end_date } = req.query;
     const reference_date = end_date || start_date || moment().format("YYYY-MM-DD");
 
