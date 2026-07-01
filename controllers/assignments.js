@@ -281,8 +281,16 @@ export const deleteAssignment = async (req, res) => {
   if (denyUnlessCanManage(req, res)) return;
 
   try {
-    const assignment = await Assignment.findByIdAndDelete(req.params.id);
+    const assignment = await Assignment.findById(req.params.id);
     if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+    if (!(await canAccessBatch(req, assignment.batch))) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+    if (!(await canAccessCourse(req, assignment.course, assignment.batch))) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    await Assignment.findByIdAndDelete(req.params.id);
     await AssignmentSubmission.deleteMany({ assignment: assignment._id });
     res.status(200).json({ message: "Assignment deleted", _id: assignment._id });
   } catch (error) {
@@ -296,6 +304,12 @@ export const publishAssignment = async (req, res) => {
   try {
     const assignment = await Assignment.findById(req.params.id);
     if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+    if (!(await canAccessBatch(req, assignment.batch))) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+    if (!(await canAccessCourse(req, assignment.course, assignment.batch))) {
+      return res.status(403).json({ message: "Access denied" });
+    }
 
     assignment.visibility_status = "Published";
     assignment.status = "Published";
@@ -395,14 +409,65 @@ export const submitAssignment = async (req, res) => {
 export const getAssignmentSubmissions = async (req, res) => {
   try {
     const filter = {};
-    if (req.query.assignment_id) filter.assignment = req.query.assignment_id;
-    if (req.query.status) filter.status = req.query.status;
+    const { assignment_id, batch_id, course_id, status } = req.query;
+
+    if (assignment_id) filter.assignment = assignment_id;
+    if (status) filter.status = status;
 
     if (isStudentRole(req)) {
       const studentId = await resolveStudentId(req);
       filter.student = studentId;
     } else if (denyUnlessCanManage(req, res)) {
       return;
+    } else {
+      if (assignment_id) {
+        const assignment = await Assignment.findById(assignment_id);
+        if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+        if (!(await canAccessBatch(req, assignment.batch))) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+        if (!(await canAccessCourse(req, assignment.course, assignment.batch))) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      } else {
+        const assignmentFilter = {};
+
+        if (isTeacherRole(req)) {
+          const scope = await getTeacherScope(req);
+          if (!scope?.batchIds?.length) {
+            return res.status(200).json({ docs: [], totalDocs: 0, page: 1, limit: 10 });
+          }
+          assignmentFilter.batch = { $in: scope.batchIds };
+          assignmentFilter.course = { $in: scope.courseIds };
+        }
+
+        if (batch_id) {
+          if (isTeacherRole(req)) {
+            const scope = await getTeacherScope(req);
+            if (!scope.batchIds.includes(String(batch_id))) {
+              return res.status(403).json({ message: "Access denied" });
+            }
+          }
+          assignmentFilter.batch = batch_id;
+        }
+
+        if (course_id) {
+          if (isTeacherRole(req)) {
+            const scope = await getTeacherScope(req);
+            if (!scope.courseIds.includes(String(course_id))) {
+              return res.status(403).json({ message: "Access denied" });
+            }
+          }
+          assignmentFilter.course = course_id;
+        }
+
+        const scopedAssignments = await Assignment.find(assignmentFilter).select("_id");
+        const assignmentIds = scopedAssignments.map((item) => item._id);
+        if (!assignmentIds.length) {
+          return res.status(200).json({ docs: [], totalDocs: 0, page: 1, limit: 10 });
+        }
+        filter.assignment = { $in: assignmentIds };
+      }
     }
 
     const submissions = await AssignmentSubmission.paginate(filter, {
@@ -426,7 +491,24 @@ export const gradeSubmission = async (req, res) => {
     const submission = await AssignmentSubmission.findById(req.params.id).populate("assignment");
     if (!submission) return res.status(404).json({ message: "Submission not found" });
 
-    submission.marks_obtained = Number(marks_obtained);
+    const assignment = submission.assignment;
+    if (!(await canAccessBatch(req, assignment.batch))) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+    if (!(await canAccessCourse(req, assignment.course, assignment.batch))) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const maxMarks = Number(assignment.max_marks) || 0;
+    const marksValue = Number(marks_obtained);
+    if (Number.isNaN(marksValue) || marksValue < 0) {
+      return res.status(400).json({ message: "Valid marks are required" });
+    }
+    if (maxMarks > 0 && marksValue > maxMarks) {
+      return res.status(400).json({ message: `Marks cannot exceed ${maxMarks}` });
+    }
+
+    submission.marks_obtained = marksValue;
     submission.feedback = feedback || "";
     submission.graded_by = req.user.user.id;
     submission.graded_at = new Date();
