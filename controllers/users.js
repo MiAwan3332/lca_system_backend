@@ -1,9 +1,11 @@
 import User from "../models/users.js";
 import Student from "../models/students.js";
+import Teacher from "../models/teachers.js";
 import {
   isStudentRole,
   denyUnlessOwnStudent,
 } from "../utils/studentScope.js";
+import { isTeacherRole } from "../utils/lmsAccess.js";
 import { addEmailToQueue } from "../utils/emailQueue.js";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
@@ -44,6 +46,26 @@ export const register = async (req, res) => {
   }
 };
 
+const resolveTeacherLoginContext = async (user) => {
+  const teacher = await Teacher.findOne({
+    $or: [{ user: user._id }, { email: user.email }],
+  });
+
+  if (!teacher) {
+    return { teacherId: null, teacherData: null };
+  }
+
+  if (!teacher.user) {
+    teacher.user = user._id;
+    await teacher.save();
+  }
+
+  return {
+    teacherId: teacher._id,
+    teacherData: teacher.toObject(),
+  };
+};
+
 export const login = async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -74,6 +96,9 @@ export const login = async (req, res) => {
     let studentData = null;
     let check = 1;
     let studentId = null;
+    let teacherId = null;
+    let teacherData = null;
+
     if (role.name === "student") {
       const student = await Student.findOne({ email: user.email });
       if (student) {
@@ -88,12 +113,19 @@ export const login = async (req, res) => {
       }
     }
 
+    if (role.name === "teacher") {
+      const teacherContext = await resolveTeacherLoginContext(user);
+      teacherId = teacherContext.teacherId;
+      teacherData = teacherContext.teacherData;
+    }
+
     const data = {
       user: {
         id: user._id,
         role: role.name,
         permissions: permissions.map((permission) => permission.name),
         ...(studentId ? { studentId } : {}),
+        ...(teacherId ? { teacherId } : {}),
       },
     };
     const authToken = jwt.sign(data, JWT_SECRET);
@@ -112,6 +144,8 @@ export const login = async (req, res) => {
       check,
       studentData,
       studentId,
+      teacherId,
+      teacherData,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -147,12 +181,30 @@ export const adminlogin = async (req, res) => {
       _id: { $in: role.permissions },
     });
 
-    // Create a JWT token with user ID and role
+    let studentId;
+    let teacherId;
+    let teacherData = null;
+
+    if (role.name === "student") {
+      const student = await Student.findOne({ email: user.email });
+      if (student) {
+        studentId = student.id;
+      }
+    }
+
+    if (role.name === "teacher") {
+      const teacherContext = await resolveTeacherLoginContext(user);
+      teacherId = teacherContext.teacherId;
+      teacherData = teacherContext.teacherData;
+    }
+
     const data = {
       user: {
         id: user._id,
         role: role.name,
         permissions: permissions.map((permission) => permission.name),
+        ...(studentId ? { studentId } : {}),
+        ...(teacherId ? { teacherId } : {}),
       },
     };
     const authToken = jwt.sign(data, JWT_SECRET);
@@ -164,19 +216,13 @@ export const adminlogin = async (req, res) => {
       sameSite: "none",
     });
 
-    let studentId;
-    if (role.name === "student") {
-      const student = await Student.findOne({ email: user.email });
-      if (student) {
-        studentId = student.id;
-      }
-    }
-
     res.status(200).json({
       authToken,
       permissions: permissions.map((permission) => permission.name),
       role: role.name,
       studentId,
+      teacherId,
+      teacherData,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -187,6 +233,26 @@ export const getUsers = async (req, res) => {
   const { query } = req.query;
   try {
     if (isStudentRole(req)) {
+      const userId = req.user?.user?.id;
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      return res.status(200).json({
+        docs: [user],
+        totalDocs: 1,
+        limit: 1,
+        totalPages: 1,
+        page: 1,
+        pagingCounter: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
+        prevPage: null,
+        nextPage: null,
+      });
+    }
+
+    if (isTeacherRole(req)) {
       const userId = req.user?.user?.id;
       const user = await User.findById(userId);
       if (!user) {

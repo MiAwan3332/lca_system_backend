@@ -7,6 +7,10 @@ const teacherSchema = mongoose.Schema({
   phone: String,
   resume: String,
   image: String,
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+  },
 });
 
 teacherSchema.plugin(mongoosePaginate);

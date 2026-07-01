@@ -31,12 +31,28 @@ const auth = (req, res, next) => {
             const isStudentQuizAction =
                 req.originalUrl.includes("/quiz/") &&
                 ["POST", "PUT", "PATCH"].includes(req.method);
+            const isStudentAssignmentAction =
+                req.originalUrl.includes("/assignments/") &&
+                (req.originalUrl.includes("/submit/") ||
+                    req.method === "GET");
+            const isStudentCourseQuizAction =
+                req.originalUrl.includes("/course-quizzes/") &&
+                (req.originalUrl.includes("/start") ||
+                    req.originalUrl.includes("/answer") ||
+                    req.originalUrl.includes("/submit") ||
+                    req.method === "GET");
+            const isStudentNotificationAction =
+                req.originalUrl.includes("/notifications/") &&
+                (req.method === "GET" || req.originalUrl.includes("/read"));
 
             if (
                 role?.toLowerCase() === "student" &&
                 ["POST", "PUT", "PATCH", "DELETE"].includes(req.method) &&
                 !isStudentProfileUpdate &&
-                !isStudentQuizAction
+                !isStudentQuizAction &&
+                !isStudentAssignmentAction &&
+                !isStudentCourseQuizAction &&
+                !isStudentNotificationAction
             ) {
                 return res
                     .status(403)

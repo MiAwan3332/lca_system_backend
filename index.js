@@ -24,6 +24,9 @@ import pastPaperRoutes from './routes/pastPapers.js';
 import feesRoutes from './routes/fees.js';
 import expensesRoutes from './routes/expenses.js';
 import quizRoutes from './routes/quiz.js';
+import assignmentRoutes from './routes/assignments.js';
+import courseQuizRoutes from './routes/courseQuizzes.js';
+import notificationRoutes from './routes/notifications.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -55,6 +58,9 @@ app.use('/pastPapers', pastPaperRoutes);
 app.use('/fees', feesRoutes);
 app.use('/expenses', expensesRoutes);
 app.use('/quiz', quizRoutes);
+app.use('/assignments', assignmentRoutes);
+app.use('/course-quizzes', courseQuizRoutes);
+app.use('/notifications', notificationRoutes);
 
 const CONNECTION_URL = process.env.MONGO_URI;
 const PORT = process.env.PORT || 5000;

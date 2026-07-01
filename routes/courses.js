@@ -10,6 +10,6 @@ router.get('/:id',auth,getCourse)
 router.post('/add',auth,addCourse);
 router.post('/update/:id',auth,updateCourse);
 router.delete('/delete/:id',auth,deleteCourse);
-router.get('/student/courses/:studentId',getBatchAndCourses);
+router.get('/student/courses/:studentId',auth,getBatchAndCourses);
 
 export default router

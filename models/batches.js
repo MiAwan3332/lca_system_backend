@@ -20,6 +20,18 @@ const batchesSchema = mongoose.Schema({
       ref: "Teacher",
     },
   ],
+  teacher_course_assignments: [
+    {
+      teacher: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Teacher",
+      },
+      course: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Course",
+      },
+    },
+  ],
 });
 
 batchesSchema.plugin(mongoosePaginate);

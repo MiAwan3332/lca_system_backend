@@ -16,9 +16,9 @@ router.get('/qrcode/:id',auth,getQrCode);
 router.post('/studentInfoUpdate/:id',auth,updateStudentinfo);
 router.get('/checkStudentFields/:id',auth,checkStudentFields);
 router.post('/basic-update/:id',auth,basicStudentUpdate);
-router.get('/students/graph',getStudentsGraph)
-router.get('/students/Batchesgraph',getStudentsByBatchesGraph)
-router.get('/students/getStudentsContacts',getStudentsContacts)
+router.get('/students/graph',auth,getStudentsGraph)
+router.get('/students/Batchesgraph',auth,getStudentsByBatchesGraph)
+router.get('/students/getStudentsContacts',auth,getStudentsContacts)
 router.delete('/deleteAllStudents',auth,deleteAllStudents);
 
 

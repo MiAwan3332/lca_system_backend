@@ -7,6 +7,11 @@ import {
   resolveStudentRecord,
   denyUnlessOwnStudent,
 } from "../utils/studentScope.js";
+import {
+  isTeacherRole,
+  applyTeacherCourseFilter,
+  buildEmptyPaginatedResponse,
+} from "../utils/lmsAccess.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 dotenv.config();
@@ -18,18 +23,7 @@ export const getCourses = async (req, res) => {
     if (isStudentRole(req)) {
       const student = await resolveStudentRecord(req);
       if (!student?.batch) {
-        return res.status(200).json({
-          docs: [],
-          totalDocs: 0,
-          limit: 1,
-          totalPages: 1,
-          page: 1,
-          pagingCounter: 1,
-          hasPrevPage: false,
-          hasNextPage: false,
-          prevPage: null,
-          nextPage: null,
-        });
+        return res.status(200).json(buildEmptyPaginatedResponse());
       }
 
       const batch = await Batch.findById(student.batch).populate("courses");
@@ -50,13 +44,19 @@ export const getCourses = async (req, res) => {
     }
 
     const searchQuery = query ? query : "";
+    const filter = {
+      $or: [
+        { name: { $regex: searchQuery, $options: "i" } },
+        { description: { $regex: searchQuery, $options: "i" } },
+      ],
+    };
+
+    if (isTeacherRole(req)) {
+      await applyTeacherCourseFilter(req, filter, "_id");
+    }
+
     const courses = await Course.paginate(
-      {
-        $or: [
-          { name: { $regex: searchQuery, $options: "i" } },
-          { description: { $regex: searchQuery, $options: "i" } },
-        ],
-      },
+      filter,
       {
         page: parseInt(req.query.page),
         limit: parseInt(req.query.limit),

@@ -628,7 +628,7 @@ export const getFinanceReport = async (req, res) => {
             .populate({
                 path: "fee",
                 populate: [
-                    { path: "student", select: "name" },
+                    { path: "student", select: "name _id email" },
                     { path: "batch", select: "name" },
                 ],
             })
@@ -656,9 +656,15 @@ export const getFinanceReport = async (req, res) => {
             action_date: log.action_date,
             action_by: log.action_by?.name || "N/A",
             student_name: log.fee?.student?.name || "N/A",
+            student_id: log.fee?.student?._id?.toString() || "N/A",
             batch_name: log.fee?.batch?.name || "N/A",
+            program: log.fee?.batch?.name || "N/A",
             title: null,
             category: null,
+            description: log.description || "",
+            fee_description: log.description || `${log.action_type || "Fee"} transaction`,
+            due_date: log.fee?.due_date || null,
+            payment_method: null,
         }));
 
         const expenseTransactions = approvedExpenseRecords.map((expense) => ({
@@ -670,9 +676,15 @@ export const getFinanceReport = async (req, res) => {
             action_date: expense.approved_at || expense.expense_date,
             action_by: expense.approved_by?.name || "N/A",
             student_name: expense.title,
+            student_id: "N/A",
             batch_name: expense.category,
+            program: expense.category || "Institutional Expense",
             title: expense.title,
             category: expense.category,
+            description: expense.description || "",
+            fee_description: expense.description || expense.title || "Approved expense",
+            due_date: expense.expense_date || null,
+            payment_method: expense.payment_method || "N/A",
         }));
 
         const mergedTransactions = [...feeTransactions, ...expenseTransactions]

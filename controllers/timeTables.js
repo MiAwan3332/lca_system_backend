@@ -5,6 +5,12 @@ import {
   resolveStudentRecord,
   denyUnlessOwnStudent,
 } from "../utils/studentScope.js";
+import {
+  isTeacherRole,
+  getTeacherScope,
+  resolveTeacherId,
+  canAccessCourse,
+} from "../utils/lmsAccess.js";
 import jwt from "jsonwebtoken";
 import fs from "fs";
 import dotenv from "dotenv";
@@ -166,6 +172,17 @@ export const getAllTimeTables = async (req, res) => {
           return res.status(200).json([]);
         }
         filter.batch = student.batch._id || student.batch;
+      }
+
+      if (isTeacherRole(req)) {
+        const scope = await getTeacherScope(req);
+        const teacherId = await resolveTeacherId(req);
+        if (!scope?.batchIds?.length || !teacherId) {
+          return res.status(200).json([]);
+        }
+        filter.batch = { $in: scope.batchIds };
+        filter.course = { $in: scope.courseIds };
+        filter.teacher = teacherId;
       }
 
       const timeTables = await TimeTable.find(filter).populate("batch").populate("course").populate("teacher");

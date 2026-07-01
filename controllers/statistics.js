@@ -10,6 +10,15 @@ import {
   isStudentRole,
   resolveStudentRecord,
 } from "../utils/studentScope.js";
+import {
+  isTeacherRole,
+  getTeacherScope,
+  resolveTeacherRecord,
+} from "../utils/lmsAccess.js";
+import Assignment from "../models/assignments.js";
+import AssignmentSubmission from "../models/assignmentSubmissions.js";
+import CourseQuiz from "../models/courseQuizzes.js";
+import TimeTable from "../models/timeTables.js";
 
 dotenv.config();
 
@@ -182,6 +191,137 @@ export const getStatistics = async (req, res) => {
       });
     }
 
+    if (isTeacherRole(req)) {
+      const teacher = await resolveTeacherRecord(req);
+      const scope = await getTeacherScope(req);
+      if (!teacher || !scope?.batchIds?.length) {
+        return res.status(200).json({
+          is_teacher_dashboard: true,
+          teacher_name: teacher?.name || "Teacher",
+          assigned_courses_count: 0,
+          assigned_batches_count: 0,
+          assigned_students_count: 0,
+          upcoming_classes_count: 0,
+          pending_assignment_reviews: 0,
+          active_quizzes_count: 0,
+          attendance_records_count: 0,
+          upcoming_assignment_deadlines: 0,
+          recent_student_activity: [],
+        });
+      }
+
+      const now = new Date();
+      const assignedStudentsCount = await Student.countDocuments({
+        batch: { $in: scope.batchIds },
+      });
+
+      const assignmentIds = await Assignment.find({
+        batch: { $in: scope.batchIds },
+        course: { $in: scope.courseIds },
+      }).distinct("_id");
+
+      const pendingAssignmentReviews = await AssignmentSubmission.countDocuments({
+        assignment: { $in: assignmentIds },
+        status: { $in: ["Submitted", "Late Submitted", "Under Review"] },
+      });
+
+      const activeQuizzesCount = await CourseQuiz.countDocuments({
+        batch: { $in: scope.batchIds },
+        course: { $in: scope.courseIds },
+        start_datetime: { $lte: now },
+        end_datetime: { $gte: now },
+      });
+
+      const upcomingClassesCount = await TimeTable.countDocuments({
+        batch: { $in: scope.batchIds },
+        course: { $in: scope.courseIds },
+        teacher: teacher._id,
+      });
+
+      const attendanceRecordsCount = await Attendence.countDocuments({
+        batch: { $in: scope.batchIds },
+        course: { $in: scope.courseIds },
+      });
+
+      const upcomingAssignmentDeadlines = await Assignment.countDocuments({
+        batch: { $in: scope.batchIds },
+        course: { $in: scope.courseIds },
+        visibility_status: "Published",
+        has_deadline: true,
+        submission_deadline: { $gte: now },
+      });
+
+      const recentSubmissions = await AssignmentSubmission.find({
+        assignment: { $in: assignmentIds },
+      })
+        .sort({ submitted_at: -1 })
+        .limit(5)
+        .populate({ path: "student", select: "name" })
+        .populate({ path: "assignment", select: "title" });
+
+      const upcomingAssignments = await Assignment.find({
+        batch: { $in: scope.batchIds },
+        course: { $in: scope.courseIds },
+        visibility_status: "Published",
+        has_deadline: true,
+        submission_deadline: { $gte: now },
+      })
+        .sort({ submission_deadline: 1 })
+        .limit(5)
+        .populate({ path: "course", select: "name" })
+        .populate({ path: "batch", select: "name" });
+
+      const upcomingQuizzes = await CourseQuiz.find({
+        batch: { $in: scope.batchIds },
+        course: { $in: scope.courseIds },
+        end_datetime: { $gte: now },
+      })
+        .sort({ start_datetime: 1 })
+        .limit(3)
+        .populate({ path: "course", select: "name" })
+        .populate({ path: "batch", select: "name" });
+
+      return res.status(200).json({
+        is_teacher_dashboard: true,
+        teacher_name: teacher.name,
+        assigned_courses_count: scope.courseIds.length,
+        assigned_batches_count: scope.batchIds.length,
+        assigned_students_count: assignedStudentsCount,
+        upcoming_classes_count: upcomingClassesCount,
+        pending_assignment_reviews: pendingAssignmentReviews,
+        active_quizzes_count: activeQuizzesCount,
+        attendance_records_count: attendanceRecordsCount,
+        upcoming_assignment_deadlines: upcomingAssignmentDeadlines,
+        recent_student_activity: recentSubmissions.map((item) => ({
+          student_name: item.student?.name,
+          assignment_title: item.assignment?.title,
+          status: item.status,
+          submitted_at: item.submitted_at,
+        })),
+        upcoming_events: [
+          ...upcomingAssignments.map((item) => ({
+            type: "assignment",
+            title: item.title,
+            subtitle: `${item.batch?.name || "Batch"} · ${item.course?.name || "Course"}`,
+            date: item.submission_deadline,
+          })),
+          ...upcomingQuizzes.map((item) => ({
+            type: "quiz",
+            title: item.title || "Course Quiz",
+            subtitle: `${item.batch?.name || "Batch"} · ${item.course?.name || "Course"}`,
+            date: item.start_datetime,
+          })),
+        ],
+        chart_data: {
+          workload_overview: [
+            { label: "Pending Reviews", value: pendingAssignmentReviews },
+            { label: "Active Quizzes", value: activeQuizzesCount },
+            { label: "Upcoming Deadlines", value: upcomingAssignmentDeadlines },
+          ],
+        },
+      });
+    }
+
     const { batch_id, start_date, end_date } = req.query;
     const reference_date = end_date || start_date || moment().format("YYYY-MM-DD");
 
@@ -292,6 +432,37 @@ export const getStatistics = async (req, res) => {
       expenseEnd
     );
 
+    const now = new Date();
+    const recentStudents = await Student.find({ batch: { $ne: null } })
+      .sort({ admission_date: -1 })
+      .limit(4)
+      .select("name admission_date batch")
+      .populate({ path: "batch", select: "name" });
+
+    const recentSubmissions = await AssignmentSubmission.find()
+      .sort({ submitted_at: -1 })
+      .limit(4)
+      .populate({ path: "student", select: "name" })
+      .populate({ path: "assignment", select: "title" });
+
+    const upcomingAssignments = await Assignment.find({
+      visibility_status: "Published",
+      has_deadline: true,
+      submission_deadline: { $gte: now },
+    })
+      .sort({ submission_deadline: 1 })
+      .limit(5)
+      .populate({ path: "course", select: "name" })
+      .populate({ path: "batch", select: "name" });
+
+    const upcomingQuizzes = await CourseQuiz.find({
+      end_datetime: { $gte: now },
+    })
+      .sort({ start_datetime: 1 })
+      .limit(3)
+      .populate({ path: "course", select: "name" })
+      .populate({ path: "batch", select: "name" });
+
     const chart_data = {
       batch_status: [
         { label: "Current Batches", value: current_batches_count },
@@ -331,6 +502,34 @@ export const getStatistics = async (req, res) => {
       total_pending_expenses,
       net_balance,
       chart_data,
+      recent_activity: [
+        ...recentStudents.map((item) => ({
+          type: "enrollment",
+          title: `${item.name} registered`,
+          subtitle: item.batch?.name || "New enrollment",
+          time: item.admission_date,
+        })),
+        ...recentSubmissions.map((item) => ({
+          type: "assignment",
+          title: `${item.student?.name || "Student"} submitted ${item.assignment?.title || "assignment"}`,
+          subtitle: item.status,
+          time: item.submitted_at,
+        })),
+      ],
+      upcoming_events: [
+        ...upcomingAssignments.map((item) => ({
+          type: "assignment",
+          title: item.title,
+          subtitle: `${item.batch?.name || "Batch"} · ${item.course?.name || "Course"}`,
+          date: item.submission_deadline,
+        })),
+        ...upcomingQuizzes.map((item) => ({
+          type: "quiz",
+          title: item.title || "Course Quiz",
+          subtitle: `${item.batch?.name || "Batch"} · ${item.course?.name || "Course"}`,
+          date: item.start_datetime,
+        })),
+      ],
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

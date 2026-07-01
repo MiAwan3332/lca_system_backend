@@ -7,6 +7,12 @@ import {
   resolveStudentRecord,
   denyUnlessOwnStudent,
 } from "../utils/studentScope.js";
+import {
+  isTeacherRole,
+  applyTeacherBatchFilter,
+  denyUnlessTeacherBatchAccess,
+  buildEmptyPaginatedResponse,
+} from "../utils/lmsAccess.js";
 import { addEmailToQueue } from "../utils/emailQueue.js";
 import dotenv, { populate } from "dotenv";
 import moment from "moment";
@@ -162,6 +168,13 @@ export const getStudents = async (req, res) => {
       filter.batch = null;
     }
 
+    if (isTeacherRole(req)) {
+      await applyTeacherBatchFilter(req, filter, "batch");
+      if (filter.batch?.$in?.length === 0) {
+        return res.status(200).json(buildEmptyPaginatedResponse(parseInt(req.query.limit, 10) || 10));
+      }
+    }
+
     if (start_date || end_date) {
       filter.admission_date = {};
       if (start_date) filter.admission_date.$gte = start_date;
@@ -207,6 +220,10 @@ export const getStudentsByBatch = async (req, res) => {
         prevPage: null,
         nextPage: null,
       });
+    }
+
+    if (!(await denyUnlessTeacherBatchAccess(req, res, batchId))) {
+      return;
     }
 
     const students = await Student.paginate(

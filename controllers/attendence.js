@@ -9,6 +9,12 @@ import {
   resolveStudentId,
   denyUnlessOwnStudent,
 } from "../utils/studentScope.js";
+import {
+  isTeacherRole,
+  applyTeacherBatchFilter,
+  applyTeacherCourseFilter,
+  buildEmptyPaginatedResponse,
+} from "../utils/lmsAccess.js";
 import moment from "moment-timezone";
 import mongoose from "mongoose";
 
@@ -116,6 +122,14 @@ export const getAttendences = async (req, res) => {
     if (course_id) filter.course = course_id;
     if (batch_id) filter.batch = batch_id;
     if (date) filter.date = date;
+
+    if (isTeacherRole(req)) {
+      await applyTeacherBatchFilter(req, filter, "batch");
+      await applyTeacherCourseFilter(req, filter, "course");
+      if (filter.batch?.$in?.length === 0 || filter.course?.$in?.length === 0) {
+        return res.status(200).json(buildEmptyPaginatedResponse(parseInt(req.query.limit, 10) || 10));
+      }
+    }
 
     const options = {
       page: parseInt(req.query.page, 10) || 1,

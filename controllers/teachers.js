@@ -1,10 +1,21 @@
 import Teacher from "../models/teachers.js";
+import User from "../models/users.js";
+import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
 import { compressImage, deleteFile, renameFile, uploadFile } from "../utils/fileStorage.js";
+import {
+  isTeacherRole,
+  resolveTeacherId,
+  denyUnlessOwnTeacher,
+  denyUnlessInstitutionAdmin,
+  buildEmptyPaginatedResponse,
+} from "../utils/lmsAccess.js";
 import path from "path";
 dotenv.config();
 
 export const addTeacher = async (req, res) => {
+  if (denyUnlessInstitutionAdmin(req, res)) return;
+
   const { name, email, phone } = req.body;
   const { image, resume } = req.files;
 
@@ -42,6 +53,22 @@ export const addTeacher = async (req, res) => {
     });
     await newTeacher.save();
 
+    const existingUser = await User.findOne({ email });
+    if (!existingUser) {
+      const hashedPassword = await bcrypt.hash("lca@123456", 12);
+      await User.create({
+        name,
+        email,
+        password: hashedPassword,
+        role: "teacher",
+      });
+    }
+
+    const linkedUser = await User.findOne({ email });
+    if (linkedUser) {
+      newTeacher.user = linkedUser._id;
+    }
+
     const { _id } = newTeacher;
     const teacher = await Teacher.findById(_id);
 
@@ -54,6 +81,9 @@ export const addTeacher = async (req, res) => {
     const newResumeFileName = `resume_${newTeacher._id}${resumeFileExt}`;
     renameFile(`${filesStoragePath}/teachers/resumes/${resumeFileName}`, `${filesStoragePath}/teachers/resumes/${newResumeFileName}`);
     teacher.resume = `${filesStorageUrl}/files/teachers/resumes/${newResumeFileName}`
+    if (linkedUser) {
+      teacher.user = linkedUser._id;
+    }
 
     await teacher.save()
 
@@ -66,6 +96,26 @@ export const addTeacher = async (req, res) => {
 export const getTeachers = async (req, res) => {
   const { query } = req.query;
   try {
+    if (isTeacherRole(req)) {
+      const teacherId = await resolveTeacherId(req);
+      if (!teacherId) {
+        return res.status(200).json(buildEmptyPaginatedResponse(parseInt(req.query.limit, 10) || 10));
+      }
+      const teacher = await Teacher.findById(teacherId);
+      return res.status(200).json({
+        docs: teacher ? [teacher] : [],
+        totalDocs: teacher ? 1 : 0,
+        limit: 1,
+        totalPages: 1,
+        page: 1,
+        pagingCounter: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
+        prevPage: null,
+        nextPage: null,
+      });
+    }
+
     const searchQuery = query ? query : "";
     const teachers = await Teacher.paginate(
       {
@@ -97,6 +147,8 @@ export const getTeacher = async (req, res) => {
 };
 
 export const deleteTeacher = async (req, res) => {
+  if (denyUnlessInstitutionAdmin(req, res)) return;
+
   const { id } = req.params;
   try {
     const teacher = await Teacher.findById(id);
@@ -121,6 +173,8 @@ export const deleteTeacher = async (req, res) => {
 };
 
 export const updateTeacher = async (req, res) => {
+  if (denyUnlessInstitutionAdmin(req, res)) return;
+
   const { id } = req.params;
   const { name, email, phone } = req.body;
   const { image, resume } = req.files || "";
