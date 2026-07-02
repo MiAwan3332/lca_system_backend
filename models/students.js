@@ -44,6 +44,10 @@ const studentSchema = mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  remarks: {
+    type: String,
+    default: "",
+  },
 });
 
 studentSchema.plugin(mongoosePaginate);

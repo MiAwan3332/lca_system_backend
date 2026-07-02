@@ -20,14 +20,19 @@ import QRCode from "qrcode";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { compressImage, uploadFile } from "../utils/fileStorage.js";
+import { createStudentAdmissionFee } from "../utils/feePayment.js";
+import Fee from "../models/fees.js";
+import FeeLog from "../models/feeLogs.js";
 import path from "path";
 dotenv.config();
 
 // const crypto = require("crypto");
 
 export const addStudent = async (req, res) => {
-  const { name, email, phone } = req.body;
+  const { name, email, phone, batch, remarks } = req.body;
   const admission_date = req.body.admission_date || new Date();
+  const payingNow = Number(req.body.paying_now) || 0;
+  const paymentMethod = req.body.payment_method;
 
   try {
     // Check if the email already exists
@@ -35,6 +40,42 @@ export const addStudent = async (req, res) => {
     if (existingStudent) {
       return res.status(400).json({ message: "Email already exists" });
     }
+
+    let batchRecord = null;
+    let totalFee = 0;
+
+    if (batch) {
+      batchRecord = await Batch.findById(batch);
+      if (!batchRecord) {
+        return res.status(400).json({ message: "Selected batch not found" });
+      }
+      if (batchRecord.is_active === false) {
+        return res.status(400).json({ message: "Selected batch is inactive" });
+      }
+      totalFee = Number(batchRecord.batch_fee) || 0;
+    }
+
+    if (payingNow < 0) {
+      return res.status(400).json({ message: "Paying now cannot be negative" });
+    }
+
+    if (payingNow > totalFee) {
+      return res
+        .status(400)
+        .json({
+          message: `Paying amount cannot be greater than batch fee (${totalFee} Rs.)`,
+        });
+    }
+
+    if (payingNow > 0) {
+      if (!paymentMethod || !["Cash", "Online"].includes(paymentMethod)) {
+        return res
+          .status(400)
+          .json({ message: "Payment method is required (Cash or Online)" });
+      }
+    }
+
+    const pendingFee = Math.max(totalFee - payingNow, 0);
 
     // Generate a random password
     // const randomPassword = crypto.randomBytes(4).toString("hex"); 
@@ -62,9 +103,11 @@ export const addStudent = async (req, res) => {
       email,
       phone,
       admission_date,
-      total_fee: 0,
-      paid_fee: 0,
-      pending_fee: 0,
+      batch: batch || undefined,
+      remarks: remarks || "",
+      total_fee: totalFee,
+      paid_fee: payingNow,
+      pending_fee: pendingFee,
       password: hashedPassword, // Save the hashed password
       cnic: "",
       date_of_birth: "",
@@ -82,12 +125,42 @@ export const addStudent = async (req, res) => {
 
     await newStudent.save();
 
+    const imageFile = req.files?.image;
+    if (imageFile) {
+      const filesStorageUrl = process.env.FILES_STORAGE_URL;
+      const filesStoragePath = process.env.FILES_STORAGE_PATH;
+      const fileExt = path.extname(imageFile.name) || ".jpg";
+      const fileName = `avatar_${newStudent._id}${fileExt}`;
+      await uploadFile(imageFile, fileName, `${filesStoragePath}/students/avatars`);
+      const webpFileName = `avatar_${newStudent._id}.jpeg`;
+      await compressImage(
+        `${filesStoragePath}/students/avatars/${fileName}`,
+        `${filesStoragePath}/students/avatars/${webpFileName}`,
+        50
+      );
+      newStudent.image = `${filesStorageUrl}/files/students/avatars/${webpFileName}`;
+      await newStudent.save();
+    }
+
     await generateQrCode(newStudent._id);
+
+    if (batch && totalFee > 0) {
+      const actionUserId = req.user?.user?.id;
+      await createStudentAdmissionFee({
+        studentId: newStudent._id,
+        batchId: batch,
+        totalFee,
+        payingNow,
+        actionUserId,
+        paymentMethod: payingNow > 0 ? paymentMethod : undefined,
+      });
+    }
 
     // Send welcome email to the student with the random password
     // await addEmailToQueue(email, name, randomPassword);
 
-    res.status(200).json("Student Added Successfully");
+    const savedStudent = await Student.findById(newStudent._id).populate("batch");
+    res.status(200).json(savedStudent);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -236,6 +309,50 @@ export const getStudentsByBatch = async (req, res) => {
         populate: ["batch"],
       });
     res.status(200).json(students);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getStudentPaymentLogs = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    if (!(await denyUnlessOwnStudent(req, res, id))) {
+      return;
+    }
+
+    const student = await Student.findById(id).populate("batch", "name");
+    if (!student) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    const fees = await Fee.find({ student: id }).select("_id");
+    const feeIds = fees.map((fee) => fee._id);
+
+    const paymentLogs = await FeeLog.find({
+      $or: [{ student: id }, ...(feeIds.length ? [{ fee: { $in: feeIds } }] : [])],
+    })
+      .sort({ action_date: -1 })
+      .populate("action_by", "name email")
+      .populate({
+        path: "fee",
+        populate: { path: "batch", select: "name" },
+      });
+
+    res.status(200).json({
+      student: {
+        _id: student._id,
+        name: student.name,
+        email: student.email,
+        phone: student.phone,
+        batch: student.batch,
+        total_fee: student.total_fee || 0,
+        paid_fee: student.paid_fee || 0,
+        pending_fee: student.pending_fee || 0,
+      },
+      payment_logs: paymentLogs,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -602,7 +719,15 @@ export const checkStudentFields = async (req, res) => {
 
 export const basicStudentUpdate = async (req, res) => {
   const { id } = req.params;
-  const { name, phone, paid_fee, skip_profile_completion } = req.body;
+  const {
+    name,
+    phone,
+    email,
+    batch,
+    remarks,
+    paid_fee,
+    skip_profile_completion,
+  } = req.body;
 
   try {
     const student = await Student.findById(id);
@@ -614,6 +739,44 @@ export const basicStudentUpdate = async (req, res) => {
 
     if (name !== undefined) updateData.name = name;
     if (phone !== undefined) updateData.phone = phone;
+    if (remarks !== undefined) updateData.remarks = remarks || "";
+
+    if (email !== undefined && email !== student.email) {
+      const existingStudent = await Student.findOne({
+        email,
+        _id: { $ne: id },
+      });
+      if (existingStudent) {
+        return res.status(400).json({ message: "Email already exists" });
+      }
+
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        return res.status(400).json({ message: "Email already exists" });
+      }
+    }
+
+    if (email !== undefined) {
+      updateData.email = email;
+    }
+
+    if (batch !== undefined) {
+      if (batch) {
+        const batchRecord = await Batch.findById(batch);
+        if (!batchRecord) {
+          return res.status(400).json({ message: "Selected batch not found" });
+        }
+        if (
+          batchRecord.is_active === false &&
+          String(student.batch) !== String(batch)
+        ) {
+          return res.status(400).json({ message: "Selected batch is inactive" });
+        }
+        updateData.batch = batch;
+      } else {
+        updateData.batch = null;
+      }
+    }
 
     if (paid_fee !== undefined && paid_fee !== null && paid_fee !== "") {
       const newPaidFee = student.paid_fee + Number(paid_fee);
@@ -629,9 +792,35 @@ export const basicStudentUpdate = async (req, res) => {
         skip_profile_completion === "true";
     }
 
+    const imageFile = req.files?.image;
+    if (imageFile) {
+      const filesStorageUrl = process.env.FILES_STORAGE_URL;
+      const filesStoragePath = process.env.FILES_STORAGE_PATH;
+      const fileExt = path.extname(imageFile.name) || ".jpg";
+      const fileName = `avatar_${id}${fileExt}`;
+      await uploadFile(imageFile, fileName, `${filesStoragePath}/students/avatars`);
+      const webpFileName = `avatar_${id}.jpeg`;
+      await compressImage(
+        `${filesStoragePath}/students/avatars/${fileName}`,
+        `${filesStoragePath}/students/avatars/${webpFileName}`,
+        50
+      );
+      updateData.image = `${filesStorageUrl}/files/students/avatars/${webpFileName}`;
+    }
+
     await Student.findByIdAndUpdate(id, updateData);
 
-    res.status(200).json("Student updated successfully");
+    const user = await User.findOne({ email: student.email, role: "student" });
+    if (user) {
+      if (name !== undefined) user.name = name;
+      if (email !== undefined && email !== student.email) {
+        user.email = email;
+      }
+      await user.save();
+    }
+
+    const updatedStudent = await Student.findById(id).populate("batch");
+    res.status(200).json(updatedStudent);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

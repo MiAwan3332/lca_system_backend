@@ -1,5 +1,5 @@
 import express from 'express';
-import { getStudent, getStudents, addStudent, getStudentsContacts, updateStudent, deleteStudent, getQrCode, updateStudentinfo, checkStudentFields, basicStudentUpdate, getStudentsGraph, getStudentsByBatchesGraph, deleteAllStudents, getStudentsByBatch, changeStudentPassword } from '../controllers/students.js';
+import { getStudent, getStudents, addStudent, getStudentsContacts, updateStudent, deleteStudent, getQrCode, updateStudentinfo, checkStudentFields, basicStudentUpdate, getStudentsGraph, getStudentsByBatchesGraph, deleteAllStudents, getStudentsByBatch, changeStudentPassword, getStudentPaymentLogs } from '../controllers/students.js';
 import auth from '../middlewares/auth.js';
 
 const router = express.Router();
@@ -8,6 +8,7 @@ const router = express.Router();
 router.get('/',auth,getStudents)
 router.post('/change-password/:id', auth, changeStudentPassword);
 router.get('/batch/:batchId', auth, getStudentsByBatch);
+router.get('/payment-logs/:id', auth, getStudentPaymentLogs);
 router.get('/:id',auth,getStudent)
 router.post('/add',auth,addStudent);
 router.post('/update/:id',auth,updateStudent);

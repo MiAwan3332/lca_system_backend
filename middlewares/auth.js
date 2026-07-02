@@ -44,6 +44,11 @@ const auth = (req, res, next) => {
             const isStudentNotificationAction =
                 req.originalUrl.includes("/notifications/") &&
                 (req.method === "GET" || req.originalUrl.includes("/read"));
+            const isStudentComplaintAction =
+                req.originalUrl.includes("/complaints/") &&
+                (req.originalUrl.includes("/add") ||
+                    req.method === "GET" ||
+                    req.originalUrl.includes("/delete/"));
 
             if (
                 role?.toLowerCase() === "student" &&
@@ -52,7 +57,8 @@ const auth = (req, res, next) => {
                 !isStudentQuizAction &&
                 !isStudentAssignmentAction &&
                 !isStudentCourseQuizAction &&
-                !isStudentNotificationAction
+                !isStudentNotificationAction &&
+                !isStudentComplaintAction
             ) {
                 return res
                     .status(403)

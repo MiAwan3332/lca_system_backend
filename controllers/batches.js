@@ -114,6 +114,7 @@ export const addBatch = async (req, res) => {
       batch_type,
       startdate,
       enddate,
+      is_active: true,
     });
     await newBatch.save();
     res.status(200).json(newBatch);
@@ -126,18 +127,46 @@ export const updateBatch = async (req, res) => {
   if (denyUnlessInstitutionAdmin(req, res)) return;
 
   const { id } = req.params;
-  const { name, description, batch_fee, batch_type, startdate, enddate } =
+  const { name, description, batch_fee, batch_type, startdate, enddate, is_active } =
     req.body;
   try {
-    await Batch.findByIdAndUpdate(id, {
+    const updatePayload = {
       name,
       description,
       batch_fee,
       batch_type,
       startdate,
       enddate,
+    };
+    if (is_active !== undefined) {
+      updatePayload.is_active = is_active === true || is_active === "true";
+    }
+    const updatedBatch = await Batch.findByIdAndUpdate(id, updatePayload, {
+      new: true,
     });
-    res.status(200).json("Batch updated successfully");
+    res.status(200).json(updatedBatch);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const toggleBatchStatus = async (req, res) => {
+  if (denyUnlessInstitutionAdmin(req, res)) return;
+
+  const { id } = req.params;
+  const { is_active } = req.body;
+
+  try {
+    const batch = await Batch.findById(id);
+    if (!batch) {
+      return res.status(404).json({ message: "Batch not found" });
+    }
+
+    batch.is_active =
+      is_active !== undefined ? is_active === true || is_active === "true" : !batch.is_active;
+    await batch.save();
+
+    res.status(200).json(batch);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

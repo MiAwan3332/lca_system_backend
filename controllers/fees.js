@@ -11,10 +11,165 @@ import {
 } from "../utils/studentScope.js";
 import dotenv from "dotenv";
 import moment from "moment-timezone";
+import { recordFeePayment, syncStudentFeeFromLogs } from "../utils/feePayment.js";
 dotenv.config();
 
+const getPeriodRange = (period, date) => {
+    const refDate = date
+        ? moment(date).tz("Asia/Karachi")
+        : moment().tz("Asia/Karachi");
+
+    switch (period) {
+        case "weekly":
+            return {
+                start: refDate.clone().startOf("isoWeek"),
+                end: refDate.clone().endOf("isoWeek"),
+            };
+        case "monthly":
+            return {
+                start: refDate.clone().startOf("month"),
+                end: refDate.clone().endOf("month"),
+            };
+        case "yearly":
+            return {
+                start: refDate.clone().startOf("year"),
+                end: refDate.clone().endOf("year"),
+            };
+        case "daily":
+        default:
+            return {
+                start: refDate.clone().startOf("day"),
+                end: refDate.clone().endOf("day"),
+            };
+    }
+};
+
+const applyDueDateFilter = (filter, query = {}) => {
+    const { date, period, start_date, end_date } = query;
+
+    if (period && date) {
+        const { start, end } = getPeriodRange(period, date);
+        filter.due_date = {
+            $gte: start.format("YYYY-MM-DD"),
+            $lte: end.format("YYYY-MM-DD"),
+        };
+        return;
+    }
+
+    if (start_date && end_date) {
+        filter.due_date = {
+            $gte: start_date,
+            $lte: end_date,
+        };
+        return;
+    }
+
+    if (date) {
+        filter.due_date = moment(date).tz("Asia/Karachi").format("YYYY-MM-DD");
+    }
+};
+
+const buildLogsByFeeId = (logs = []) => {
+    const logsByFeeId = {};
+
+    logs.forEach((log) => {
+        const feeId = String(log.fee);
+        if (!logsByFeeId[feeId]) {
+            logsByFeeId[feeId] = { created: 0, paid: 0, discounted: 0 };
+        }
+
+        const amount = Number(log.action_amount ?? log.amount) || 0;
+        if (log.action_type === "Created") {
+            logsByFeeId[feeId].created += amount;
+        } else if (log.action_type === "Paid") {
+            logsByFeeId[feeId].paid += amount;
+        } else if (log.action_type === "Discounted") {
+            logsByFeeId[feeId].discounted += amount;
+        }
+    });
+
+    return logsByFeeId;
+};
+
+const getFeeAmounts = (fee, logsByFeeId = {}) => {
+    const feeId = String(fee._id);
+    const logs = logsByFeeId[feeId] || { created: 0, paid: 0, discounted: 0 };
+    const paidAmount = logs.paid;
+    const discountedAmount = logs.discounted;
+    const totalAmount =
+        logs.created > 0
+            ? Math.max(logs.created - discountedAmount, 0)
+            : Math.max(Number(fee.amount) + paidAmount, 0);
+    const pendingAmount =
+        fee.status === "Pending"
+            ? Math.max(Number(fee.amount) || 0, 0)
+            : 0;
+
+    return {
+        total_amount: totalAmount,
+        paid_amount: paidAmount,
+        pending_amount: pendingAmount,
+    };
+};
+
+const buildFeeReportSummary = (fees = [], logsByFeeId = {}) => {
+    const payerIds = new Set();
+    let totalAmount = 0;
+    let paidAmount = 0;
+    let pendingAmount = 0;
+    let paidCount = 0;
+    let pendingCount = 0;
+
+    fees.forEach((fee) => {
+        const amounts = getFeeAmounts(fee, logsByFeeId);
+        totalAmount += amounts.total_amount;
+        paidAmount += amounts.paid_amount;
+        pendingAmount += amounts.pending_amount;
+
+        if (amounts.paid_amount > 0) {
+            paidCount += 1;
+            const studentId = fee.student?._id?.toString() || fee.student?.toString();
+            if (studentId) {
+                payerIds.add(studentId);
+            }
+        }
+
+        if (amounts.pending_amount > 0) {
+            pendingCount += 1;
+        }
+    });
+
+    return {
+        total_records: fees.length,
+        total_amount: totalAmount,
+        paid_count: paidCount,
+        paid_amount: paidAmount,
+        pending_count: pendingCount,
+        pending_amount: pendingAmount,
+        fee_payers: payerIds.size,
+    };
+};
+
+const buildBatchWiseBreakdown = (fees = [], batches = [], logsByFeeId = {}) =>
+    batches.map((batch) => {
+        const batchFees = fees.filter(
+            (fee) =>
+                fee.batch &&
+                String(fee.batch._id || fee.batch) === String(batch._id)
+        );
+
+        return {
+            batch: {
+                _id: batch._id,
+                name: batch.name,
+            },
+            ...buildFeeReportSummary(batchFees, logsByFeeId),
+        };
+    });
+
 export const getFees = async (req, res) => {
-    const { query, status, date } = req.query;
+    const { query, status, batch_id, period, start_date, end_date } = req.query;
+    const date = req.query.date;
 
     try {
         const searchQuery = query ? query : '';
@@ -33,11 +188,11 @@ export const getFees = async (req, res) => {
             filter.status = status;
         }
 
-        if (date) {
-            var fileter_date = moment(date).tz("Asia/Karachi").format("YYYY-MM-DD");
-            console.log(fileter_date);
-            filter.due_date = fileter_date;
+        if (batch_id) {
+            filter.batch = batch_id;
         }
+
+        applyDueDateFilter(filter, { date, period, start_date, end_date });
 
         const options = {
             page: parseInt(req.query.page, 10) || 1,
@@ -64,6 +219,132 @@ export const getFees = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 }
+
+export const getStudentFeesReport = async (req, res) => {
+    try {
+        if (isStudentRole(req)) {
+            return res.status(403).json({ message: "Access denied" });
+        }
+
+        const {
+            period = "daily",
+            date,
+            batch_id,
+            status,
+            start_date,
+            end_date,
+        } = req.query;
+
+        const filter = {};
+
+        if (status) {
+            filter.status = status;
+        }
+
+        if (batch_id) {
+            filter.batch = batch_id;
+        }
+
+        applyDueDateFilter(filter, { date, period, start_date, end_date });
+
+        const fees = await Fee.find(filter)
+            .populate("student", "name email phone")
+            .populate("batch", "name")
+            .sort({ due_date: -1 });
+
+        const visibleFees = fees.filter((fee) => fee.student !== null);
+        const range = period && date
+            ? getPeriodRange(period, date)
+            : start_date && end_date
+              ? {
+                  start: moment(start_date).tz("Asia/Karachi").startOf("day"),
+                  end: moment(end_date).tz("Asia/Karachi").endOf("day"),
+                }
+              : date
+                ? getPeriodRange("daily", date)
+                : getPeriodRange("daily");
+
+        let batch = null;
+        if (batch_id) {
+            batch = await Batch.findById(batch_id).select("name");
+        }
+
+        const activeBatches = await Batch.find({
+            is_active: { $ne: false },
+        })
+            .select("name is_active")
+            .sort({ name: 1 });
+
+        const batchesForBreakdown = batch_id
+            ? activeBatches.filter((item) => String(item._id) === String(batch_id))
+            : activeBatches;
+
+        const activeBatchIds = new Set(
+            activeBatches.map((item) => String(item._id))
+        );
+        const activeBatchFees = visibleFees.filter(
+            (fee) =>
+                fee.batch &&
+                activeBatchIds.has(String(fee.batch._id || fee.batch))
+        );
+
+        const feeIds = visibleFees.map((fee) => fee._id);
+        const feeLogs = feeIds.length
+            ? await FeeLog.find({ fee: { $in: feeIds } }).lean()
+            : [];
+        const logsByFeeId = buildLogsByFeeId(feeLogs);
+
+        const batchWise = buildBatchWiseBreakdown(
+            visibleFees,
+            batchesForBreakdown,
+            logsByFeeId
+        );
+        const activeBatchesTotal = batch_id
+            ? null
+            : {
+                  active_batch_count: activeBatches.length,
+                  ...buildFeeReportSummary(activeBatchFees, logsByFeeId),
+              };
+
+        res.status(200).json({
+            period: period || "daily",
+            start_date: range.start.format("YYYY-MM-DD"),
+            end_date: range.end.format("YYYY-MM-DD"),
+            batch: batch ? { _id: batch._id, name: batch.name } : null,
+            summary: buildFeeReportSummary(visibleFees, logsByFeeId),
+            batch_wise: batchWise,
+            active_batches_total: activeBatchesTotal,
+            fees: visibleFees.map((fee) => {
+                const amounts = getFeeAmounts(fee, logsByFeeId);
+                return {
+                _id: fee._id,
+                amount: fee.amount,
+                total_amount: amounts.total_amount,
+                paid_amount: amounts.paid_amount,
+                pending_amount: amounts.pending_amount,
+                due_date: fee.due_date,
+                status: fee.status,
+                student: fee.student
+                    ? {
+                          _id: fee.student._id,
+                          name: fee.student.name,
+                          email: fee.student.email,
+                          phone: fee.student.phone,
+                      }
+                    : null,
+                batch: fee.batch
+                    ? {
+                          _id: fee.batch._id,
+                          name: fee.batch.name,
+                      }
+                    : null,
+            };
+            }),
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
 
 export const getFeeById = async (req, res) => {
     const { id } = req.params;
@@ -119,6 +400,8 @@ export const createFee = async (req, res) => {
             action_type: "Created",
             action_by: actionUser._id,
             fee: newFee._id,
+            student: student_id,
+            description: "Fee record created",
         });
 
         await newFee.save();
@@ -131,27 +414,19 @@ export const createFee = async (req, res) => {
 
 export const payFee = async (req, res) => {
     const { id } = req.params;
-    const { student_id, amount } = req.body;
+    const { student_id, amount, description, payment_method } = req.body;
     try {
         let fee = await Fee.findById(id);
         if (!fee) {
-            const response = await createFee(req, res);
-            if (response.status === 201) {
-                fee = await Fee.findById(id);
-            } else {
-                return res.status(404).json({ message: "Something went wrong while creating a new fee record" });
-            }
+            return res.status(404).json({ message: "Fee not found" });
         }
 
-        if (amount > fee.amount) {
-            return res.status(400).json({ message: "Amount exceeds the fee amount" });
-        }
-
-        if (amount <= 0) {
+        const paymentAmount = Number(amount);
+        if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
             return res.status(400).json({ message: "Amount must be greater than 0" });
         }
 
-        if (amount > fee.amount) {
+        if (paymentAmount > fee.amount) {
             return res.status(400).json({ message: "Amount exceeds the fee amount" });
         }
 
@@ -159,28 +434,22 @@ export const payFee = async (req, res) => {
             return res.status(400).json({ message: "Fee already paid" });
         }
 
-        const orignalAmount = fee.amount;
-        fee.amount -= amount;
-
-        if (fee.amount <= 0) {
-            fee.status = "Paid";
+        if (!payment_method || !["Cash", "Online"].includes(payment_method)) {
+            return res.status(400).json({ message: "Payment method is required (Cash or Online)" });
         }
 
         const actionUser = await User.findById(req.user.user.id);
 
-        const feeLog = new FeeLog({
-            amount: orignalAmount,
-            action_amount: amount,
-            action_date: new Date(),
-            action_type: "Paid",
-            action_by: actionUser._id,
-            fee: id,
+        const updatedFee = await recordFeePayment({
+            fee,
+            paymentAmount,
+            actionUserId: actionUser?._id,
+            studentId: student_id || fee.student,
+            paymentMethod: payment_method,
+            description: description?.trim() || `Fee payment received (${payment_method})`,
         });
 
-        await feeLog.save();
-        await fee.save();
-
-        res.status(200).json(fee);
+        res.status(200).json(updatedFee);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -234,11 +503,13 @@ export const discountFee = async (req, res) => {
             action_type: "Discounted",
             action_by: actionUser._id,
             fee: id,
+            student: fee.student,
             description: trimmedDescription,
         });
 
         await feeLog.save();
         await fee.save();
+        await syncStudentFeeFromLogs(fee.student);
 
         res.status(200).json(fee);
     } catch (error) {
@@ -378,36 +649,6 @@ export const getFeesByStudentId = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 }
-
-const getPeriodRange = (period, date) => {
-    const refDate = date
-        ? moment(date).tz("Asia/Karachi")
-        : moment().tz("Asia/Karachi");
-
-    switch (period) {
-        case "weekly":
-            return {
-                start: refDate.clone().startOf("isoWeek"),
-                end: refDate.clone().endOf("isoWeek"),
-            };
-        case "monthly":
-            return {
-                start: refDate.clone().startOf("month"),
-                end: refDate.clone().endOf("month"),
-            };
-        case "yearly":
-            return {
-                start: refDate.clone().startOf("year"),
-                end: refDate.clone().endOf("year"),
-            };
-        case "daily":
-        default:
-            return {
-                start: refDate.clone().startOf("day"),
-                end: refDate.clone().endOf("day"),
-            };
-    }
-};
 
 const sumFeeLogs = async (action_type, dateFilter, feeIds, changed_by) => {
     const match = { action_type, ...dateFilter };
