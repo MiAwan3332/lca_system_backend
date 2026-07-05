@@ -2,6 +2,11 @@ import mongoose from "mongoose";
 import mongoosePaginate from "mongoose-paginate-v2";
 
 const studentSchema = mongoose.Schema({
+  roll_number: {
+    type: String,
+    default: "",
+    index: true,
+  },
   name: String,
   email: String,
   phone: String,
@@ -47,6 +52,10 @@ const studentSchema = mongoose.Schema({
   remarks: {
     type: String,
     default: "",
+  },
+  is_active: {
+    type: Boolean,
+    default: true,
   },
 });
 

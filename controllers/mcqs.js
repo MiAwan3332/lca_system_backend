@@ -1,5 +1,6 @@
 import Mcq from "../models/mcqs.js";
 import Course from "../models/courses.js";
+import Batch from "../models/batches.js";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import {
@@ -151,7 +152,7 @@ export const updateMcq = async (req, res) => {
 };
 
 export const getAllMcqs = async (req, res) => {
-  const { query, course_id } = req.query;
+  const { query, course_id, batch_id } = req.query;
 
   try {
     const searchQuery = query ? query : "";
@@ -167,6 +168,22 @@ export const getAllMcqs = async (req, res) => {
 
     if (course_id) {
       filter.courseId = course_id;
+    }
+
+    if (batch_id) {
+      const batch = await Batch.findById(batch_id).select("courses");
+      if (!batch) {
+        return res.status(200).json(buildEmptyPaginatedResponse(parseInt(req.query.limit, 10) || 10));
+      }
+      const courseIds = (batch.courses || []).map((course) => course._id || course);
+      filter.courseId = course_id
+        ? courseIds.some((id) => String(id) === String(course_id))
+          ? course_id
+          : { $in: [] }
+        : { $in: courseIds };
+      if (filter.courseId?.$in?.length === 0) {
+        return res.status(200).json(buildEmptyPaginatedResponse(parseInt(req.query.limit, 10) || 10));
+      }
     }
 
     if (isTeacherRole(req)) {

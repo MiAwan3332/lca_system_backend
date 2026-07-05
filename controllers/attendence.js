@@ -105,7 +105,7 @@ export const createAttendence = async (req, res) => {
 };
 
 export const getAttendences = async (req, res) => {
-  const { query, course_id, batch_id, date } = req.query;
+  const { query, course_id, batch_id, date, start_date, end_date } = req.query;
   try {
     const searchQuery = query ? query : "";
 
@@ -121,7 +121,13 @@ export const getAttendences = async (req, res) => {
 
     if (course_id) filter.course = course_id;
     if (batch_id) filter.batch = batch_id;
-    if (date) filter.date = date;
+    if (start_date || end_date) {
+      filter.date = {};
+      if (start_date) filter.date.$gte = start_date;
+      if (end_date) filter.date.$lte = end_date;
+    } else if (date) {
+      filter.date = date;
+    }
 
     if (isTeacherRole(req)) {
       await applyTeacherBatchFilter(req, filter, "batch");

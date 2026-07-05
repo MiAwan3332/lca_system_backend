@@ -10,6 +10,8 @@ export async function createStudentAdmissionFee({
   payingNow = 0,
   actionUserId,
   paymentMethod,
+  paymentEvidence,
+  nextInstallmentDate,
 }) {
   if (!studentId || !batchId || totalFee <= 0) {
     return null;
@@ -20,11 +22,21 @@ export async function createStudentAdmissionFee({
     throw new Error("Fee record already exists for this student and batch");
   }
 
+  const isPartialPayment = payingNow > 0 && payingNow < totalFee;
+  let dueDate = moment().tz("Asia/Karachi").format("YYYY-MM-DD");
+
+  if (isPartialPayment) {
+    if (!nextInstallmentDate) {
+      throw new Error("Next installment date is required for partial payment");
+    }
+    dueDate = moment(nextInstallmentDate).tz("Asia/Karachi").format("YYYY-MM-DD");
+  }
+
   const newFee = new Fee({
     student: studentId,
     batch: batchId,
     amount: totalFee,
-    due_date: moment().tz("Asia/Karachi").format("YYYY-MM-DD"),
+    due_date: dueDate,
     status: "Pending",
   });
   await newFee.save();
@@ -47,8 +59,17 @@ export async function createStudentAdmissionFee({
       actionUserId,
       studentId,
       paymentMethod,
+      paymentEvidence,
       description: `Payment received on student admission (${paymentMethod || "Cash"})`,
     });
+
+    if (isPartialPayment) {
+      const updatedFee = await Fee.findById(newFee._id);
+      if (updatedFee) {
+        updatedFee.due_date = dueDate;
+        await updatedFee.save();
+      }
+    }
   }
 
   return newFee;
@@ -61,6 +82,7 @@ export async function recordFeePayment({
   actionUserId,
   studentId,
   paymentMethod,
+  paymentEvidence,
   description = "",
 }) {
   const fee = feeDoc || (feeId ? await Fee.findById(feeId) : null);
@@ -102,6 +124,7 @@ export async function recordFeePayment({
     fee: fee._id,
     student: resolvedStudentId,
     payment_method: paymentMethod || "Cash",
+    payment_evidence: paymentEvidence || "",
     description,
   }).save();
 

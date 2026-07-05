@@ -159,33 +159,48 @@ export const getStatistics = async (req, res) => {
         student: student._id,
       });
 
-      const totalFeeAmount = fees.reduce(
-        (sum, fee) => sum + Number(fee.amount || 0),
-        0
-      );
       const totalPaidAmount = paidFees.reduce(
         (sum, fee) => sum + Number(fee.amount || 0),
         0
       );
-      const totalPendingAmount = pendingFees.reduce(
-        (sum, fee) => sum + Number(fee.amount || 0),
-        0
+
+      const batchFee =
+        Number(student.batch?.batch_fee) || Number(student.total_fee) || 0;
+      const paidAmount =
+        Number(student.paid_fee) || totalPaidAmount || 0;
+      const pendingAmount =
+        student.pending_fee != null && student.pending_fee !== ""
+          ? Number(student.pending_fee)
+          : Math.max(batchFee - paidAmount, 0);
+
+      const primaryPendingFee = pendingFees.find(
+        (fee) => fee.due_date && Number(fee.amount) > 0
       );
+      const feeDueDate = primaryPendingFee?.due_date || null;
+      const feeIsOverdue =
+        feeDueDate &&
+        moment(feeDueDate).startOf("day").isBefore(moment().startOf("day"));
+      const feeOverdueDays = feeIsOverdue
+        ? moment().startOf("day").diff(moment(feeDueDate).startOf("day"), "days")
+        : 0;
 
       return res.status(200).json({
         is_student_dashboard: true,
         student_name: student.name,
         batch_name: student.batch?.name || "Not assigned",
-        total_fee_record: totalFeeAmount || student.total_fee || 0,
-        total_fee_recovered: totalPaidAmount || student.paid_fee || 0,
-        total_fee_pending: totalPendingAmount || student.pending_fee || 0,
+        total_fee_record: batchFee,
+        total_fee_recovered: paidAmount,
+        total_fee_pending: pendingAmount,
         total_fee_defaulters: pendingFees.length,
+        fee_due_date: feeDueDate,
+        fee_is_overdue: Boolean(feeIsOverdue),
+        fee_overdue_days: feeOverdueDays,
         attendance_records_count: attendanceCount,
         current_batches_count: batchId ? 1 : 0,
         chart_data: {
           fee_overview: [
-            { label: "Paid", value: totalPaidAmount },
-            { label: "Pending", value: totalPendingAmount },
+            { label: "Paid", value: paidAmount },
+            { label: "Pending", value: pendingAmount },
           ],
         },
       });

@@ -12,6 +12,9 @@ import {
   applyTeacherBatchFilter,
   denyUnlessTeacherBatchAccess,
   buildEmptyPaginatedResponse,
+  isInstitutionAdmin,
+  canAccessBatch,
+  isFullAccessRole,
 } from "../utils/lmsAccess.js";
 import { addEmailToQueue } from "../utils/emailQueue.js";
 import dotenv, { populate } from "dotenv";
@@ -24,6 +27,7 @@ import { createStudentAdmissionFee } from "../utils/feePayment.js";
 import Fee from "../models/fees.js";
 import FeeLog from "../models/feeLogs.js";
 import path from "path";
+import { getNextStudentRollNumber } from "../utils/studentRollNumber.js";
 dotenv.config();
 
 // const crypto = require("crypto");
@@ -33,6 +37,7 @@ export const addStudent = async (req, res) => {
   const admission_date = req.body.admission_date || new Date();
   const payingNow = Number(req.body.paying_now) || 0;
   const paymentMethod = req.body.payment_method;
+  const nextInstallmentDate = req.body.next_installment_date;
 
   try {
     // Check if the email already exists
@@ -43,6 +48,7 @@ export const addStudent = async (req, res) => {
 
     let batchRecord = null;
     let totalFee = 0;
+    let rollNumber = "";
 
     if (batch) {
       batchRecord = await Batch.findById(batch);
@@ -53,6 +59,10 @@ export const addStudent = async (req, res) => {
         return res.status(400).json({ message: "Selected batch is inactive" });
       }
       totalFee = Number(batchRecord.batch_fee) || 0;
+      rollNumber = await getNextStudentRollNumber({
+        batchId: batchRecord._id,
+        batchName: batchRecord.name,
+      });
     }
 
     if (payingNow < 0) {
@@ -72,6 +82,25 @@ export const addStudent = async (req, res) => {
         return res
           .status(400)
           .json({ message: "Payment method is required (Cash or Online)" });
+      }
+      if (paymentMethod === "Online" && !req.files?.payment_evidence) {
+        return res.status(400).json({
+          message: "Online payment evidence attachment is required",
+        });
+      }
+    }
+
+    const isPartialPayment = payingNow > 0 && payingNow < totalFee;
+    if (isPartialPayment) {
+      if (!nextInstallmentDate) {
+        return res.status(400).json({
+          message: "Next installment date is required for partial payment",
+        });
+      }
+      if (moment(nextInstallmentDate).isBefore(moment(), "day")) {
+        return res.status(400).json({
+          message: "Next installment date must be today or in the future",
+        });
       }
     }
 
@@ -99,6 +128,7 @@ export const addStudent = async (req, res) => {
     await newUser.save();
 
     const newStudent = new Student({
+      roll_number: rollNumber,
       name,
       email,
       phone,
@@ -144,6 +174,31 @@ export const addStudent = async (req, res) => {
 
     await generateQrCode(newStudent._id);
 
+    let paymentEvidenceUrl = "";
+    const evidenceFile = req.files?.payment_evidence;
+    if (payingNow > 0 && paymentMethod === "Online" && evidenceFile) {
+      const filesStorageUrl = process.env.FILES_STORAGE_URL;
+      const filesStoragePath = process.env.FILES_STORAGE_PATH;
+      const fileExt = path.extname(evidenceFile.name) || ".jpg";
+      const baseName = `payment_evidence_${newStudent._id}_${Date.now()}`;
+      const fileName = `${baseName}${fileExt}`;
+      const folderPath = `${filesStoragePath}/students/payment-evidence`;
+      await uploadFile(evidenceFile, fileName, folderPath);
+
+      const isImage = /\.(jpe?g|png|webp|gif)$/i.test(fileExt);
+      if (isImage) {
+        const webpFileName = `${baseName}.jpeg`;
+        await compressImage(
+          `${folderPath}/${fileName}`,
+          `${folderPath}/${webpFileName}`,
+          70
+        );
+        paymentEvidenceUrl = `${filesStorageUrl}/files/students/payment-evidence/${webpFileName}`;
+      } else {
+        paymentEvidenceUrl = `${filesStorageUrl}/files/students/payment-evidence/${fileName}`;
+      }
+    }
+
     if (batch && totalFee > 0) {
       const actionUserId = req.user?.user?.id;
       await createStudentAdmissionFee({
@@ -153,6 +208,8 @@ export const addStudent = async (req, res) => {
         payingNow,
         actionUserId,
         paymentMethod: payingNow > 0 ? paymentMethod : undefined,
+        paymentEvidence: paymentEvidenceUrl,
+        nextInstallmentDate: isPartialPayment ? nextInstallmentDate : undefined,
       });
     }
 
@@ -167,8 +224,16 @@ export const addStudent = async (req, res) => {
 };
 
 export const getStudents = async (req, res) => {
-  const { query, batch_id, enrollment_status, start_date, end_date, city, search_field } =
-    req.query;
+  const {
+    query,
+    batch_id,
+    enrollment_status,
+    start_date,
+    end_date,
+    city,
+    search_field,
+    is_active,
+  } = req.query;
 
   try {
     if (isStudentRole(req)) {
@@ -258,6 +323,12 @@ export const getStudents = async (req, res) => {
       filter.city = { $regex: city, $options: "i" };
     }
 
+    if (is_active === "true") {
+      filter.is_active = { $ne: false };
+    } else if (is_active === "false") {
+      filter.is_active = false;
+    }
+
     const students = await Student.paginate(filter, {
       page: parseInt(req.query.page, 10) || 1,
       limit: parseInt(req.query.limit, 10) || 10,
@@ -340,6 +411,14 @@ export const getStudentPaymentLogs = async (req, res) => {
         populate: { path: "batch", select: "name" },
       });
 
+    const pendingFeeRecord = await Fee.findOne({
+      student: id,
+      status: "Pending",
+      amount: { $gt: 0 },
+    })
+      .sort({ due_date: 1 })
+      .select("due_date amount status _id");
+
     res.status(200).json({
       student: {
         _id: student._id,
@@ -351,6 +430,7 @@ export const getStudentPaymentLogs = async (req, res) => {
         paid_fee: student.paid_fee || 0,
         pending_fee: student.pending_fee || 0,
       },
+      pending_fee_record: pendingFeeRecord,
       payment_logs: paymentLogs,
     });
   } catch (error) {
@@ -931,6 +1011,80 @@ export const deleteAllStudents = async (req, res) => {
     await Student.deleteMany();
     await User.deleteMany({ role: "student" });
     res.status(200).json("All students deleted successfully");
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const canManageStudentStatus = async (req, student) => {
+  if (isStudentRole(req)) return false;
+  if (isFullAccessRole(req) || isInstitutionAdmin(req)) return true;
+  if (isTeacherRole(req) && student?.batch) {
+    return canAccessBatch(req, student.batch._id || student.batch);
+  }
+  return false;
+};
+
+export const toggleStudentStatus = async (req, res) => {
+  const { id } = req.params;
+  const { is_active } = req.body;
+
+  try {
+    const student = await Student.findById(id).populate("batch");
+    if (!student) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    if (!(await canManageStudentStatus(req, student))) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    student.is_active =
+      is_active !== undefined
+        ? is_active === true || is_active === "true"
+        : student.is_active === false;
+
+    await student.save();
+    res.status(200).json(student);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const toggleBatchStudentsStatus = async (req, res) => {
+  const { batchId } = req.params;
+  const { is_active } = req.body;
+
+  try {
+    if (isStudentRole(req)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const batch = await Batch.findById(batchId);
+    if (!batch) {
+      return res.status(404).json({ message: "Batch not found" });
+    }
+
+    if (!(await canAccessBatch(req, batchId))) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    if (is_active === undefined) {
+      return res.status(400).json({ message: "is_active is required" });
+    }
+
+    const nextStatus = is_active === true || is_active === "true";
+    const result = await Student.updateMany(
+      { batch: batchId },
+      { $set: { is_active: nextStatus } }
+    );
+
+    res.status(200).json({
+      batch_id: batchId,
+      batch_name: batch.name,
+      is_active: nextStatus,
+      modified_count: result.modifiedCount,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

@@ -1,4 +1,5 @@
 import Batch from "../models/batches.js";
+import Student from "../models/students.js";
 import {
   isStudentRole,
   resolveStudentRecord,
@@ -11,8 +12,39 @@ import {
   denyUnlessInstitutionAdmin,
 } from "../utils/lmsAccess.js";
 
+const getBatchEnrolledStudentCount = async (batchId) =>
+  Student.countDocuments({ batch: batchId });
+
+const deactivateBatchStudents = async (batchId) => {
+  const result = await Student.updateMany(
+    { batch: batchId },
+    { $set: { is_active: false } }
+  );
+  return result.modifiedCount;
+};
+
+const attachEnrolledStudentCounts = async (batches) => {
+  const batchIds = batches.docs.map((batch) => batch._id);
+  if (!batchIds.length) return batches;
+
+  const counts = await Student.aggregate([
+    { $match: { batch: { $in: batchIds } } },
+    { $group: { _id: "$batch", count: { $sum: 1 } } },
+  ]);
+  const countMap = Object.fromEntries(
+    counts.map((entry) => [String(entry._id), entry.count])
+  );
+
+  batches.docs = batches.docs.map((batch) => ({
+    ...(batch.toObject ? batch.toObject() : batch),
+    enrolled_student_count: countMap[String(batch._id)] || 0,
+  }));
+
+  return batches;
+};
+
 export const getBatches = async (req, res) => {
-  const { query } = req.query;
+  const { query, is_active, batch_type, start_date, end_date } = req.query;
   try {
     if (isStudentRole(req)) {
       const student = await resolveStudentRecord(req);
@@ -68,6 +100,24 @@ export const getBatches = async (req, res) => {
       filter._id = { $in: scope.batchIds };
     }
 
+    if (is_active === "true") {
+      filter.is_active = { $ne: false };
+    } else if (is_active === "false") {
+      filter.is_active = false;
+    }
+
+    if (batch_type) {
+      filter.batch_type = { $regex: batch_type, $options: "i" };
+    }
+
+    if (start_date) {
+      filter.startdate = { ...(filter.startdate || {}), $gte: start_date };
+    }
+
+    if (end_date) {
+      filter.enddate = { ...(filter.enddate || {}), $lte: end_date };
+    }
+
     const batches = await Batch.paginate(
       filter,
       {
@@ -81,6 +131,7 @@ export const getBatches = async (req, res) => {
         ],
       }
     );
+    await attachEnrolledStudentCounts(batches);
     res.status(200).json(batches);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -130,6 +181,11 @@ export const updateBatch = async (req, res) => {
   const { name, description, batch_fee, batch_type, startdate, enddate, is_active } =
     req.body;
   try {
+    const existingBatch = await Batch.findById(id);
+    if (!existingBatch) {
+      return res.status(404).json({ message: "Batch not found" });
+    }
+
     const updatePayload = {
       name,
       description,
@@ -138,13 +194,23 @@ export const updateBatch = async (req, res) => {
       startdate,
       enddate,
     };
+    let studentsDeactivated = 0;
     if (is_active !== undefined) {
-      updatePayload.is_active = is_active === true || is_active === "true";
+      const nextActive = is_active === true || is_active === "true";
+      updatePayload.is_active = nextActive;
+      if (!nextActive && existingBatch.is_active !== false) {
+        studentsDeactivated = await deactivateBatchStudents(id);
+      }
     }
     const updatedBatch = await Batch.findByIdAndUpdate(id, updatePayload, {
       new: true,
     });
-    res.status(200).json(updatedBatch);
+    const enrolledStudentCount = await getBatchEnrolledStudentCount(id);
+    res.status(200).json({
+      ...(updatedBatch.toObject ? updatedBatch.toObject() : updatedBatch),
+      enrolled_student_count: enrolledStudentCount,
+      students_deactivated_count: studentsDeactivated,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -162,11 +228,25 @@ export const toggleBatchStatus = async (req, res) => {
       return res.status(404).json({ message: "Batch not found" });
     }
 
-    batch.is_active =
-      is_active !== undefined ? is_active === true || is_active === "true" : !batch.is_active;
+    const nextActive =
+      is_active !== undefined
+        ? is_active === true || is_active === "true"
+        : batch.is_active === false;
+
+    batch.is_active = nextActive;
     await batch.save();
 
-    res.status(200).json(batch);
+    let studentsDeactivated = 0;
+    if (!nextActive) {
+      studentsDeactivated = await deactivateBatchStudents(id);
+    }
+
+    const enrolledStudentCount = await getBatchEnrolledStudentCount(id);
+    res.status(200).json({
+      ...(batch.toObject ? batch.toObject() : batch),
+      enrolled_student_count: enrolledStudentCount,
+      students_deactivated_count: studentsDeactivated,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

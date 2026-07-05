@@ -26,7 +26,11 @@ const feeLogSchema = mongoose.Schema({
     payment_method: {
         type: String,
         enum: ["Cash", "Online"],
-    }
+    },
+    payment_evidence: {
+        type: String,
+        default: "",
+    },
 });
 
 feeLogSchema.plugin(mongoosePaginate);

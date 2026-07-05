@@ -18,7 +18,7 @@ dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET;
 
 export const getCourses = async (req, res) => {
-  const { query } = req.query;
+  const { query, batch_id } = req.query;
   try {
     if (isStudentRole(req)) {
       const student = await resolveStudentRecord(req);
@@ -53,6 +53,23 @@ export const getCourses = async (req, res) => {
 
     if (isTeacherRole(req)) {
       await applyTeacherCourseFilter(req, filter, "_id");
+    }
+
+    if (batch_id) {
+      const batch = await Batch.findById(batch_id).select("courses");
+      if (!batch) {
+        return res.status(200).json(buildEmptyPaginatedResponse(parseInt(req.query.limit, 10) || 10));
+      }
+      const courseIds = (batch.courses || []).map((course) => course._id || course);
+      filter._id = filter._id
+        ? { $in: courseIds.filter((id) => {
+            const allowed = filter._id.$in || [filter._id];
+            return allowed.some((allowedId) => String(allowedId) === String(id));
+          }) }
+        : { $in: courseIds };
+      if (filter._id.$in?.length === 0) {
+        return res.status(200).json(buildEmptyPaginatedResponse(parseInt(req.query.limit, 10) || 10));
+      }
     }
 
     const courses = await Course.paginate(

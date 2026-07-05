@@ -21,6 +21,13 @@ const notificationSchema = mongoose.Schema(
         "quiz_available",
         "quiz_reminder",
         "quiz_result_published",
+        "announcement",
+        "complaint_received",
+        "fee_installment_reminder",
+        "fee_installment_admin_alert",
+        "fee_daily_due_report",
+        "fee_due_today_admin_alert",
+        "fee_overdue_admin_alert",
       ],
       required: true,
     },
@@ -28,7 +35,7 @@ const notificationSchema = mongoose.Schema(
     message: { type: String, required: true },
     entity_type: {
       type: String,
-      enum: ["assignment", "course_quiz", "submission", "quiz_attempt"],
+      enum: ["assignment", "course_quiz", "submission", "quiz_attempt", "announcement", "complaint", "fee"],
     },
     entity_id: {
       type: mongoose.Schema.Types.ObjectId,

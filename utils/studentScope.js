@@ -38,6 +38,24 @@ export const resolveStudentRecord = async (req) => {
   return Student.findById(studentId).populate("batch");
 };
 
+export const INACTIVE_STUDENT_MESSAGE =
+  "Your account is inactive. Please contact Lahore CSS Academy.";
+
+export const assertStudentAccountActive = async (req, res) => {
+  const student = await resolveStudentRecord(req);
+  if (!student) {
+    res.status(403).json({
+      message: "Student account not found. Please contact Lahore CSS Academy.",
+    });
+    return false;
+  }
+  if (student.is_active === false) {
+    res.status(403).json({ message: INACTIVE_STUDENT_MESSAGE });
+    return false;
+  }
+  return true;
+};
+
 export const denyUnlessOwnStudent = async (req, res, requestedStudentId) => {
   if (!isStudentRole(req)) {
     return true;

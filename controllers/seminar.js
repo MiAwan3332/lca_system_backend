@@ -15,16 +15,24 @@ export const addSeminar = async (req, res) => {
 };
 
 export const getSeminars = async (req, res) => {
-  const { query } = req.query;
+  const { query, start_date, end_date } = req.query;
   try {
     const searchQuery = query ? query : "";
+    const filter = {
+      $or: [
+        { name: { $regex: searchQuery, $options: "i" } },
+        { description: { $regex: searchQuery, $options: "i" } },
+      ],
+    };
+
+    if (start_date || end_date) {
+      filter.date = {};
+      if (start_date) filter.date.$gte = start_date;
+      if (end_date) filter.date.$lte = end_date;
+    }
+
     const seminars = await Seminar.paginate(
-      {
-        $or: [
-          { name: { $regex: searchQuery, $options: "i" } },
-          { description: { $regex: searchQuery, $options: "i" } },
-        ],
-      },
+      filter,
       {
         page: parseInt(req.query.page),
         limit: parseInt(req.query.limit),

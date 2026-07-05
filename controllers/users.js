@@ -4,6 +4,7 @@ import Teacher from "../models/teachers.js";
 import {
   isStudentRole,
   denyUnlessOwnStudent,
+  INACTIVE_STUDENT_MESSAGE,
 } from "../utils/studentScope.js";
 import { isTeacherRole } from "../utils/lmsAccess.js";
 import { addEmailToQueue } from "../utils/emailQueue.js";
@@ -20,6 +21,8 @@ const DEFAULT_AVATAR =
 import Role from "../models/roles.js";
 import Permission from "../models/permissions.js";
 import { compressImage, uploadFile } from "../utils/fileStorage.js";
+import { JWT_EXPIRES_IN, JWT_COOKIE_MAX_AGE_MS } from "../utils/jwtConfig.js";
+import { logLoginActivity } from "../utils/activityLogger.js";
 
 export const register = async (req, res) => {
   const { name, email, password, role } = req.body;
@@ -38,7 +41,7 @@ export const register = async (req, res) => {
     });
     await newUser.save();
     const data = { user: { id: newUser._id } };
-    const authToken = jwt.sign(data, JWT_SECRET);
+    const authToken = jwt.sign(data, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
     res.status(200).json({ authToken });
   } catch (error) {
@@ -100,16 +103,24 @@ export const login = async (req, res) => {
     let teacherData = null;
 
     if (role.name === "student") {
-      const student = await Student.findOne({ email: user.email });
-      if (student) {
-        studentId = student._id;
-        studentData = student.toObject(); // Convert the Mongoose document to a plain JavaScript object
-        const hasEmptyFields = Object.values(studentData).some(
-          (field) => field === "" || field === null || field === undefined
-        );
-        if (hasEmptyFields) {
-          check = 0;
-        }
+      const student = await Student.findOne({ email: user.email }).populate("batch");
+      if (!student) {
+        return res.status(403).json({
+          message: "Student account not found. Please contact Lahore CSS Academy.",
+        });
+      }
+      if (student.is_active === false) {
+        return res.status(403).json({
+          message: INACTIVE_STUDENT_MESSAGE,
+        });
+      }
+      studentId = student._id;
+      studentData = student.toObject();
+      const hasEmptyFields = Object.values(studentData).some(
+        (field) => field === "" || field === null || field === undefined
+      );
+      if (hasEmptyFields) {
+        check = 0;
       }
     }
 
@@ -128,13 +139,16 @@ export const login = async (req, res) => {
         ...(teacherId ? { teacherId } : {}),
       },
     };
-    const authToken = jwt.sign(data, JWT_SECRET);
+    const authToken = jwt.sign(data, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+
+    await logLoginActivity({ req, user, roleName: role.name, statusCode: 200 });
 
     // Set token in cookies
     res.cookie("authToken", authToken, {
       httpOnly: true,
       secure: true,
       sameSite: "none",
+      maxAge: JWT_COOKIE_MAX_AGE_MS,
     });
 
     res.status(200).json({
@@ -207,13 +221,16 @@ export const adminlogin = async (req, res) => {
         ...(teacherId ? { teacherId } : {}),
       },
     };
-    const authToken = jwt.sign(data, JWT_SECRET);
+    const authToken = jwt.sign(data, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+
+    await logLoginActivity({ req, user, roleName: role.name, statusCode: 200 });
 
     // Set token in cookies
     res.cookie("authToken", authToken, {
       httpOnly: true,
       secure: true,
       sameSite: "none",
+      maxAge: JWT_COOKIE_MAX_AGE_MS,
     });
 
     res.status(200).json({

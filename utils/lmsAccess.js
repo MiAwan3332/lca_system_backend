@@ -23,7 +23,11 @@ const FULL_ACCESS_ROLES = [
   "super admin",
   "Super Admin",
   "Super_Admin",
+  "super admin development",
+  "Super Admin Development",
   "secrateadmin",
+  "ceo",
+  "CEO",
 ];
 
 export const getRequestRole = (req) =>

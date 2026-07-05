@@ -1,4 +1,5 @@
 import Teacher from "../models/teachers.js";
+import Batch from "../models/batches.js";
 import User from "../models/users.js";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
@@ -94,7 +95,7 @@ export const addTeacher = async (req, res) => {
 };
 
 export const getTeachers = async (req, res) => {
-  const { query } = req.query;
+  const { query, search_field, batch_id } = req.query;
   try {
     if (isTeacherRole(req)) {
       const teacherId = await resolveTeacherId(req);
@@ -117,14 +118,39 @@ export const getTeachers = async (req, res) => {
     }
 
     const searchQuery = query ? query : "";
-    const teachers = await Teacher.paginate(
-      {
-        $or: [
+    const field = search_field || "all";
+    const filter = {};
+
+    if (searchQuery) {
+      if (field === "name") {
+        filter.name = { $regex: searchQuery, $options: "i" };
+      } else if (field === "email") {
+        filter.email = { $regex: searchQuery, $options: "i" };
+      } else if (field === "phone") {
+        filter.phone = { $regex: searchQuery, $options: "i" };
+      } else {
+        filter.$or = [
           { name: { $regex: searchQuery, $options: "i" } },
           { email: { $regex: searchQuery, $options: "i" } },
           { phone: { $regex: searchQuery, $options: "i" } },
-        ],
-      },
+        ];
+      }
+    }
+
+    if (batch_id) {
+      const batch = await Batch.findById(batch_id).select("teachers");
+      if (!batch) {
+        return res.status(200).json(buildEmptyPaginatedResponse(parseInt(req.query.limit, 10) || 10));
+      }
+      const teacherIds = (batch.teachers || []).map((teacher) => teacher._id || teacher);
+      filter._id = { $in: teacherIds };
+      if (teacherIds.length === 0) {
+        return res.status(200).json(buildEmptyPaginatedResponse(parseInt(req.query.limit, 10) || 10));
+      }
+    }
+
+    const teachers = await Teacher.paginate(
+      filter,
       {
         page: parseInt(req.query.page),
         limit: parseInt(req.query.limit),

@@ -49,10 +49,26 @@ export const notifyBatchStudents = async ({
 
 export const markNotificationRead = async (notificationId, studentId, userId) => {
   const filter = { _id: notificationId };
-  if (studentId) filter.recipient_student = studentId;
-  if (userId) filter.recipient_user = userId;
+  if (studentId) {
+    filter.recipient_student = studentId;
+  } else if (userId) {
+    filter.recipient_user = userId;
+  }
   return Notification.findOneAndUpdate(
     filter,
+    { is_read: true, read_at: new Date() },
+    { new: true }
+  );
+};
+
+export const markAnnouncementReadForStudent = async (studentId, announcementId) => {
+  if (!studentId || !announcementId) return null;
+  return Notification.findOneAndUpdate(
+    {
+      recipient_student: studentId,
+      type: "announcement",
+      entity_id: announcementId,
+    },
     { is_read: true, read_at: new Date() },
     { new: true }
   );

@@ -164,6 +164,7 @@ export const getTimeTableByStudentId = async (req, res) => {
 
 export const getAllTimeTables = async (req, res) => {
   try {
+      const { batch_id, course_id, teacher_id } = req.query;
       let filter = {};
 
       if (isStudentRole(req)) {
@@ -184,6 +185,10 @@ export const getAllTimeTables = async (req, res) => {
         filter.course = { $in: scope.courseIds };
         filter.teacher = teacherId;
       }
+
+      if (batch_id) filter.batch = batch_id;
+      if (course_id) filter.course = course_id;
+      if (teacher_id) filter.teacher = teacher_id;
 
       const timeTables = await TimeTable.find(filter).populate("batch").populate("course").populate("teacher");
 
