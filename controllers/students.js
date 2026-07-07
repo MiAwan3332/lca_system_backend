@@ -223,6 +223,233 @@ export const addStudent = async (req, res) => {
   }
 };
 
+const DEFAULT_STUDENT_PASSWORD = "lca@123456";
+
+const validateStudentImportRow = (row, rowNumber) => {
+  const name = String(row?.name ?? "").trim();
+  const email = String(row?.email ?? "").trim().toLowerCase();
+  const phone = String(row?.phone ?? "").trim();
+  const totalFee = Number(row?.total_fee);
+  const paidFee = Number(row?.paid_fee);
+  const pendingFee = Number(row?.pending_fee);
+
+  if (!name) {
+    throw new Error("Name is required");
+  }
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("Valid email is required");
+  }
+  if (!phone) {
+    throw new Error("Phone number is required");
+  }
+  if (!Number.isFinite(totalFee) || totalFee < 0) {
+    throw new Error("Total fee must be a valid non-negative number");
+  }
+  if (!Number.isFinite(paidFee) || paidFee < 0) {
+    throw new Error("Paid amount must be a valid non-negative number");
+  }
+  if (!Number.isFinite(pendingFee) || pendingFee < 0) {
+    throw new Error("Pending amount must be a valid non-negative number");
+  }
+  if (paidFee > totalFee) {
+    throw new Error("Paid amount cannot exceed total fee");
+  }
+  if (Math.abs(pendingFee - (totalFee - paidFee)) > 0.01) {
+    throw new Error("Pending amount must equal total fee minus paid amount");
+  }
+
+  return {
+    name,
+    email,
+    phone,
+    totalFee,
+    paidFee,
+    pendingFee,
+    remarks: String(row?.remarks ?? "").trim(),
+    rowNumber,
+  };
+};
+
+const importStudentFromRow = async ({
+  row,
+  batchId,
+  batchRecord,
+  actionUserId,
+}) => {
+  const validated = validateStudentImportRow(row, row.excelRow || row.rowNumber);
+
+  const existingStudent = await Student.findOne({ email: validated.email });
+  if (existingStudent) {
+    throw new Error("Email already exists for a student");
+  }
+
+  if (await User.findOne({ email: validated.email })) {
+    throw new Error("Email already exists for a user");
+  }
+
+  const rollNumber = await getNextStudentRollNumber({
+    batchId: batchRecord._id,
+    batchName: batchRecord.name,
+  });
+
+  const hashedPassword = await bcrypt.hash(DEFAULT_STUDENT_PASSWORD, 10);
+  const admissionDate = new Date();
+
+  let newUser = null;
+  let newStudent = null;
+
+  try {
+    newUser = await new User({
+      name: validated.name,
+      email: validated.email,
+      password: hashedPassword,
+      role: "student",
+    }).save();
+
+    newStudent = await new Student({
+      roll_number: rollNumber,
+      name: validated.name,
+      email: validated.email,
+      phone: validated.phone,
+      admission_date: admissionDate,
+      batch: batchId,
+      remarks: validated.remarks,
+      total_fee: validated.totalFee,
+      paid_fee: validated.paidFee,
+      pending_fee: validated.pendingFee,
+      password: hashedPassword,
+      cnic: "",
+      date_of_birth: "",
+      father_name: "",
+      father_phone: "",
+      latest_degree: "",
+      university: "",
+      city: "",
+      completion_year: "",
+      marks_cgpa: "",
+      cnic_image: "",
+      cnic_back_image: "",
+      image: "",
+    }).save();
+
+    await generateQrCode(newStudent._id);
+
+    if (validated.totalFee > 0) {
+      const isPartialPayment =
+        validated.paidFee > 0 && validated.paidFee < validated.totalFee;
+      const nextInstallmentDate = isPartialPayment
+        ? moment().add(30, "days").format("YYYY-MM-DD")
+        : undefined;
+
+      await createStudentAdmissionFee({
+        studentId: newStudent._id,
+        batchId,
+        totalFee: validated.totalFee,
+        payingNow: validated.paidFee,
+        actionUserId,
+        paymentMethod: validated.paidFee > 0 ? "Cash" : undefined,
+        nextInstallmentDate,
+      });
+    }
+
+    return newStudent;
+  } catch (error) {
+    if (newStudent?._id) {
+      await Student.findByIdAndDelete(newStudent._id);
+    }
+    if (newUser?._id) {
+      await User.findByIdAndDelete(newUser._id);
+    }
+    throw error;
+  }
+};
+
+export const bulkImportStudents = async (req, res) => {
+  const { batch_id: batchId, students } = req.body;
+
+  if (!batchId) {
+    return res.status(400).json({ message: "Batch is required" });
+  }
+
+  if (!Array.isArray(students) || students.length === 0) {
+    return res.status(400).json({ message: "No students provided for import" });
+  }
+
+  if (students.length > 500) {
+    return res.status(400).json({ message: "Maximum 500 students can be imported at once" });
+  }
+
+  if (isStudentRole(req)) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  try {
+    const batchRecord = await Batch.findById(batchId);
+    if (!batchRecord) {
+      return res.status(400).json({ message: "Selected batch not found" });
+    }
+    if (batchRecord.is_active === false) {
+      return res.status(400).json({ message: "Selected batch is inactive" });
+    }
+
+    if (!(await canAccessBatch(req, batchId))) {
+      return res.status(403).json({ message: "You do not have access to this batch" });
+    }
+
+    const actionUserId = req.user?.user?.id;
+    const results = {
+      imported: 0,
+      failed: [],
+      imported_students: [],
+    };
+
+    const seenEmails = new Set();
+
+    for (let index = 0; index < students.length; index += 1) {
+      const row = students[index];
+      const rowNumber = row.excelRow || index + 2;
+
+      try {
+        const email = String(row?.email ?? "").trim().toLowerCase();
+        if (seenEmails.has(email)) {
+          throw new Error("Duplicate email in import file");
+        }
+        seenEmails.add(email);
+
+        const newStudent = await importStudentFromRow({
+          row: { ...row, excelRow: rowNumber },
+          batchId,
+          batchRecord,
+          actionUserId,
+        });
+
+        results.imported += 1;
+        results.imported_students.push({
+          row: rowNumber,
+          name: newStudent.name,
+          email: newStudent.email,
+          roll_number: newStudent.roll_number,
+        });
+      } catch (error) {
+        results.failed.push({
+          row: rowNumber,
+          email: row?.email || "",
+          message: error.message,
+        });
+      }
+    }
+
+    res.status(200).json({
+      message: `Imported ${results.imported} of ${students.length} students`,
+      batch_id: batchId,
+      batch_name: batchRecord.name,
+      ...results,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 export const getStudents = async (req, res) => {
   const {
     query,
