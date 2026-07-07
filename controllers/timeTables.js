@@ -3,8 +3,6 @@ import Student from "../models/students.js";
 import jwt from "jsonwebtoken";
 import fs from "fs";
 import dotenv from "dotenv";
-import { storage } from "../utils/firebase.js";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import moment from "moment-timezone";
 dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET;
