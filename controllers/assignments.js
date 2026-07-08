@@ -45,7 +45,7 @@ const uploadAssignmentFiles = async (files = []) => {
     await uploadFile(file, fileName, `${filesStoragePath}/assignments/attachments`);
     uploaded.push({
       file_name: file.name,
-      file_url: `${filesStorageUrl}/assignments/attachments/${fileName}`,
+      file_url: `${filesStorageUrl}/files/assignments/attachments/${fileName}`,
       file_type: file.mimetype,
       file_size: file.size,
     });
@@ -67,7 +67,7 @@ const uploadSubmissionFiles = async (files = [], studentId) => {
     );
     uploaded.push({
       file_name: file.name,
-      file_url: `${filesStorageUrl}/assignments/submissions/${studentId}/${fileName}`,
+      file_url: `${filesStorageUrl}/files/assignments/submissions/${studentId}/${fileName}`,
       file_type: file.mimetype,
       file_size: file.size,
     });

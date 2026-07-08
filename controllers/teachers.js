@@ -75,12 +75,12 @@ export const addTeacher = async (req, res) => {
 
     // update the name of compressed image
     const newImageFileName = `avatar_${newTeacher._id}.jpeg`;
-    renameFile(`${filesStoragePath}/teachers/avatars/${imageWebpFileName}`, `${filesStoragePath}/teachers/avatars/${newImageFileName}`);
+    await renameFile(`${filesStoragePath}/teachers/avatars/${imageWebpFileName}`, `${filesStoragePath}/teachers/avatars/${newImageFileName}`);
     teacher.image = `${filesStorageUrl}/files/teachers/avatars/${newImageFileName}`
 
     // update the name of resume
     const newResumeFileName = `resume_${newTeacher._id}${resumeFileExt}`;
-    renameFile(`${filesStoragePath}/teachers/resumes/${resumeFileName}`, `${filesStoragePath}/teachers/resumes/${newResumeFileName}`);
+    await renameFile(`${filesStoragePath}/teachers/resumes/${resumeFileName}`, `${filesStoragePath}/teachers/resumes/${newResumeFileName}`);
     teacher.resume = `${filesStorageUrl}/files/teachers/resumes/${newResumeFileName}`
     if (linkedUser) {
       teacher.user = linkedUser._id;
