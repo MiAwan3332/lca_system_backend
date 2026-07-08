@@ -1,5 +1,12 @@
 import User from "../models/users.js";
 import Student from "../models/students.js";
+import Teacher from "../models/teachers.js";
+import {
+  isStudentRole,
+  denyUnlessOwnStudent,
+  INACTIVE_STUDENT_MESSAGE,
+} from "../utils/studentScope.js";
+import { isTeacherRole } from "../utils/lmsAccess.js";
 import { addEmailToQueue } from "../utils/emailQueue.js";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
@@ -14,6 +21,8 @@ const DEFAULT_AVATAR =
 import Role from "../models/roles.js";
 import Permission from "../models/permissions.js";
 import { compressImage, uploadFile } from "../utils/fileStorage.js";
+import { JWT_EXPIRES_IN, JWT_COOKIE_MAX_AGE_MS } from "../utils/jwtConfig.js";
+import { logLoginActivity } from "../utils/activityLogger.js";
 
 export const register = async (req, res) => {
   const { name, email, password, role } = req.body;
@@ -32,12 +41,32 @@ export const register = async (req, res) => {
     });
     await newUser.save();
     const data = { user: { id: newUser._id } };
-    const authToken = jwt.sign(data, JWT_SECRET);
+    const authToken = jwt.sign(data, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
     res.status(200).json({ authToken });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
+};
+
+const resolveTeacherLoginContext = async (user) => {
+  const teacher = await Teacher.findOne({
+    $or: [{ user: user._id }, { email: user.email }],
+  });
+
+  if (!teacher) {
+    return { teacherId: null, teacherData: null };
+  }
+
+  if (!teacher.user) {
+    teacher.user = user._id;
+    await teacher.save();
+  }
+
+  return {
+    teacherId: teacher._id,
+    teacherData: teacher.toObject(),
+  };
 };
 
 export const login = async (req, res) => {
@@ -67,37 +96,60 @@ export const login = async (req, res) => {
       _id: { $in: role.permissions },
     });
 
-    // Create a JWT token with user ID and role
+    let studentData = null;
+    let check = 1;
+    let studentId = null;
+    let teacherId = null;
+    let teacherData = null;
+
+    if (role.name === "student") {
+      const student = await Student.findOne({ email: user.email }).populate("batch");
+      if (!student) {
+        return res.status(403).json({
+          message: "Student account not found. Please contact Lahore CSS Academy.",
+        });
+      }
+      if (student.is_active === false) {
+        return res.status(403).json({
+          message: INACTIVE_STUDENT_MESSAGE,
+        });
+      }
+      studentId = student._id;
+      studentData = student.toObject();
+      const hasEmptyFields = Object.values(studentData).some(
+        (field) => field === "" || field === null || field === undefined
+      );
+      if (hasEmptyFields) {
+        check = 0;
+      }
+    }
+
+    if (role.name === "teacher") {
+      const teacherContext = await resolveTeacherLoginContext(user);
+      teacherId = teacherContext.teacherId;
+      teacherData = teacherContext.teacherData;
+    }
+
     const data = {
       user: {
         id: user._id,
         role: role.name,
         permissions: permissions.map((permission) => permission.name),
+        ...(studentId ? { studentId } : {}),
+        ...(teacherId ? { teacherId } : {}),
       },
     };
-    const authToken = jwt.sign(data, JWT_SECRET);
+    const authToken = jwt.sign(data, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+
+    await logLoginActivity({ req, user, roleName: role.name, statusCode: 200 });
 
     // Set token in cookies
     res.cookie("authToken", authToken, {
       httpOnly: true,
       secure: true,
       sameSite: "none",
+      maxAge: JWT_COOKIE_MAX_AGE_MS,
     });
-
-    let studentData = null;
-    let check = 1;
-    if (role.name === "student") {
-      const student = await Student.findOne({ email: user.email });
-      if (student) {
-        studentData = student.toObject(); // Convert the Mongoose document to a plain JavaScript object
-        const hasEmptyFields = Object.values(studentData).some(
-          (field) => field === "" || field === null || field === undefined
-        );
-        if (hasEmptyFields) {
-          check = 0;
-        }
-      }
-    }
 
     res.status(200).json({
       authToken,
@@ -105,6 +157,9 @@ export const login = async (req, res) => {
       role: role.name,
       check,
       studentData,
+      studentId,
+      teacherId,
+      teacherData,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -140,24 +195,10 @@ export const adminlogin = async (req, res) => {
       _id: { $in: role.permissions },
     });
 
-    // Create a JWT token with user ID and role
-    const data = {
-      user: {
-        id: user._id,
-        role: role.name,
-        permissions: permissions.map((permission) => permission.name),
-      },
-    };
-    const authToken = jwt.sign(data, JWT_SECRET);
-
-    // Set token in cookies
-    res.cookie("authToken", authToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-    });
-
     let studentId;
+    let teacherId;
+    let teacherData = null;
+
     if (role.name === "student") {
       const student = await Student.findOne({ email: user.email });
       if (student) {
@@ -165,11 +206,40 @@ export const adminlogin = async (req, res) => {
       }
     }
 
+    if (role.name === "teacher") {
+      const teacherContext = await resolveTeacherLoginContext(user);
+      teacherId = teacherContext.teacherId;
+      teacherData = teacherContext.teacherData;
+    }
+
+    const data = {
+      user: {
+        id: user._id,
+        role: role.name,
+        permissions: permissions.map((permission) => permission.name),
+        ...(studentId ? { studentId } : {}),
+        ...(teacherId ? { teacherId } : {}),
+      },
+    };
+    const authToken = jwt.sign(data, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+
+    await logLoginActivity({ req, user, roleName: role.name, statusCode: 200 });
+
+    // Set token in cookies
+    res.cookie("authToken", authToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+      maxAge: JWT_COOKIE_MAX_AGE_MS,
+    });
+
     res.status(200).json({
       authToken,
       permissions: permissions.map((permission) => permission.name),
       role: role.name,
       studentId,
+      teacherId,
+      teacherData,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -179,6 +249,46 @@ export const adminlogin = async (req, res) => {
 export const getUsers = async (req, res) => {
   const { query } = req.query;
   try {
+    if (isStudentRole(req)) {
+      const userId = req.user?.user?.id;
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      return res.status(200).json({
+        docs: [user],
+        totalDocs: 1,
+        limit: 1,
+        totalPages: 1,
+        page: 1,
+        pagingCounter: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
+        prevPage: null,
+        nextPage: null,
+      });
+    }
+
+    if (isTeacherRole(req)) {
+      const userId = req.user?.user?.id;
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      return res.status(200).json({
+        docs: [user],
+        totalDocs: 1,
+        limit: 1,
+        totalPages: 1,
+        page: 1,
+        pagingCounter: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
+        prevPage: null,
+        nextPage: null,
+      });
+    }
+
     let searchQuery = query ? query : "";
     const rolesToExclude = ["student", "secrateadmin"];
     const users = await User.paginate(
@@ -267,6 +377,10 @@ export const deleteUser = async (req, res) => {
 export const getUser = async (req, res) => {
   const { id } = req.params;
   try {
+    if (isStudentRole(req) && req.user?.user?.id !== id) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
     const user = await User.findById(id);
     if (!user) {
       return res.status(400).json({ message: "User does not exist" });

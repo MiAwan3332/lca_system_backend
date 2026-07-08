@@ -1,5 +1,16 @@
 import TimeTable from "../models/timeTables.js";
 import Student from "../models/students.js";
+import {
+  isStudentRole,
+  resolveStudentRecord,
+  denyUnlessOwnStudent,
+} from "../utils/studentScope.js";
+import {
+  isTeacherRole,
+  getTeacherScope,
+  resolveTeacherId,
+  canAccessCourse,
+} from "../utils/lmsAccess.js";
 import jwt from "jsonwebtoken";
 import fs from "fs";
 import dotenv from "dotenv";
@@ -109,6 +120,10 @@ export const getTimeTableByStudentId = async (req, res) => {
   const { id } = req.params;
 
   try {
+    if (!(await denyUnlessOwnStudent(req, res, id))) {
+      return;
+    }
+
     const student = await Student.findById(id);
 
     if (!student) {
@@ -147,7 +162,33 @@ export const getTimeTableByStudentId = async (req, res) => {
 
 export const getAllTimeTables = async (req, res) => {
   try {
-      const timeTables = await TimeTable.find().populate("batch").populate("course").populate("teacher");
+      const { batch_id, course_id, teacher_id } = req.query;
+      let filter = {};
+
+      if (isStudentRole(req)) {
+        const student = await resolveStudentRecord(req);
+        if (!student?.batch) {
+          return res.status(200).json([]);
+        }
+        filter.batch = student.batch._id || student.batch;
+      }
+
+      if (isTeacherRole(req)) {
+        const scope = await getTeacherScope(req);
+        const teacherId = await resolveTeacherId(req);
+        if (!scope?.batchIds?.length || !teacherId) {
+          return res.status(200).json([]);
+        }
+        filter.batch = { $in: scope.batchIds };
+        filter.course = { $in: scope.courseIds };
+        filter.teacher = teacherId;
+      }
+
+      if (batch_id) filter.batch = batch_id;
+      if (course_id) filter.course = course_id;
+      if (teacher_id) filter.teacher = teacher_id;
+
+      const timeTables = await TimeTable.find(filter).populate("batch").populate("course").populate("teacher");
 
       res.status(200).json(timeTables);
 

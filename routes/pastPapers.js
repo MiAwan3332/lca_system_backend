@@ -4,11 +4,11 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
-router.get('/',getAllPastPapers)
-router.get('/:id',getPastPaperById)
-router.post('/add',createPastPaper)
+router.get('/',auth,getAllPastPapers)
+router.get('/:id',auth,getPastPaperById)
+router.post('/add',auth,createPastPaper)
 router.post('/update/:id',auth,updatePastPaper)
-router.delete('/delete/:id',deletePastPaper)
-router.post('/pastPapers/papers',getPastPaperByCourseAndYear)
+router.delete('/delete/:id',auth,deletePastPaper)
+router.post('/pastPapers/papers',auth,getPastPaperByCourseAndYear)
 
 export default router

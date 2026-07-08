@@ -2,22 +2,78 @@ import Course from "../models/courses.js";
 import Student from "../models/students.js";
 import Batch from "../models/batches.js";
 import Enrollment from "../models/enrollments.js";
+import {
+  isStudentRole,
+  resolveStudentRecord,
+  denyUnlessOwnStudent,
+} from "../utils/studentScope.js";
+import {
+  isTeacherRole,
+  applyTeacherCourseFilter,
+  buildEmptyPaginatedResponse,
+} from "../utils/lmsAccess.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET;
 
 export const getCourses = async (req, res) => {
-  const { query } = req.query;
+  const { query, batch_id } = req.query;
   try {
+    if (isStudentRole(req)) {
+      const student = await resolveStudentRecord(req);
+      if (!student?.batch) {
+        return res.status(200).json(buildEmptyPaginatedResponse());
+      }
+
+      const batch = await Batch.findById(student.batch).populate("courses");
+      const courses = batch?.courses || [];
+
+      return res.status(200).json({
+        docs: courses,
+        totalDocs: courses.length,
+        limit: courses.length || 1,
+        totalPages: 1,
+        page: 1,
+        pagingCounter: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
+        prevPage: null,
+        nextPage: null,
+      });
+    }
+
     const searchQuery = query ? query : "";
+    const filter = {
+      $or: [
+        { name: { $regex: searchQuery, $options: "i" } },
+        { description: { $regex: searchQuery, $options: "i" } },
+      ],
+    };
+
+    if (isTeacherRole(req)) {
+      await applyTeacherCourseFilter(req, filter, "_id");
+    }
+
+    if (batch_id) {
+      const batch = await Batch.findById(batch_id).select("courses");
+      if (!batch) {
+        return res.status(200).json(buildEmptyPaginatedResponse(parseInt(req.query.limit, 10) || 10));
+      }
+      const courseIds = (batch.courses || []).map((course) => course._id || course);
+      filter._id = filter._id
+        ? { $in: courseIds.filter((id) => {
+            const allowed = filter._id.$in || [filter._id];
+            return allowed.some((allowedId) => String(allowedId) === String(id));
+          }) }
+        : { $in: courseIds };
+      if (filter._id.$in?.length === 0) {
+        return res.status(200).json(buildEmptyPaginatedResponse(parseInt(req.query.limit, 10) || 10));
+      }
+    }
+
     const courses = await Course.paginate(
-      {
-        $or: [
-          { name: { $regex: searchQuery, $options: "i" } },
-          { description: { $regex: searchQuery, $options: "i" } },
-        ],
-      },
+      filter,
       {
         page: parseInt(req.query.page),
         limit: parseInt(req.query.limit),
@@ -36,6 +92,18 @@ export const getCourse = async (req, res) => {
     if (!course) {
       return res.status(400).json({ message: "Course does not exist" });
     }
+
+    if (isStudentRole(req)) {
+      const student = await resolveStudentRecord(req);
+      const batch = student?.batch
+        ? await Batch.findById(student.batch._id || student.batch).populate("courses")
+        : null;
+      const allowedCourseIds = (batch?.courses || []).map((c) => c._id.toString());
+      if (!allowedCourseIds.includes(id)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+    }
+
     res.status(200).json(course);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -78,6 +146,10 @@ export const getBatchAndCourses = async (req, res) => {
   const { studentId } = req.params;
 
   try {
+    if (!(await denyUnlessOwnStudent(req, res, studentId))) {
+      return;
+    }
+
     const student = await Student.findById(studentId);
     if (!student) {
       return res.status(404).json({ message: "Student not found" });

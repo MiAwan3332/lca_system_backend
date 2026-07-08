@@ -15,7 +15,7 @@ router.delete('/delete/:id',auth, deleteUser);
 router.post('/avatar', auth, changeAvatar);
 router.post('/changePassword', auth, changePassword);
 router.post('/forgotPassword', forgotPassword);
-router.post('/resetPasswordForAllStudents', resetPasswordForAllStudents);
+router.post('/resetPasswordForAllStudents', auth, resetPasswordForAllStudents);
 
 
 export default router;

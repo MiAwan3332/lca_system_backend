@@ -4,12 +4,12 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
-router.post('/add', createTimeTable);
-router.put('/update/:id', updateTimeTable);
-router.get('/:id', getTimeTableById);
-router.get('/', getAllTimeTables);
+router.post('/add', auth, createTimeTable);
+router.put('/update/:id', auth, updateTimeTable);
+router.get('/:id', auth, getTimeTableById);
+router.get('/', auth, getAllTimeTables);
 router.post('/delete/:id',auth,deleteTimeTable);
-router.get('/get-time-table-by-student-id/:id', getTimeTableByStudentId);
-router.get('/today/get', getTodayTimeTables);
+router.get('/get-time-table-by-student-id/:id', auth, getTimeTableByStudentId);
+router.get('/today/get', auth, getTodayTimeTables);
 
 export default router

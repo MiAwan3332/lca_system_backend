@@ -4,6 +4,17 @@ import Student from "../models/students.js";
 import Course from "../models/courses.js";
 import TimeTable from "../models/timeTables.js";
 import Enrollment from "../models/enrollments.js";
+import {
+  isStudentRole,
+  resolveStudentId,
+  denyUnlessOwnStudent,
+} from "../utils/studentScope.js";
+import {
+  isTeacherRole,
+  applyTeacherBatchFilter,
+  applyTeacherCourseFilter,
+  buildEmptyPaginatedResponse,
+} from "../utils/lmsAccess.js";
 import moment from "moment-timezone";
 import mongoose from "mongoose";
 
@@ -94,14 +105,37 @@ export const createAttendence = async (req, res) => {
 };
 
 export const getAttendences = async (req, res) => {
-  const { query, course_id, batch_id, date } = req.query;
+  const { query, course_id, batch_id, date, start_date, end_date } = req.query;
   try {
     const searchQuery = query ? query : "";
 
     const filter = {};
+
+    if (isStudentRole(req)) {
+      const studentId = await resolveStudentId(req);
+      if (!studentId) {
+        return res.status(404).json({ message: "Student profile not found" });
+      }
+      filter.student = studentId;
+    }
+
     if (course_id) filter.course = course_id;
     if (batch_id) filter.batch = batch_id;
-    if (date) filter.date = date;
+    if (start_date || end_date) {
+      filter.date = {};
+      if (start_date) filter.date.$gte = start_date;
+      if (end_date) filter.date.$lte = end_date;
+    } else if (date) {
+      filter.date = date;
+    }
+
+    if (isTeacherRole(req)) {
+      await applyTeacherBatchFilter(req, filter, "batch");
+      await applyTeacherCourseFilter(req, filter, "course");
+      if (filter.batch?.$in?.length === 0 || filter.course?.$in?.length === 0) {
+        return res.status(200).json(buildEmptyPaginatedResponse(parseInt(req.query.limit, 10) || 10));
+      }
+    }
 
     const options = {
       page: parseInt(req.query.page, 10) || 1,
@@ -168,6 +202,10 @@ export const getAttendanceByStudentId = async (req, res) => {
 export const getTodayAttendenceByStudentId = async (req, res) => {
   const { student_id } = req.params;
   try {
+    if (!(await denyUnlessOwnStudent(req, res, student_id))) {
+      return;
+    }
+
     const attendence = await Attendence.find({
       student: student_id,
       date: moment().tz("Asia/Kolkata").format("YYYY-MM-DD"),

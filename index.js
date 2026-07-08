@@ -23,6 +23,15 @@ import mcqsRoutes from './routes/mcqs.js';
 import pastPaperRoutes from './routes/pastPapers.js';
 import feesRoutes from './routes/fees.js';
 import { serveStoredPublicFile } from './utils/fileStorage.js';
+import expensesRoutes from './routes/expenses.js';
+import quizRoutes from './routes/quiz.js';
+import assignmentRoutes from './routes/assignments.js';
+import courseQuizRoutes from './routes/courseQuizzes.js';
+import notificationRoutes from './routes/notifications.js';
+import complaintRoutes from './routes/complaints.js';
+import announcementRoutes from './routes/announcements.js';
+import activityLogRoutes from './routes/activityLogs.js';
+import { startInstallmentReminderScheduler } from './utils/feeInstallmentReminders.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -52,10 +61,21 @@ app.use('/statistics', statisticsRoutes);
 app.use('/mcqs', mcqsRoutes);
 app.use('/pastPapers', pastPaperRoutes);
 app.use('/fees', feesRoutes);
+app.use('/expenses', expensesRoutes);
+app.use('/quiz', quizRoutes);
+app.use('/assignments', assignmentRoutes);
+app.use('/course-quizzes', courseQuizRoutes);
+app.use('/notifications', notificationRoutes);
+app.use('/complaints', complaintRoutes);
+app.use('/announcements', announcementRoutes);
+app.use('/activity-logs', activityLogRoutes);
 
 const CONNECTION_URL = process.env.MONGO_URI;
 const PORT = process.env.PORT || 5000;
 
 mongoose.connect(CONNECTION_URL)
-    .then(() => app.listen(PORT, () => console.log(`Server Running on Port: http://localhost:${PORT}`)))
+    .then(() => {
+        app.listen(PORT, () => console.log(`Server Running on Port: http://localhost:${PORT}`));
+        startInstallmentReminderScheduler();
+    })
     .catch((error) => console.error(`Error connecting to the database: ${error.message}`));

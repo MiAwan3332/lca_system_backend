@@ -22,7 +22,15 @@ const feeLogSchema = mongoose.Schema({
     student: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Student",
-    }
+    },
+    payment_method: {
+        type: String,
+        enum: ["Cash", "Online"],
+    },
+    payment_evidence: {
+        type: String,
+        default: "",
+    },
 });
 
 feeLogSchema.plugin(mongoosePaginate);

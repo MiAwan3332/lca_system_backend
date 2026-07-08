@@ -10,8 +10,8 @@ router.get('/:id',auth,getSeminar)
 router.post('/add',auth,addSeminar);
 router.post('/update/:id',auth,updateSeminar);
 router.delete('/delete/:id',auth,deleteSeminar);
-router.get('/seminar/today',getTodaySeminars);
-router.get('/seminar/getSeminarAttendees',getSeminarsWithAttendeeCounts);
-router.get('/seminar/getallSeminarwithAttendees',getallSeminarwithAttendees);
+router.get('/seminar/today',auth,getTodaySeminars);
+router.get('/seminar/getSeminarAttendees',auth,getSeminarsWithAttendeeCounts);
+router.get('/seminar/getallSeminarwithAttendees',auth,getallSeminarwithAttendees);
 
 export default router

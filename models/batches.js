@@ -8,6 +8,10 @@ const batchesSchema = mongoose.Schema({
   enddate: String,
   batch_fee: String,
   batch_type: String,
+  is_active: {
+    type: Boolean,
+    default: true,
+  },
   courses: [
     {
       type: mongoose.Schema.Types.ObjectId,
@@ -18,6 +22,18 @@ const batchesSchema = mongoose.Schema({
     {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Teacher",
+    },
+  ],
+  teacher_course_assignments: [
+    {
+      teacher: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Teacher",
+      },
+      course: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Course",
+      },
     },
   ],
 });
