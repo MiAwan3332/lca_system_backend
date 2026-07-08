@@ -1,0 +1,55 @@
+name: Update Parent Submodule
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: update-parent-backend-submodule
+  cancel-in-progress: false
+
+jobs:
+  update-parent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PARENT_REPO_TOKEN: ${{ secrets.PARENT_REPO_TOKEN }}
+
+    steps:
+      - name: Skip when parent repository token is not configured
+        if: ${{ env.PARENT_REPO_TOKEN == '' }}
+        run: |
+          echo "::warning::Skipping parent submodule update because PARENT_REPO_TOKEN is missing."
+
+      - name: Checkout parent repository
+        if: ${{ env.PARENT_REPO_TOKEN != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: MiAwan3332/lca_system
+          ref: main
+          token: ${{ env.PARENT_REPO_TOKEN }}
+          path: lca_system
+          submodules: false
+
+      - name: Update backend submodule pointer
+        if: ${{ env.PARENT_REPO_TOKEN != '' }}
+        working-directory: lca_system
+        env:
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git update-index --cacheinfo 160000 "$TARGET_SHA" lca_system_backend
+
+          if git diff --cached --quiet; then
+            echo "Parent repository already points at backend commit $TARGET_SHA"
+            exit 0
+          fi
+
+          git commit -m "Update backend submodule to ${TARGET_SHA:0:7}"
+          git push origin main
