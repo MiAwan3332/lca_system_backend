@@ -5,6 +5,7 @@ import mime from 'mime-types';
 import {
   CopyObjectCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -54,6 +55,23 @@ const toObjectKey = (filePath) => {
     .replace(/^\/+/, '');
 };
 
+const toPublicObjectKey = (publicPath) => {
+  const storageKeyPrefix = process.env.S3_KEY_PREFIX || 'files';
+  const normalizedPath = decodeURIComponent(publicPath)
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+
+  if (!normalizedPath || normalizedPath.includes('..')) {
+    throw new Error('Invalid file path');
+  }
+
+  if (normalizedPath === storageKeyPrefix || normalizedPath.startsWith(`${storageKeyPrefix}/`)) {
+    return normalizedPath;
+  }
+
+  return path.posix.join(storageKeyPrefix, normalizedPath);
+};
+
 const uploadObject = async (filePath) => {
   const client = getS3Client();
 
@@ -72,6 +90,42 @@ const uploadObject = async (filePath) => {
       ACL: process.env.S3_OBJECT_ACL || 'public-read',
     })
   );
+};
+
+export const serveStoredPublicFile = async (req, res, next) => {
+  const client = getS3Client();
+
+  if (!client) {
+    return next();
+  }
+
+  try {
+    const key = toPublicObjectKey(req.path);
+    const object = await client.send(
+      new GetObjectCommand({
+        Bucket: process.env.S3_BUCKET,
+        Key: key,
+      })
+    );
+
+    if (object.ContentType) {
+      res.setHeader('Content-Type', object.ContentType);
+    }
+
+    if (object.ContentLength) {
+      res.setHeader('Content-Length', object.ContentLength.toString());
+    }
+
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    object.Body.on('error', next);
+    object.Body.pipe(res);
+  } catch (error) {
+    if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
+      return res.status(404).send('File not found');
+    }
+
+    next(error);
+  }
 };
 
 const deleteObject = async (filePath) => {

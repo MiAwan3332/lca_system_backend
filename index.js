@@ -22,6 +22,7 @@ import statisticsRoutes from './routes/statistics.js';
 import mcqsRoutes from './routes/mcqs.js';
 import pastPaperRoutes from './routes/pastPapers.js';
 import feesRoutes from './routes/fees.js';
+import { serveStoredPublicFile } from './utils/fileStorage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -34,7 +35,7 @@ app.use(bodyParser.urlencoded({ limit: "30mb", extended: true }));
 app.use(fileUpload());
 app.use(cors());
 app.get("/", (req, res) => res.send("Express on Vercel"));
-app.use('/public', express.static(join(__dirname, 'public')));
+app.use('/public', express.static(join(__dirname, 'public')), serveStoredPublicFile);
 app.use('/users', usersRoutes);
 app.use('/courses', coursesRoutes);
 app.use('/teachers', teachersRoutes);
