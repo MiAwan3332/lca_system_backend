@@ -152,19 +152,70 @@ export const getBatch = async (req, res) => {
   }
 };
 
+const coerceBoolean = (value) => value === true || value === "true";
+
+const parseBatchSpecialFees = (body, isSpecialBatch) => {
+  if (!isSpecialBatch) {
+    return {
+      test_session: 0,
+      optional_revision: 0,
+      compulsory_revision: 0,
+    };
+  }
+
+  const fees = {
+    test_session: Number(body.test_session_fee ?? body.special_fee_options?.test_session) || 0,
+    optional_revision:
+      Number(body.optional_revision_fee ?? body.special_fee_options?.optional_revision) || 0,
+    compulsory_revision:
+      Number(body.compulsory_revision_fee ?? body.special_fee_options?.compulsory_revision) || 0,
+  };
+
+  const hasAtLeastOneFee = Object.values(fees).some((fee) => fee > 0);
+  if (!hasAtLeastOneFee) {
+    return {
+      error:
+        "Special batch requires at least one option fee greater than 0 (Test Session, Optional Revision, or Compulsory Revision)",
+    };
+  }
+
+  for (const [key, fee] of Object.entries(fees)) {
+    if (!Number.isFinite(fee) || fee < 0) {
+      return { error: `Invalid fee for ${key.replace(/_/g, " ")}` };
+    }
+  }
+
+  return { fees };
+};
+
 export const addBatch = async (req, res) => {
   if (denyUnlessInstitutionAdmin(req, res)) return;
 
-  const { name, description, batch_fee, batch_type, startdate, enddate } =
-    req.body;
+  const {
+    name,
+    description,
+    batch_fee,
+    batch_type,
+    startdate,
+    enddate,
+    is_special_batch,
+  } = req.body;
   try {
+    const isSpecialBatch = coerceBoolean(is_special_batch);
+    const parsedFees = parseBatchSpecialFees(req.body, isSpecialBatch);
+    if (parsedFees.error) {
+      return res.status(400).json({ message: parsedFees.error });
+    }
+
     const newBatch = new Batch({
       name,
       description,
-      batch_fee,
+      batch_fee: isSpecialBatch ? batch_fee || "0" : batch_fee,
       batch_type,
       startdate,
       enddate,
+      is_special_batch: isSpecialBatch,
+      special_fee_options: parsedFees.fees,
       is_active: true,
     });
     await newBatch.save();
@@ -178,21 +229,41 @@ export const updateBatch = async (req, res) => {
   if (denyUnlessInstitutionAdmin(req, res)) return;
 
   const { id } = req.params;
-  const { name, description, batch_fee, batch_type, startdate, enddate, is_active } =
-    req.body;
+  const {
+    name,
+    description,
+    batch_fee,
+    batch_type,
+    startdate,
+    enddate,
+    is_active,
+    is_special_batch,
+  } = req.body;
   try {
     const existingBatch = await Batch.findById(id);
     if (!existingBatch) {
       return res.status(404).json({ message: "Batch not found" });
     }
 
+    const isSpecialBatch =
+      is_special_batch !== undefined
+        ? coerceBoolean(is_special_batch)
+        : existingBatch.is_special_batch === true;
+
+    const parsedFees = parseBatchSpecialFees(req.body, isSpecialBatch);
+    if (parsedFees.error) {
+      return res.status(400).json({ message: parsedFees.error });
+    }
+
     const updatePayload = {
       name,
       description,
-      batch_fee,
+      batch_fee: isSpecialBatch ? batch_fee || "0" : batch_fee,
       batch_type,
       startdate,
       enddate,
+      is_special_batch: isSpecialBatch,
+      special_fee_options: parsedFees.fees,
     };
     let studentsDeactivated = 0;
     if (is_active !== undefined) {

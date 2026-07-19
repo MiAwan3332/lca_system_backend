@@ -905,7 +905,53 @@ export const getFinanceReport = async (req, res) => {
             description: log.description || "",
             fee_description: log.description || `${log.action_type || "Fee"} transaction`,
             due_date: log.fee?.due_date || null,
+            payment_method:
+                log.payment_method ||
+                (log.action_type === "Paid" ? "Cash" : null),
+            fee_status: log.fee?.status || null,
+            fee_pending_amount:
+                log.fee?.status === "Pending" ? Number(log.fee?.amount) || 0 : 0,
+            has_pending_dues:
+                log.fee?.status === "Pending" && Number(log.fee?.amount) > 0,
+        }));
+
+        const pendingFeeFilter = {
+            status: "Pending",
+            amount: { $gt: 0 },
+        };
+        if (batch_id) {
+            pendingFeeFilter.batch = batch_id;
+        }
+
+        const pendingFeeRecords = changed_by
+            ? []
+            : await Fee.find(pendingFeeFilter)
+                  .populate("student", "name _id email")
+                  .populate("batch", "name")
+                  .sort({ due_date: 1 })
+                  .limit(100);
+
+        const pendingDueTransactions = pendingFeeRecords.map((fee) => ({
+            _id: `pending-${fee._id}`,
+            type: "fee",
+            action_type: "Pending",
+            amount: fee.amount,
+            action_amount: fee.amount,
+            action_date: fee.due_date || fee._id?.getTimestamp?.() || new Date(),
+            action_by: "System",
+            student_name: fee.student?.name || "N/A",
+            student_id: fee.student?._id?.toString() || "N/A",
+            batch_name: fee.batch?.name || "N/A",
+            program: fee.batch?.name || "N/A",
+            title: null,
+            category: null,
+            description: "Outstanding pending fee balance",
+            fee_description: "Outstanding pending fee balance",
+            due_date: fee.due_date || null,
             payment_method: null,
+            fee_status: "Pending",
+            fee_pending_amount: Number(fee.amount) || 0,
+            has_pending_dues: true,
         }));
 
         const expenseTransactions = approvedExpenseRecords.map((expense) => ({
@@ -926,11 +972,18 @@ export const getFinanceReport = async (req, res) => {
             fee_description: expense.description || expense.title || "Approved expense",
             due_date: expense.expense_date || null,
             payment_method: expense.payment_method || "N/A",
+            fee_status: null,
+            fee_pending_amount: 0,
+            has_pending_dues: false,
         }));
 
-        const mergedTransactions = [...feeTransactions, ...expenseTransactions]
+        const mergedTransactions = [
+            ...feeTransactions,
+            ...pendingDueTransactions,
+            ...expenseTransactions,
+        ]
             .sort((a, b) => new Date(b.action_date) - new Date(a.action_date))
-            .slice(0, 100);
+            .slice(0, 150);
 
         res.status(200).json({
             period,

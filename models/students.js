@@ -41,6 +41,24 @@ const studentSchema = mongoose.Schema({
     type: Number,
     default: 0,
   },
+  is_special_batch: {
+    type: Boolean,
+    default: false,
+  },
+  special_fee_options: {
+    test_session: {
+      selected: { type: Boolean, default: false },
+      fee: { type: Number, default: 0 },
+    },
+    optional_revision: {
+      selected: { type: Boolean, default: false },
+      fee: { type: Number, default: 0 },
+    },
+    compulsory_revision: {
+      selected: { type: Boolean, default: false },
+      fee: { type: Number, default: 0 },
+    },
+  },
   profile_updated_once: {
     type: Boolean,
     default: false,

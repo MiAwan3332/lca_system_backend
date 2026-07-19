@@ -8,6 +8,8 @@ export async function createStudentAdmissionFee({
   batchId,
   totalFee,
   payingNow = 0,
+  discountAmount = 0,
+  discountDescription = "Discount applied on student admission",
   actionUserId,
   paymentMethod,
   paymentEvidence,
@@ -22,7 +24,16 @@ export async function createStudentAdmissionFee({
     throw new Error("Fee record already exists for this student and batch");
   }
 
-  const isPartialPayment = payingNow > 0 && payingNow < totalFee;
+  const discount = Number(discountAmount) || 0;
+  if (discount < 0) {
+    throw new Error("Discount cannot be negative");
+  }
+  if (discount > totalFee) {
+    throw new Error("Discount cannot be greater than total fee");
+  }
+
+  const netFee = Math.max(totalFee - discount, 0);
+  const isPartialPayment = payingNow > 0 && payingNow < netFee;
   let dueDate = moment().tz("Asia/Karachi").format("YYYY-MM-DD");
 
   if (isPartialPayment) {
@@ -52,6 +63,27 @@ export async function createStudentAdmissionFee({
     description: "Fee assigned on student admission",
   }).save();
 
+  if (discount > 0) {
+    const originalAmount = newFee.amount;
+    newFee.amount = Math.max(originalAmount - discount, 0);
+    if (newFee.amount <= 0) {
+      newFee.amount = 0;
+      newFee.status = "Paid";
+    }
+    await newFee.save();
+
+    await new FeeLog({
+      amount: originalAmount,
+      action_amount: discount,
+      action_date: new Date(),
+      action_type: "Discounted",
+      action_by: actionUserId,
+      fee: newFee._id,
+      student: studentId,
+      description: discountDescription || "Discount applied on student admission",
+    }).save();
+  }
+
   if (payingNow > 0) {
     await recordFeePayment({
       fee: newFee,
@@ -70,6 +102,8 @@ export async function createStudentAdmissionFee({
         await updatedFee.save();
       }
     }
+  } else if (discount > 0) {
+    await syncStudentFeeFromLogs(studentId);
   }
 
   return newFee;

@@ -5,7 +5,9 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "nodemon index.js"
+    "start": "nodemon index.js",
+    "reset-superadmin": "node scripts/resetSuperAdminPassword.js",
+    "backfill-roll-numbers": "node scripts/backfillRollNumbers.js"
   },
   "author": "Abdul Rafay",
   "license": "ISC",

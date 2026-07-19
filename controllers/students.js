@@ -23,14 +23,94 @@ import QRCode from "qrcode";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { compressImage, uploadFile } from "../utils/fileStorage.js";
-import { createStudentAdmissionFee } from "../utils/feePayment.js";
+import {
+  createStudentAdmissionFee,
+  syncStudentFeeFromLogs,
+} from "../utils/feePayment.js";
 import Fee from "../models/fees.js";
 import FeeLog from "../models/feeLogs.js";
+import PendingFeeSlip from "../models/pendingFeeSlips.js";
+import Enrollment from "../models/enrollments.js";
+import ActivityLog from "../models/activityLogs.js";
 import path from "path";
-import { getNextStudentRollNumber } from "../utils/studentRollNumber.js";
+import {
+  getNextStudentRollNumber,
+  backfillMissingRollNumbersForBatch,
+} from "../utils/studentRollNumber.js";
 dotenv.config();
 
+const PENDING_FEE_BLOCK_MESSAGE =
+  "This student has an outstanding fee balance. Please clear the pending dues before transferring the student to another batch.";
+
+const getSyncedPendingAmount = async (studentId) => {
+  await syncStudentFeeFromLogs(studentId);
+  const student = await Student.findById(studentId).select("pending_fee");
+  return Math.round(Math.max(Number(student?.pending_fee) || 0, 0));
+};
+
+const findPendingFeeSlipForAmount = async (studentId, pendingAmount) => {
+  return PendingFeeSlip.findOne({
+    student: studentId,
+    pending_amount: pendingAmount,
+  }).sort({ createdAt: -1 });
+};
+
+const buildPendingFeeBlockPayload = async (studentId, pendingAmount) => {
+  const existingSlip = await findPendingFeeSlipForAmount(
+    studentId,
+    pendingAmount
+  );
+  return {
+    code: "PENDING_FEE_BLOCK",
+    message: PENDING_FEE_BLOCK_MESSAGE,
+    pending_amount: pendingAmount,
+    student_id: studentId,
+    has_pending_fee_slip: Boolean(existingSlip),
+    slip_url: existingSlip?.slip_url || null,
+  };
+};
+
 // const crypto = require("crypto");
+
+const coerceBooleanFlag = (value) =>
+  value === true || value === "true" || value === "1" || value === 1;
+
+const parseSpecialFeeOptionsFromBatch = (body, batchRecord) => {
+  const batchFees = batchRecord.special_fee_options || {};
+  const selections = {
+    test_session: coerceBooleanFlag(body.special_test_session),
+    optional_revision: coerceBooleanFlag(body.special_optional_revision),
+    compulsory_revision: coerceBooleanFlag(body.special_compulsory_revision),
+  };
+
+  const selectedKeys = Object.keys(selections).filter((key) => selections[key]);
+
+  if (selectedKeys.length === 0) {
+    return {
+      error:
+        "Select at least one special batch option (Test Session, Optional Revision, or Compulsory Revision)",
+    };
+  }
+
+  const options = {
+    test_session: { selected: false, fee: 0 },
+    optional_revision: { selected: false, fee: 0 },
+    compulsory_revision: { selected: false, fee: 0 },
+  };
+
+  for (const key of selectedKeys) {
+    const fee = Number(batchFees[key]) || 0;
+    if (!Number.isFinite(fee) || fee <= 0) {
+      return {
+        error: `Selected option "${key.replace(/_/g, " ")}" has no fee configured on this batch`,
+      };
+    }
+    options[key] = { selected: true, fee };
+  }
+
+  const totalFee = selectedKeys.reduce((sum, key) => sum + options[key].fee, 0);
+  return { options, totalFee };
+};
 
 export const addStudent = async (req, res) => {
   const { name, email, phone, batch, remarks } = req.body;
@@ -49,6 +129,12 @@ export const addStudent = async (req, res) => {
     let batchRecord = null;
     let totalFee = 0;
     let rollNumber = "";
+    let isSpecialBatch = false;
+    let specialFeeOptions = {
+      test_session: { selected: false, fee: 0 },
+      optional_revision: { selected: false, fee: 0 },
+      compulsory_revision: { selected: false, fee: 0 },
+    };
 
     if (batch) {
       batchRecord = await Batch.findById(batch);
@@ -58,12 +144,42 @@ export const addStudent = async (req, res) => {
       if (batchRecord.is_active === false) {
         return res.status(400).json({ message: "Selected batch is inactive" });
       }
-      totalFee = Number(batchRecord.batch_fee) || 0;
+
+      isSpecialBatch = batchRecord.is_special_batch === true;
+
+      if (isSpecialBatch) {
+        const parsed = parseSpecialFeeOptionsFromBatch(req.body, batchRecord);
+        if (parsed.error) {
+          return res.status(400).json({ message: parsed.error });
+        }
+        specialFeeOptions = parsed.options;
+        totalFee = parsed.totalFee;
+      } else {
+        totalFee = Number(batchRecord.batch_fee) || 0;
+      }
+
       rollNumber = await getNextStudentRollNumber({
         batchId: batchRecord._id,
         batchName: batchRecord.name,
       });
     }
+
+    const grossFee = totalFee;
+    const discountAmount = Number(req.body.discount_amount) || 0;
+    const discountDescription =
+      String(req.body.discount_description || "").trim() ||
+      "Discount applied on student admission";
+
+    if (discountAmount < 0) {
+      return res.status(400).json({ message: "Discount cannot be negative" });
+    }
+    if (discountAmount > grossFee) {
+      return res.status(400).json({
+        message: `Discount cannot be greater than total fee (${grossFee} Rs.)`,
+      });
+    }
+
+    totalFee = Math.max(grossFee - discountAmount, 0);
 
     if (payingNow < 0) {
       return res.status(400).json({ message: "Paying now cannot be negative" });
@@ -73,7 +189,7 @@ export const addStudent = async (req, res) => {
       return res
         .status(400)
         .json({
-          message: `Paying amount cannot be greater than batch fee (${totalFee} Rs.)`,
+          message: `Paying amount cannot be greater than payable fee (${totalFee} Rs.)`,
         });
     }
 
@@ -138,6 +254,8 @@ export const addStudent = async (req, res) => {
       total_fee: totalFee,
       paid_fee: payingNow,
       pending_fee: pendingFee,
+      is_special_batch: isSpecialBatch,
+      special_fee_options: specialFeeOptions,
       password: hashedPassword, // Save the hashed password
       cnic: "",
       date_of_birth: "",
@@ -199,13 +317,15 @@ export const addStudent = async (req, res) => {
       }
     }
 
-    if (batch && totalFee > 0) {
+    if (batch && grossFee > 0) {
       const actionUserId = req.user?.user?.id;
       await createStudentAdmissionFee({
         studentId: newStudent._id,
         batchId: batch,
-        totalFee,
+        totalFee: grossFee,
         payingNow,
+        discountAmount,
+        discountDescription,
         actionUserId,
         paymentMethod: payingNow > 0 ? paymentMethod : undefined,
         paymentEvidence: paymentEvidenceUrl,
@@ -292,8 +412,12 @@ const importStudentFromRow = async ({
     batchName: batchRecord.name,
   });
 
+  if (!rollNumber) {
+    throw new Error("Failed to assign roll number");
+  }
+
   const hashedPassword = await bcrypt.hash(DEFAULT_STUDENT_PASSWORD, 10);
-  const admissionDate = new Date();
+  const admissionDate = new Date().toISOString();
 
   let newUser = null;
   let newStudent = null;
@@ -312,12 +436,11 @@ const importStudentFromRow = async ({
       email: validated.email,
       phone: validated.phone,
       admission_date: admissionDate,
-      batch: batchId,
+      batch: batchRecord._id,
       remarks: validated.remarks,
       total_fee: validated.totalFee,
       paid_fee: validated.paidFee,
       pending_fee: validated.pendingFee,
-      password: hashedPassword,
       cnic: "",
       date_of_birth: "",
       father_name: "",
@@ -331,6 +454,15 @@ const importStudentFromRow = async ({
       cnic_back_image: "",
       image: "",
     }).save();
+
+    // Ensure roll number is persisted (defensive against empty defaults)
+    if (!newStudent.roll_number) {
+      await Student.updateOne(
+        { _id: newStudent._id },
+        { $set: { roll_number: rollNumber } }
+      );
+      newStudent.roll_number = rollNumber;
+    }
 
     await generateQrCode(newStudent._id);
 
@@ -401,6 +533,7 @@ export const bulkImportStudents = async (req, res) => {
       imported: 0,
       failed: [],
       imported_students: [],
+      backfilled_roll_numbers: [],
     };
 
     const seenEmails = new Set();
@@ -418,17 +551,21 @@ export const bulkImportStudents = async (req, res) => {
 
         const newStudent = await importStudentFromRow({
           row: { ...row, excelRow: rowNumber },
-          batchId,
+          batchId: batchRecord._id,
           batchRecord,
           actionUserId,
         });
 
+        const savedStudent = await Student.findById(newStudent._id).select(
+          "name email roll_number"
+        );
+
         results.imported += 1;
         results.imported_students.push({
           row: rowNumber,
-          name: newStudent.name,
-          email: newStudent.email,
-          roll_number: newStudent.roll_number,
+          name: savedStudent?.name || newStudent.name,
+          email: savedStudent?.email || newStudent.email,
+          roll_number: savedStudent?.roll_number || newStudent.roll_number,
         });
       } catch (error) {
         results.failed.push({
@@ -438,6 +575,12 @@ export const bulkImportStudents = async (req, res) => {
         });
       }
     }
+
+    // Assign rolls to any students in this batch still missing one
+    results.backfilled_roll_numbers = await backfillMissingRollNumbersForBatch({
+      batchId: batchRecord._id,
+      batchName: batchRecord.name,
+    });
 
     res.status(200).json({
       message: `Imported ${results.imported} of ${students.length} students`,
@@ -521,6 +664,7 @@ export const getStudents = async (req, res) => {
           { email: regex },
           { phone: regex },
           { father_phone: regex },
+          { roll_number: regex },
         ];
       }
     }
@@ -560,7 +704,7 @@ export const getStudents = async (req, res) => {
       page: parseInt(req.query.page, 10) || 1,
       limit: parseInt(req.query.limit, 10) || 10,
       populate: ["batch"],
-      sort: { admission_date: -1 },
+      sort: { _id: -1 },
     });
 
     res.status(200).json(students);
@@ -605,6 +749,7 @@ export const getStudentsByBatch = async (req, res) => {
         page: parseInt(req.query.page),
         limit: parseInt(req.query.limit),
         populate: ["batch"],
+        sort: { _id: -1 },
       });
     res.status(200).json(students);
   } catch (error) {
@@ -659,6 +804,197 @@ export const getStudentPaymentLogs = async (req, res) => {
       },
       pending_fee_record: pendingFeeRecord,
       payment_logs: paymentLogs,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getStudentHistory = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    if (isStudentRole(req)) {
+      const ownId = await resolveStudentId(req);
+      if (!ownId || String(ownId) !== String(id)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+    }
+
+    const student = await Student.findById(id).populate(
+      "batch",
+      "name batch_fee is_active"
+    );
+    if (!student) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    await syncStudentFeeFromLogs(id);
+
+    const refreshedStudent = await Student.findById(id).populate(
+      "batch",
+      "name batch_fee is_active"
+    );
+
+    const [fees, enrollments, pendingFeeSlips, activityLogs] = await Promise.all([
+      Fee.find({ student: id })
+        .populate("batch", "name batch_fee is_active")
+        .sort({ _id: -1 }),
+      Enrollment.find({ student: id })
+        .populate("batch", "name batch_fee is_active")
+        .populate("courses", "name"),
+      PendingFeeSlip.find({ student: id })
+        .populate("generated_by", "name email")
+        .sort({ createdAt: -1 }),
+      ActivityLog.find({
+        $or: [
+          { actor_student: id },
+          { target_id: String(id), target_type: /student/i },
+        ],
+      })
+        .sort({ created_at: -1 })
+        .limit(50)
+        .populate("actor_user", "name email role"),
+    ]);
+
+    const feeIds = fees.map((fee) => fee._id);
+    const paymentLogs = await FeeLog.find({
+      $or: [
+        { student: id },
+        ...(feeIds.length ? [{ fee: { $in: feeIds } }] : []),
+      ],
+    })
+      .sort({ action_date: -1 })
+      .populate("action_by", "name email")
+      .populate({
+        path: "fee",
+        populate: { path: "batch", select: "name" },
+      });
+
+    const batchMap = new Map();
+
+    const upsertBatchHistory = (batchDoc, extras = {}) => {
+      if (!batchDoc?._id) return;
+      const key = String(batchDoc._id);
+      const existing = batchMap.get(key) || {
+        batch_id: batchDoc._id,
+        batch_name: batchDoc.name || "Unknown batch",
+        batch_fee: batchDoc.batch_fee || 0,
+        is_active: batchDoc.is_active !== false,
+        is_current: false,
+        sources: [],
+        fee_count: 0,
+        paid_amount: 0,
+        pending_amount: 0,
+        created_amount: 0,
+        first_seen_at: null,
+        last_seen_at: null,
+      };
+
+      if (extras.source && !existing.sources.includes(extras.source)) {
+        existing.sources.push(extras.source);
+      }
+      if (extras.is_current) existing.is_current = true;
+      if (extras.fee_count) existing.fee_count += extras.fee_count;
+      if (extras.paid_amount) existing.paid_amount += extras.paid_amount;
+      if (extras.pending_amount) existing.pending_amount += extras.pending_amount;
+      if (extras.created_amount) existing.created_amount += extras.created_amount;
+
+      const seenAt = extras.seen_at ? new Date(extras.seen_at) : null;
+      if (seenAt && !Number.isNaN(seenAt.getTime())) {
+        if (!existing.first_seen_at || seenAt < new Date(existing.first_seen_at)) {
+          existing.first_seen_at = seenAt;
+        }
+        if (!existing.last_seen_at || seenAt > new Date(existing.last_seen_at)) {
+          existing.last_seen_at = seenAt;
+        }
+      }
+
+      batchMap.set(key, existing);
+    };
+
+    if (refreshedStudent.batch) {
+      upsertBatchHistory(refreshedStudent.batch, {
+        source: "current",
+        is_current: true,
+        seen_at: refreshedStudent.admission_date || refreshedStudent._id.getTimestamp?.(),
+      });
+    }
+
+    for (const enrollment of enrollments) {
+      upsertBatchHistory(enrollment.batch, {
+        source: "enrollment",
+        seen_at: enrollment._id?.getTimestamp?.(),
+      });
+    }
+
+    const logsByFeeId = {};
+    for (const log of paymentLogs) {
+      const feeId = log.fee?._id ? String(log.fee._id) : log.fee ? String(log.fee) : null;
+      if (!feeId) continue;
+      if (!logsByFeeId[feeId]) logsByFeeId[feeId] = [];
+      logsByFeeId[feeId].push(log);
+    }
+
+    for (const fee of fees) {
+      const feeLogs = logsByFeeId[String(fee._id)] || [];
+      const paidAmount = feeLogs
+        .filter((log) => log.action_type === "Paid")
+        .reduce((sum, log) => sum + (Number(log.action_amount) || 0), 0);
+      const createdAmount = feeLogs
+        .filter((log) => log.action_type === "Created")
+        .reduce(
+          (sum, log) => sum + (Number(log.action_amount) || Number(log.amount) || 0),
+          0
+        );
+      const pendingAmount =
+        fee.status === "Pending" ? Number(fee.amount) || 0 : 0;
+
+      upsertBatchHistory(fee.batch, {
+        source: "fee",
+        fee_count: 1,
+        paid_amount: paidAmount,
+        pending_amount: pendingAmount,
+        created_amount: createdAmount,
+        seen_at: fee._id?.getTimestamp?.(),
+      });
+    }
+
+    const batchHistory = Array.from(batchMap.values()).sort((a, b) => {
+      if (a.is_current && !b.is_current) return -1;
+      if (!a.is_current && b.is_current) return 1;
+      const aTime = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0;
+      const bTime = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    const feesWithLogs = fees.map((fee) => ({
+      ...fee.toObject(),
+      logs: logsByFeeId[String(fee._id)] || [],
+    }));
+
+    const summary = {
+      total_fee: Number(refreshedStudent.total_fee) || 0,
+      paid_fee: Number(refreshedStudent.paid_fee) || 0,
+      pending_fee: Number(refreshedStudent.pending_fee) || 0,
+      fee_records: fees.length,
+      payment_events: paymentLogs.length,
+      batches_touched: batchHistory.length,
+      pending_fee_slips: pendingFeeSlips.length,
+      enrollments: enrollments.length,
+      activity_events: activityLogs.length,
+      is_active: refreshedStudent.is_active !== false,
+    };
+
+    res.status(200).json({
+      student: refreshedStudent,
+      summary,
+      batch_history: batchHistory,
+      fees: feesWithLogs,
+      payment_logs: paymentLogs,
+      enrollments,
+      pending_fee_slips: pendingFeeSlips,
+      activity_logs: activityLogs,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -1024,6 +1360,191 @@ export const checkStudentFields = async (req, res) => {
   }
 };
 
+export const transferStudentBatch = async (req, res) => {
+  const { id } = req.params;
+  const { batch } = req.body;
+
+  if (isStudentRole(req)) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  if (!batch) {
+    return res.status(400).json({ message: "Destination batch is required" });
+  }
+
+  try {
+    const student = await Student.findById(id);
+    if (!student) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    if (String(student.batch || "") === String(batch)) {
+      return res.status(400).json({
+        message: "Student is already assigned to this batch",
+      });
+    }
+
+    const batchRecord = await Batch.findById(batch);
+    if (!batchRecord) {
+      return res.status(400).json({ message: "Selected batch not found" });
+    }
+    if (batchRecord.is_active === false) {
+      return res.status(400).json({ message: "Selected batch is inactive" });
+    }
+
+    if (!(await canAccessBatch(req, batch))) {
+      return res.status(403).json({ message: "You do not have access to this batch" });
+    }
+
+    const pendingAmount = await getSyncedPendingAmount(id);
+    if (pendingAmount > 0) {
+      return res
+        .status(409)
+        .json(await buildPendingFeeBlockPayload(id, pendingAmount));
+    }
+
+    student.batch = batch;
+    await student.save();
+
+    const updatedStudent = await Student.findById(id).populate("batch");
+    res.status(200).json(updatedStudent);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getPendingFeeSlip = async (req, res) => {
+  const { id } = req.params;
+
+  if (isStudentRole(req)) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  try {
+    const student = await Student.findById(id);
+    if (!student) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    const pendingAmount = await getSyncedPendingAmount(id);
+    if (pendingAmount <= 0) {
+      return res.status(400).json({
+        message: "Student has no pending fee balance",
+        pending_amount: 0,
+      });
+    }
+
+    const existingSlip = await findPendingFeeSlipForAmount(id, pendingAmount);
+    if (!existingSlip) {
+      return res.status(404).json({
+        message: "No pending fee slip found for the current outstanding balance",
+        pending_amount: pendingAmount,
+        has_pending_fee_slip: false,
+      });
+    }
+
+    res.status(200).json({
+      slip_url: existingSlip.slip_url,
+      pending_amount: pendingAmount,
+      reused: true,
+      has_pending_fee_slip: true,
+      createdAt: existingSlip.createdAt,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getOrCreatePendingFeeSlip = async (req, res) => {
+  const { id } = req.params;
+
+  if (isStudentRole(req)) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  try {
+    const student = await Student.findById(id).populate("batch", "name");
+    if (!student) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    const pendingAmount = await getSyncedPendingAmount(id);
+    if (pendingAmount <= 0) {
+      return res.status(400).json({
+        message: "Student has no pending fee balance",
+        pending_amount: 0,
+      });
+    }
+
+    const existingSlip = await findPendingFeeSlipForAmount(id, pendingAmount);
+    if (existingSlip) {
+      return res.status(200).json({
+        slip_url: existingSlip.slip_url,
+        pending_amount: pendingAmount,
+        reused: true,
+        has_pending_fee_slip: true,
+        createdAt: existingSlip.createdAt,
+      });
+    }
+
+    const slipFile = req.files?.slip || req.files?.file;
+    if (!slipFile) {
+      return res.status(400).json({
+        code: "NEED_SLIP_FILE",
+        message: "Pending fee slip PDF is required to create a new slip",
+        pending_amount: pendingAmount,
+        has_pending_fee_slip: false,
+      });
+    }
+
+    const filesStorageUrl =
+      process.env.FILES_STORAGE_URL ||
+      `${req.protocol}://${req.get("host")}/public`;
+    const filesStoragePath =
+      process.env.FILES_STORAGE_PATH ||
+      path.resolve(process.cwd(), "public", "files");
+
+    const pendingFees = await Fee.find({
+      student: id,
+      status: "Pending",
+      amount: { $gt: 0 },
+    }).select("_id");
+
+    const fileExt = path.extname(slipFile.name) || ".pdf";
+    const fileName = `pending_fee_slip_${id}_${pendingAmount}_${Date.now()}${fileExt}`;
+    const folderPath = `${filesStoragePath}/students/pending-fee-slips`;
+    await uploadFile(slipFile, fileName, folderPath);
+
+    const slipUrl = `${filesStorageUrl}/files/students/pending-fee-slips/${fileName}`;
+    const actionUserId = req.user?.user?.id;
+
+    const createdSlip = await PendingFeeSlip.create({
+      student: id,
+      pending_amount: pendingAmount,
+      slip_url: slipUrl,
+      fee_ids: pendingFees.map((fee) => fee._id),
+      generated_by: actionUserId || undefined,
+    });
+
+    res.status(201).json({
+      slip_url: createdSlip.slip_url,
+      pending_amount: pendingAmount,
+      reused: false,
+      has_pending_fee_slip: true,
+      createdAt: createdSlip.createdAt,
+      student: {
+        _id: student._id,
+        name: student.name,
+        email: student.email,
+        roll_number: student.roll_number,
+        batch: student.batch,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 export const basicStudentUpdate = async (req, res) => {
   const { id } = req.params;
   const {
@@ -1079,8 +1600,28 @@ export const basicStudentUpdate = async (req, res) => {
         ) {
           return res.status(400).json({ message: "Selected batch is inactive" });
         }
+
+        const isBatchChanging = String(student.batch || "") !== String(batch);
+        if (isBatchChanging) {
+          const pendingAmount = await getSyncedPendingAmount(id);
+          if (pendingAmount > 0) {
+            return res
+              .status(409)
+              .json(await buildPendingFeeBlockPayload(id, pendingAmount));
+          }
+        }
+
         updateData.batch = batch;
       } else {
+        const isBatchChanging = Boolean(student.batch);
+        if (isBatchChanging) {
+          const pendingAmount = await getSyncedPendingAmount(id);
+          if (pendingAmount > 0) {
+            return res
+              .status(409)
+              .json(await buildPendingFeeBlockPayload(id, pendingAmount));
+          }
+        }
         updateData.batch = null;
       }
     }

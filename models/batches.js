@@ -8,6 +8,15 @@ const batchesSchema = mongoose.Schema({
   enddate: String,
   batch_fee: String,
   batch_type: String,
+  is_special_batch: {
+    type: Boolean,
+    default: false,
+  },
+  special_fee_options: {
+    test_session: { type: Number, default: 0 },
+    optional_revision: { type: Number, default: 0 },
+    compulsory_revision: { type: Number, default: 0 },
+  },
   is_active: {
     type: Boolean,
     default: true,

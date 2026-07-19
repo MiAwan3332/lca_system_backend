@@ -1,5 +1,29 @@
 import express from 'express';
-import { getStudent, getStudents, addStudent, bulkImportStudents, getStudentsContacts, updateStudent, deleteStudent, getQrCode, updateStudentinfo, checkStudentFields, basicStudentUpdate, getStudentsGraph, getStudentsByBatchesGraph, deleteAllStudents, getStudentsByBatch, changeStudentPassword, getStudentPaymentLogs, toggleStudentStatus, toggleBatchStudentsStatus } from '../controllers/students.js';
+import {
+  getStudent,
+  getStudents,
+  addStudent,
+  bulkImportStudents,
+  getStudentsContacts,
+  updateStudent,
+  deleteStudent,
+  getQrCode,
+  updateStudentinfo,
+  checkStudentFields,
+  basicStudentUpdate,
+  transferStudentBatch,
+  getPendingFeeSlip,
+  getOrCreatePendingFeeSlip,
+  getStudentsGraph,
+  getStudentsByBatchesGraph,
+  deleteAllStudents,
+  getStudentsByBatch,
+  changeStudentPassword,
+  getStudentPaymentLogs,
+  toggleStudentStatus,
+  toggleBatchStudentsStatus,
+  getStudentHistory,
+} from '../controllers/students.js';
 import auth from '../middlewares/auth.js';
 
 const router = express.Router();
@@ -12,6 +36,10 @@ router.post('/batch/:batchId/toggle-status', auth, toggleBatchStudentsStatus);
 router.post('/bulk-import', auth, bulkImportStudents);
 router.post('/toggle-status/:id', auth, toggleStudentStatus);
 router.get('/payment-logs/:id', auth, getStudentPaymentLogs);
+router.get('/history/:id', auth, getStudentHistory);
+router.post('/transfer-batch/:id', auth, transferStudentBatch);
+router.get('/pending-fee-slip/:id', auth, getPendingFeeSlip);
+router.post('/pending-fee-slip/:id', auth, getOrCreatePendingFeeSlip);
 router.get('/:id',auth,getStudent)
 router.post('/add',auth,addStudent);
 router.post('/update/:id',auth,updateStudent);
