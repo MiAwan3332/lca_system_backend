@@ -33,6 +33,11 @@ export const applyLatePenalty = (marks, assignment) => {
 
 export const isAssignmentVisibleToStudent = (assignment, now = new Date()) => {
   if (assignment.visibility_status !== "Published") return false;
+
+  if (!assignment.availability_date) return true;
+
   const availableFrom = new Date(assignment.availability_date);
+  if (Number.isNaN(availableFrom.getTime())) return true;
+
   return now >= availableFrom;
 };

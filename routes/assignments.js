@@ -11,11 +11,13 @@ import {
   getAssignmentSubmissions,
   gradeSubmission,
   getBatchCoursesForAssignment,
+  getMyAssignmentCourses,
 } from "../controllers/assignments.js";
 
 const router = express.Router();
 
 router.get("/", auth, getAssignments);
+router.get("/my-courses", auth, getMyAssignmentCourses);
 router.get("/batch/:batchId/courses", auth, getBatchCoursesForAssignment);
 router.get("/submissions/list", auth, getAssignmentSubmissions);
 router.get("/:id", auth, getAssignmentById);

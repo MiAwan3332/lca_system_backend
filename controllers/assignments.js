@@ -1,4 +1,5 @@
 import path from "path";
+import moment from "moment-timezone";
 import Assignment from "../models/assignments.js";
 import AssignmentSubmission from "../models/assignmentSubmissions.js";
 import Batch from "../models/batches.js";
@@ -34,6 +35,56 @@ const submissionPopulate = [
   { path: "student", select: "name email batch" },
   { path: "graded_by", select: "name email" },
 ];
+
+const DATETIME_FIELDS = [
+  "availability_date",
+  "submission_deadline",
+  "late_deadline",
+];
+
+const hasTimezoneInfo = (value) =>
+  /(?:Z|[+-]\d{2}:?\d{2})$/i.test(String(value).trim());
+
+const parseLocalDateTime = (value) => {
+  if (value == null || value === "") return undefined;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return undefined;
+
+  // ISO with timezone / Z: trust as absolute UTC instant
+  if (hasTimezoneInfo(raw)) {
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  }
+
+  // timezone-less datetime-local: interpret as Asia/Karachi wall time
+  const karachi = moment.tz(
+    raw,
+    ["YYYY-MM-DDTHH:mm", "YYYY-MM-DDTHH:mm:ss", "YYYY-MM-DD HH:mm", "YYYY-MM-DD"],
+    "Asia/Karachi"
+  );
+  if (karachi.isValid()) {
+    return karachi.toDate();
+  }
+
+  const fallback = new Date(raw);
+  return Number.isNaN(fallback.getTime()) ? undefined : fallback;
+};
+
+const clampAvailabilityToNowIfNeeded = (assignment) => {
+  const now = new Date();
+  if (!assignment.availability_date) {
+    assignment.availability_date = now;
+    return;
+  }
+  const availableFrom = new Date(assignment.availability_date);
+  if (Number.isNaN(availableFrom.getTime()) || availableFrom > now) {
+    assignment.availability_date = now;
+  }
+};
 
 const uploadAssignmentFiles = async (files = []) => {
   const filesStorageUrl = process.env.FILES_STORAGE_URL;
@@ -92,7 +143,54 @@ const parseAssignmentBody = (body) => {
   if (payload.late_penalty_percent) {
     payload.late_penalty_percent = Number(payload.late_penalty_percent);
   }
+  if (payload.visibility_status !== "Published") {
+    payload.visibility_status = "Draft";
+  }
+
+  DATETIME_FIELDS.forEach((field) => {
+    if (payload[field] === "" || payload[field] == null) {
+      if (field === "availability_date") {
+        payload.availability_date = new Date();
+      } else {
+        delete payload[field];
+      }
+      return;
+    }
+    const parsed = parseLocalDateTime(payload[field]);
+    if (parsed) {
+      payload[field] = parsed;
+    } else if (field === "availability_date") {
+      payload.availability_date = new Date();
+    } else {
+      delete payload[field];
+    }
+  });
+
+  if (!payload.availability_date) {
+    payload.availability_date = new Date();
+  }
   return payload;
+};
+
+const findDuplicateAssignment = async ({
+  title,
+  batch,
+  course,
+  excludeId = null,
+}) => {
+  const normalizedTitle = String(title || "").trim();
+  if (!normalizedTitle || !batch || !course) return null;
+
+  const filter = {
+    batch,
+    course,
+    title: { $regex: `^${normalizedTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
+  };
+  if (excludeId) {
+    filter._id = { $ne: excludeId };
+  }
+
+  return Assignment.findOne(filter).select("_id title");
 };
 
 export const createAssignment = async (req, res) => {
@@ -110,6 +208,18 @@ export const createAssignment = async (req, res) => {
       return res.status(403).json({ message: "You can only create assignments for your assigned courses" });
     }
 
+    const duplicate = await findDuplicateAssignment({
+      title: payload.title,
+      batch: payload.batch,
+      course: payload.course,
+    });
+    if (duplicate) {
+      return res.status(400).json({
+        message:
+          "Duplicate assignment is not allowed. An assignment with the same title already exists for this batch and course.",
+      });
+    }
+
     const newFiles = req.files?.attachments
       ? Array.isArray(req.files.attachments)
         ? req.files.attachments
@@ -119,9 +229,11 @@ export const createAssignment = async (req, res) => {
 
     const assignment = await Assignment.create({
       ...payload,
+      title: String(payload.title || "").trim(),
       attachments: [...(payload.attachments || []), ...attachments],
       created_by: req.user.user.id,
       status: payload.visibility_status === "Published" ? "Published" : "Draft",
+      visibility_status: payload.visibility_status === "Published" ? "Published" : "Draft",
       published_at: payload.visibility_status === "Published" ? new Date() : null,
     });
 
@@ -147,19 +259,80 @@ export const createAssignment = async (req, res) => {
 export const getAssignments = async (req, res) => {
   try {
     const filter = {};
-    const { batch_id, course_id, status, visibility_status, query } = req.query;
+    const {
+      batch_id,
+      course_id,
+      status,
+      visibility_status,
+      query,
+      start_date,
+      end_date,
+      submission_status,
+    } = req.query;
 
     if (batch_id) filter.batch = batch_id;
     if (course_id) filter.course = course_id;
     if (status) filter.status = status;
     if (visibility_status) filter.visibility_status = visibility_status;
 
+    let studentId = null;
+
     if (isStudentRole(req)) {
       const batchId = await getStudentBatchId(req);
-      if (!batchId) return res.status(200).json({ docs: [], totalDocs: 0 });
+      if (!batchId) {
+        return res.status(200).json({
+          docs: [],
+          totalDocs: 0,
+          page: 1,
+          limit: 10,
+          totalPages: 0,
+          message:
+            "No batch is assigned to your student account. Contact admin to assign a batch.",
+        });
+      }
       filter.batch = batchId;
+      // Students only see published assignments (visibility is the source of truth)
       filter.visibility_status = "Published";
-      filter.status = "Published";
+      // Ignore admin/teacher status / visibility query params for students
+      delete filter.status;
+
+      // Optional course filter — must belong to the student's batch
+      if (course_id) {
+        const allowed = await courseInBatch(batchId, course_id);
+        filter.course = allowed ? course_id : { $in: [] };
+      } else {
+        delete filter.course;
+      }
+
+      const now = new Date();
+      filter.$and = [
+        ...(filter.$and || []),
+        {
+          $or: [
+            { availability_date: { $exists: false } },
+            { availability_date: null },
+            { availability_date: { $lte: now } },
+          ],
+        },
+      ];
+
+      studentId = await resolveStudentId(req);
+
+      // Filter by this student's submission status
+      if (studentId && submission_status) {
+        if (submission_status === "Not Submitted") {
+          const submittedIds = await AssignmentSubmission.find({
+            student: studentId,
+          }).distinct("assignment");
+          filter._id = { ...(filter._id || {}), $nin: submittedIds };
+        } else {
+          const matchingIds = await AssignmentSubmission.find({
+            student: studentId,
+            status: submission_status,
+          }).distinct("assignment");
+          filter._id = { ...(filter._id || {}), $in: matchingIds };
+        }
+      }
     } else if (!canManageLmsContent(req)) {
       return res.status(403).json({ message: "Access denied" });
     } else if (isTeacherRole(req)) {
@@ -177,6 +350,28 @@ export const getAssignments = async (req, res) => {
       } else {
         filter.course = { $in: scope.courseIds };
       }
+    }
+
+    // Date range filter on submission deadline (assignments with a deadline)
+    if (start_date || end_date) {
+      const deadlineRange = {};
+      if (start_date) {
+        deadlineRange.$gte = moment
+          .tz(start_date, "YYYY-MM-DD", "Asia/Karachi")
+          .startOf("day")
+          .toDate();
+      }
+      if (end_date) {
+        deadlineRange.$lte = moment
+          .tz(end_date, "YYYY-MM-DD", "Asia/Karachi")
+          .endOf("day")
+          .toDate();
+      }
+      filter.$and = [
+        ...(filter.$and || []),
+        { has_deadline: true },
+        { submission_deadline: deadlineRange },
+      ];
     }
 
     if (query) {
@@ -200,6 +395,41 @@ export const getAssignments = async (req, res) => {
       assignments.docs = assignments.docs.filter((item) =>
         isAssignmentVisibleToStudent(item)
       );
+
+      if (studentId && assignments.docs.length > 0) {
+        const assignmentIds = assignments.docs.map((item) => item._id);
+        const mySubs = await AssignmentSubmission.find({
+          student: studentId,
+          assignment: { $in: assignmentIds },
+        }).sort({ attempt_number: -1 });
+
+        const latestByAssignment = new Map();
+        mySubs.forEach((sub) => {
+          const key = String(sub.assignment);
+          if (!latestByAssignment.has(key)) {
+            latestByAssignment.set(key, sub);
+          }
+        });
+
+        assignments.docs = assignments.docs.map((item) => {
+          const plain = item.toObject ? item.toObject() : item;
+          const mySubmission = latestByAssignment.get(String(plain._id)) || null;
+          return {
+            ...plain,
+            my_submission: mySubmission,
+            student_status: mySubmission?.status || "Not Submitted",
+          };
+        });
+      } else {
+        assignments.docs = assignments.docs.map((item) => {
+          const plain = item.toObject ? item.toObject() : item;
+          return {
+            ...plain,
+            my_submission: null,
+            student_status: "Not Submitted",
+          };
+        });
+      }
     }
 
     res.status(200).json(assignments);
@@ -245,6 +475,19 @@ export const updateAssignment = async (req, res) => {
       return res.status(403).json({ message: "You can only update assignments for your assigned courses" });
     }
 
+    const duplicate = await findDuplicateAssignment({
+      title: payload.title || assignment.title,
+      batch: targetBatch,
+      course: targetCourse,
+      excludeId: assignment._id,
+    });
+    if (duplicate) {
+      return res.status(400).json({
+        message:
+          "Duplicate assignment is not allowed. An assignment with the same title already exists for this batch and course.",
+      });
+    }
+
     const newFiles = req.files?.attachments
       ? Array.isArray(req.files.attachments)
         ? req.files.attachments
@@ -254,20 +497,30 @@ export const updateAssignment = async (req, res) => {
 
     const wasDraft = assignment.visibility_status !== "Published";
     Object.assign(assignment, payload);
+    if (payload.title) {
+      assignment.title = String(payload.title).trim();
+    }
     if (payload.attachments || attachments.length) {
       assignment.attachments = [...(payload.attachments || assignment.attachments), ...attachments];
     }
-    if (payload.visibility_status === "Published" && wasDraft) {
+    if (payload.visibility_status === "Published") {
+      assignment.visibility_status = "Published";
       assignment.status = "Published";
-      assignment.published_at = new Date();
-      await notifyBatchStudents({
-        batchId: assignment.batch,
-        type: "assignment_published",
-        title: "New Assignment Published",
-        message: `${assignment.title} is now available.`,
-        entityType: "assignment",
-        entityId: assignment._id,
-      });
+      if (wasDraft) {
+        assignment.published_at = new Date();
+        clampAvailabilityToNowIfNeeded(assignment);
+        await notifyBatchStudents({
+          batchId: assignment.batch,
+          type: "assignment_published",
+          title: "New Assignment Published",
+          message: `${assignment.title} is now available.`,
+          entityType: "assignment",
+          entityId: assignment._id,
+        });
+      }
+    } else if (payload.visibility_status === "Draft") {
+      assignment.visibility_status = "Draft";
+      assignment.status = "Draft";
     }
     await assignment.save();
     const populated = await Assignment.findById(assignment._id).populate(populateOptions);
@@ -314,6 +567,7 @@ export const publishAssignment = async (req, res) => {
     assignment.visibility_status = "Published";
     assignment.status = "Published";
     assignment.published_at = new Date();
+    clampAvailabilityToNowIfNeeded(assignment);
     await assignment.save();
 
     await notifyBatchStudents({
@@ -570,6 +824,27 @@ export const getBatchCoursesForAssignment = async (req, res) => {
     }
 
     res.status(200).json(courses);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/** Courses for the logged-in student's own batch (My Assignments filters). */
+export const getMyAssignmentCourses = async (req, res) => {
+  try {
+    if (!isStudentRole(req)) {
+      return res.status(403).json({ message: "Student access only" });
+    }
+
+    const batchId = await getStudentBatchId(req);
+    if (!batchId) {
+      return res.status(200).json([]);
+    }
+
+    const batch = await Batch.findById(batchId).populate("courses", "name description");
+    if (!batch) return res.status(200).json([]);
+
+    res.status(200).json(batch.courses || []);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
