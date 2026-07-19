@@ -18,10 +18,16 @@ export const addTeacher = async (req, res) => {
   if (denyUnlessInstitutionAdmin(req, res)) return;
 
   const { name, email, phone } = req.body;
-  const { image, resume } = req.files;
+  const files = req.files || {};
+  const image = files.image;
+  const resume = files.resume;
 
   try {
-    const existingTeacher = await Teacher.findOne({ email });
+    if (!name?.trim() || !email?.trim()) {
+      return res.status(400).json({ message: "Name and email are required" });
+    }
+
+    const existingTeacher = await Teacher.findOne({ email: email.trim() });
     if (existingTeacher) {
       return res.status(400).json({ message: "Email already exists" });
     }
@@ -29,43 +35,55 @@ export const addTeacher = async (req, res) => {
     const filesStorageUrl = process.env.FILES_STORAGE_URL;
     const filesStoragePath = process.env.FILES_STORAGE_PATH;
 
-    const emailStr = email.split("@")[0];
+    const emailStr = email.trim().split("@")[0];
+    let imageUrl = "";
+    let imageWebpFileName = "";
+    let resumeUrl = "";
+    let resumeFileExt = "";
 
-    const imageFile = image;
-    const imageFileExt = path.extname(imageFile.name);
-    const imageFileName = `avatar_${emailStr}${imageFileExt}`;
-    await uploadFile(imageFile, imageFileName, `${filesStoragePath}/teachers/avatars`);
-    const imageWebpFileName = `avatar_${emailStr}.jpeg`;
-    await compressImage(`${filesStoragePath}/teachers/avatars/${imageFileName}`, `${filesStoragePath}/teachers/avatars/${imageWebpFileName}`, 50);
-    const imageUrl = `${filesStorageUrl}/files/teachers/avatars/${imageFileName}`;
+    if (image) {
+      const imageFile = Array.isArray(image) ? image[0] : image;
+      const imageFileExt = path.extname(imageFile.name);
+      const imageFileName = `avatar_${emailStr}${imageFileExt}`;
+      await uploadFile(imageFile, imageFileName, `${filesStoragePath}/teachers/avatars`);
+      imageWebpFileName = `avatar_${emailStr}.jpeg`;
+      await compressImage(
+        `${filesStoragePath}/teachers/avatars/${imageFileName}`,
+        `${filesStoragePath}/teachers/avatars/${imageWebpFileName}`,
+        50
+      );
+      imageUrl = `${filesStorageUrl}/files/teachers/avatars/${imageFileName}`;
+    }
 
-    const resumeFile = resume;
-    const resumeFileExt = path.extname(resumeFile.name);
-    const resumeFileName = `resume_${emailStr}${resumeFileExt}`;
-    await uploadFile(resumeFile, resumeFileName, `${filesStoragePath}/teachers/resumes`);
-    const resumeUrl = `${filesStorageUrl}/files/teachers/resumes/${resumeFileName}`;
+    if (resume) {
+      const resumeFile = Array.isArray(resume) ? resume[0] : resume;
+      resumeFileExt = path.extname(resumeFile.name);
+      const resumeFileName = `resume_${emailStr}${resumeFileExt}`;
+      await uploadFile(resumeFile, resumeFileName, `${filesStoragePath}/teachers/resumes`);
+      resumeUrl = `${filesStorageUrl}/files/teachers/resumes/${resumeFileName}`;
+    }
 
     const newTeacher = new Teacher({
-      name,
-      email,
-      phone,
+      name: name.trim(),
+      email: email.trim(),
+      phone: phone?.trim() || "",
       resume: resumeUrl,
       image: imageUrl,
     });
     await newTeacher.save();
 
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: email.trim() });
     if (!existingUser) {
       const hashedPassword = await bcrypt.hash("lca@123456", 12);
       await User.create({
-        name,
-        email,
+        name: name.trim(),
+        email: email.trim(),
         password: hashedPassword,
         role: "teacher",
       });
     }
 
-    const linkedUser = await User.findOne({ email });
+    const linkedUser = await User.findOne({ email: email.trim() });
     if (linkedUser) {
       newTeacher.user = linkedUser._id;
     }
@@ -73,20 +91,30 @@ export const addTeacher = async (req, res) => {
     const { _id } = newTeacher;
     const teacher = await Teacher.findById(_id);
 
-    // update the name of compressed image
-    const newImageFileName = `avatar_${newTeacher._id}.jpeg`;
-    await renameFile(`${filesStoragePath}/teachers/avatars/${imageWebpFileName}`, `${filesStoragePath}/teachers/avatars/${newImageFileName}`);
-    teacher.image = `${filesStorageUrl}/files/teachers/avatars/${newImageFileName}`
+    if (imageWebpFileName) {
+      const newImageFileName = `avatar_${newTeacher._id}.jpeg`;
+      await renameFile(
+        `${filesStoragePath}/teachers/avatars/${imageWebpFileName}`,
+        `${filesStoragePath}/teachers/avatars/${newImageFileName}`
+      );
+      teacher.image = `${filesStorageUrl}/files/teachers/avatars/${newImageFileName}`;
+    }
 
-    // update the name of resume
-    const newResumeFileName = `resume_${newTeacher._id}${resumeFileExt}`;
-    await renameFile(`${filesStoragePath}/teachers/resumes/${resumeFileName}`, `${filesStoragePath}/teachers/resumes/${newResumeFileName}`);
-    teacher.resume = `${filesStorageUrl}/files/teachers/resumes/${newResumeFileName}`
+    if (resumeUrl && resumeFileExt) {
+      const oldResumeFileName = `resume_${emailStr}${resumeFileExt}`;
+      const newResumeFileName = `resume_${newTeacher._id}${resumeFileExt}`;
+      await renameFile(
+        `${filesStoragePath}/teachers/resumes/${oldResumeFileName}`,
+        `${filesStoragePath}/teachers/resumes/${newResumeFileName}`
+      );
+      teacher.resume = `${filesStorageUrl}/files/teachers/resumes/${newResumeFileName}`;
+    }
+
     if (linkedUser) {
       teacher.user = linkedUser._id;
     }
 
-    await teacher.save()
+    await teacher.save();
 
     res.status(200).json("Teacher added successfully");
   } catch (error) {
