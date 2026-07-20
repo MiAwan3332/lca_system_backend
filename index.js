@@ -31,6 +31,7 @@ import notificationRoutes from './routes/notifications.js';
 import complaintRoutes from './routes/complaints.js';
 import announcementRoutes from './routes/announcements.js';
 import activityLogRoutes from './routes/activityLogs.js';
+import googleRoutes from './routes/google.js';
 import { startInstallmentReminderScheduler } from './utils/feeInstallmentReminders.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -69,6 +70,7 @@ app.use('/notifications', notificationRoutes);
 app.use('/complaints', complaintRoutes);
 app.use('/announcements', announcementRoutes);
 app.use('/activity-logs', activityLogRoutes);
+app.use('/google', googleRoutes);
 
 const CONNECTION_URL = process.env.MONGO_URI;
 const PORT = process.env.PORT || 5000;

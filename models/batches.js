@@ -45,6 +45,13 @@ const batchesSchema = mongoose.Schema({
       },
     },
   ],
+  google_classroom_course_id: String,
+  google_classroom_course_url: String,
+  google_synced_by: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+  },
+  google_synced_at: Date,
 });
 
 batchesSchema.plugin(mongoosePaginate);

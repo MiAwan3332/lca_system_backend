@@ -61,6 +61,13 @@ const assignmentSchema = mongoose.Schema(
       ref: "User",
     },
     published_at: { type: Date },
+    google_classroom_coursework_id: String,
+    google_classroom_alternate_link: String,
+    google_synced_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    google_synced_at: Date,
   },
   { timestamps: true }
 );
