@@ -71,6 +71,7 @@ app.use('/complaints', complaintRoutes);
 app.use('/announcements', announcementRoutes);
 app.use('/activity-logs', activityLogRoutes);
 app.use('/google', googleRoutes);
+app.use('/api/google', googleRoutes);
 
 const CONNECTION_URL = process.env.MONGO_URI;
 const PORT = process.env.PORT || 5000;
