@@ -8,6 +8,7 @@ const TZ = "Asia/Karachi";
 const REMINDER_DAYS_BEFORE = 7;
 const ADMIN_ROLES = [
   "admin",
+  "administrator",
   "superadmin",
   "super_admin",
   "super admin",

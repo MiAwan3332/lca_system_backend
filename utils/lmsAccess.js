@@ -18,23 +18,38 @@ import {
 
 const FULL_ACCESS_ROLES = [
   "admin",
+  "administrator",
   "superadmin",
   "super_admin",
   "super admin",
-  "Super Admin",
-  "Super_Admin",
   "super admin development",
-  "Super Admin Development",
   "secrateadmin",
   "ceo",
-  "CEO",
 ];
 
 export const getRequestRole = (req) =>
   req.user?.user?.role?.toLowerCase?.() || "";
 
-export const isFullAccessRole = (req) =>
-  FULL_ACCESS_ROLES.includes(getRequestRole(req));
+const normalizeRole = (role) =>
+  String(role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+
+export const isFullAccessRole = (req) => {
+  const role = normalizeRole(getRequestRole(req));
+  if (!role) return false;
+  const compact = role.replace(/\s+/g, "");
+  return (
+    FULL_ACCESS_ROLES.some((name) => normalizeRole(name) === role) ||
+    compact === "ceo" ||
+    compact === "secrateadmin" ||
+    compact === "superadmin" ||
+    compact === "administrator" ||
+    compact === "admin"
+  );
+};
 
 export const isInstitutionAdmin = (req) =>
   !isStudentRole(req) && !isTeacherRole(req);
