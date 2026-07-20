@@ -290,14 +290,26 @@ export const getUsers = async (req, res) => {
     }
 
     let searchQuery = query ? query : "";
-    const rolesToExclude = ["student", "secrateadmin"];
+    // Student and teacher accounts are managed on their own screens, not All Users
+    const rolesToExclude = ["student", "teacher", "secrateadmin"];
     const users = await User.paginate(
       {
-        $or: [
-          { name: { $regex: searchQuery, $options: "i" } },
-          { email: { $regex: searchQuery, $options: "i" } },
+        $and: [
+          {
+            $or: [
+              { name: { $regex: searchQuery, $options: "i" } },
+              { email: { $regex: searchQuery, $options: "i" } },
+            ],
+          },
+          {
+            role: {
+              $not: {
+                $regex: `^(${rolesToExclude.join("|")})$`,
+                $options: "i",
+              },
+            },
+          },
         ],
-        role: { $nin: rolesToExclude },
       },
       {
         page: parseInt(req.query.page),

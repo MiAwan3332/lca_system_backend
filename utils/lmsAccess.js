@@ -56,7 +56,14 @@ export const isInstitutionAdmin = (req) =>
 
 export const canManageLmsContent = (req) => {
   if (isStudentRole(req)) return false;
-  return isFullAccessRole(req) || isTeacherRole(req);
+  if (isFullAccessRole(req) || isTeacherRole(req)) return true;
+  const role = normalizeRole(getRequestRole(req));
+  const compact = role.replace(/\s+/g, "");
+  return (
+    compact === "principal" ||
+    compact === "viceprincipal" ||
+    role === "vice principal"
+  );
 };
 
 export const getRequestUserId = (req) => req.user?.user?.id || null;
