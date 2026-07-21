@@ -112,18 +112,66 @@ const parseSpecialFeeOptionsFromBatch = (body, batchRecord) => {
   return { options, totalFee };
 };
 
+const DEFAULT_STUDENT_PASSWORD = "lca@123456";
+
+const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
+
+/** Internal login email for students (phone-based login uses Student.phone). */
+const buildStudentAccountEmail = (phone) => {
+  const digits = digitsOnly(phone);
+  if (!digits) {
+    throw new Error("Phone number is required to create a student login");
+  }
+  return `student.${digits}@lca.local`;
+};
+
+const findStudentByPhoneDigits = async (phone) => {
+  const digits = digitsOnly(phone);
+  if (!digits || digits.length < 10) return null;
+  const last10 = digits.slice(-10);
+  const flexiblePattern = last10.split("").join("\\D*");
+  const candidates = await Student.find({
+    phone: { $regex: flexiblePattern },
+  }).limit(20);
+  return (
+    candidates.find((item) => {
+      const itemDigits = digitsOnly(item.phone);
+      return itemDigits === digits || itemDigits.slice(-10) === last10;
+    }) || null
+  );
+};
+
 export const addStudent = async (req, res) => {
-  const { name, email, phone, batch, remarks } = req.body;
+  const { name, phone, batch, remarks, cnic } = req.body;
   const admission_date = req.body.admission_date || new Date();
   const payingNow = Number(req.body.paying_now) || 0;
   const paymentMethod = req.body.payment_method;
   const nextInstallmentDate = req.body.next_installment_date;
 
   try {
+    if (!name?.trim()) {
+      return res.status(400).json({ message: "Name is required" });
+    }
+    if (!phone?.trim()) {
+      return res.status(400).json({ message: "Phone number is required" });
+    }
+
+    const existingByPhone = await findStudentByPhoneDigits(phone);
+    if (existingByPhone) {
+      return res.status(400).json({ message: "Phone number already exists" });
+    }
+
+    let email;
+    try {
+      email = buildStudentAccountEmail(phone);
+    } catch (err) {
+      return res.status(400).json({ message: err.message });
+    }
+
     // Check if the email already exists
     const existingStudent = await Student.findOne({ email });
     if (existingStudent) {
-      return res.status(400).json({ message: "Email already exists" });
+      return res.status(400).json({ message: "A student account already exists for this phone" });
     }
 
     let batchRecord = null;
@@ -231,7 +279,7 @@ export const addStudent = async (req, res) => {
     const hashedPassword = await bcrypt.hash(randomPassword, saltRounds);
 
     if (await User.findOne({ email })) {
-      return res.status(400).json({ message: "Email already exists" });
+      return res.status(400).json({ message: "A login account already exists for this phone" });
     }
 
     const newUser = new User({
@@ -257,7 +305,7 @@ export const addStudent = async (req, res) => {
       is_special_batch: isSpecialBatch,
       special_fee_options: specialFeeOptions,
       password: hashedPassword, // Save the hashed password
-      cnic: "",
+      cnic: String(cnic || "").trim(),
       date_of_birth: "",
       father_name: "",
       father_phone: "",
@@ -343,11 +391,8 @@ export const addStudent = async (req, res) => {
   }
 };
 
-const DEFAULT_STUDENT_PASSWORD = "lca@123456";
-
 const validateStudentImportRow = (row, rowNumber) => {
   const name = String(row?.name ?? "").trim();
-  const email = String(row?.email ?? "").trim().toLowerCase();
   const phone = String(row?.phone ?? "").trim();
   const totalFee = Number(row?.total_fee);
   const paidFee = Number(row?.paid_fee);
@@ -355,9 +400,6 @@ const validateStudentImportRow = (row, rowNumber) => {
 
   if (!name) {
     throw new Error("Name is required");
-  }
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error("Valid email is required");
   }
   if (!phone) {
     throw new Error("Phone number is required");
@@ -377,6 +419,8 @@ const validateStudentImportRow = (row, rowNumber) => {
   if (Math.abs(pendingFee - (totalFee - paidFee)) > 0.01) {
     throw new Error("Pending amount must equal total fee minus paid amount");
   }
+
+  const email = buildStudentAccountEmail(phone);
 
   return {
     name,
@@ -398,13 +442,18 @@ const importStudentFromRow = async ({
 }) => {
   const validated = validateStudentImportRow(row, row.excelRow || row.rowNumber);
 
+  const existingByPhone = await findStudentByPhoneDigits(validated.phone);
+  if (existingByPhone) {
+    throw new Error("Phone number already exists for a student");
+  }
+
   const existingStudent = await Student.findOne({ email: validated.email });
   if (existingStudent) {
-    throw new Error("Email already exists for a student");
+    throw new Error("A student account already exists for this phone");
   }
 
   if (await User.findOne({ email: validated.email })) {
-    throw new Error("Email already exists for a user");
+    throw new Error("A login account already exists for this phone");
   }
 
   const rollNumber = await getNextStudentRollNumber({
@@ -536,18 +585,22 @@ export const bulkImportStudents = async (req, res) => {
       backfilled_roll_numbers: [],
     };
 
-    const seenEmails = new Set();
+    const seenPhones = new Set();
 
     for (let index = 0; index < students.length; index += 1) {
       const row = students[index];
       const rowNumber = row.excelRow || index + 2;
 
       try {
-        const email = String(row?.email ?? "").trim().toLowerCase();
-        if (seenEmails.has(email)) {
-          throw new Error("Duplicate email in import file");
+        const phoneKey = digitsOnly(row?.phone);
+        if (!phoneKey) {
+          throw new Error("Phone number is required");
         }
-        seenEmails.add(email);
+        if (seenPhones.has(phoneKey) || seenPhones.has(phoneKey.slice(-10))) {
+          throw new Error("Duplicate phone number in import file");
+        }
+        seenPhones.add(phoneKey);
+        seenPhones.add(phoneKey.slice(-10));
 
         const newStudent = await importStudentFromRow({
           row: { ...row, excelRow: rowNumber },
@@ -557,20 +610,20 @@ export const bulkImportStudents = async (req, res) => {
         });
 
         const savedStudent = await Student.findById(newStudent._id).select(
-          "name email roll_number"
+          "name phone roll_number"
         );
 
         results.imported += 1;
         results.imported_students.push({
           row: rowNumber,
           name: savedStudent?.name || newStudent.name,
-          email: savedStudent?.email || newStudent.email,
+          phone: savedStudent?.phone || newStudent.phone,
           roll_number: savedStudent?.roll_number || newStudent.roll_number,
         });
       } catch (error) {
         results.failed.push({
           row: rowNumber,
-          email: row?.email || "",
+          phone: row?.phone || "",
           message: error.message,
         });
       }
@@ -1551,6 +1604,7 @@ export const basicStudentUpdate = async (req, res) => {
     name,
     phone,
     email,
+    cnic,
     batch,
     remarks,
     paid_fee,
@@ -1567,6 +1621,7 @@ export const basicStudentUpdate = async (req, res) => {
 
     if (name !== undefined) updateData.name = name;
     if (phone !== undefined) updateData.phone = phone;
+    if (cnic !== undefined) updateData.cnic = String(cnic || "").trim();
     if (remarks !== undefined) updateData.remarks = remarks || "";
 
     if (email !== undefined && email !== student.email) {

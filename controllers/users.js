@@ -24,6 +24,114 @@ import { compressImage, uploadFile } from "../utils/fileStorage.js";
 import { JWT_EXPIRES_IN, JWT_COOKIE_MAX_AGE_MS } from "../utils/jwtConfig.js";
 import { logLoginActivity } from "../utils/activityLogger.js";
 
+const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
+
+const looksLikePhone = (value) => {
+  const digits = digitsOnly(value);
+  // Local / international mobile numbers (not an email)
+  return !String(value || "").includes("@") && digits.length >= 10 && digits.length <= 15;
+};
+
+const looksLikeEmail = (value) =>
+  String(value || "").includes("@") && String(value || "").includes(".");
+
+/** Find student by phone, tolerant of spaces/dashes/+92/0 prefixes. */
+const findStudentByPhone = async (rawPhone) => {
+  const digits = digitsOnly(rawPhone);
+  if (!digits || digits.length < 10) return null;
+
+  const last10 = digits.slice(-10);
+  const flexiblePattern = last10.split("").join("\\D*");
+
+  const student = await Student.findOne({
+    phone: { $regex: flexiblePattern },
+  }).populate("batch");
+
+  if (!student) return null;
+
+  const studentDigits = digitsOnly(student.phone);
+  if (
+    studentDigits === digits ||
+    studentDigits.slice(-10) === last10 ||
+    digits.slice(-10) === studentDigits.slice(-10)
+  ) {
+    return student;
+  }
+
+  // Regex may over-match; verify by scanning a small candidate set
+  const candidates = await Student.find({
+    phone: { $regex: flexiblePattern },
+  })
+    .limit(20)
+    .populate("batch");
+
+  return (
+    candidates.find((item) => {
+      const itemDigits = digitsOnly(item.phone);
+      return (
+        itemDigits === digits ||
+        itemDigits.slice(-10) === last10
+      );
+    }) || null
+  );
+};
+
+const resolveLoginUser = async ({ email, phone, identifier }) => {
+  const raw = String(identifier || phone || email || "").trim();
+  if (!raw) {
+    return { user: null, studentFromPhone: null, error: "Email or phone is required" };
+  }
+
+  // Phone-based login is for students only
+  if (phone || looksLikePhone(raw)) {
+    const phoneValue = phone || raw;
+    const studentFromPhone = await findStudentByPhone(phoneValue);
+    if (!studentFromPhone) {
+      return {
+        user: null,
+        studentFromPhone: null,
+        error: "Invalid credentials",
+      };
+    }
+    if (studentFromPhone.is_active === false) {
+      return {
+        user: null,
+        studentFromPhone,
+        error: INACTIVE_STUDENT_MESSAGE,
+        status: 403,
+      };
+    }
+
+    const user =
+      (await User.findOne({
+        email: studentFromPhone.email,
+        role: { $regex: /^student$/i },
+      })) || (await User.findOne({ email: studentFromPhone.email }));
+
+    if (!user || String(user.role).toLowerCase() !== "student") {
+      return {
+        user: null,
+        studentFromPhone,
+        error: "Student account not found. Please contact Lahore CSS Academy.",
+        status: 403,
+      };
+    }
+
+    return { user, studentFromPhone, error: null };
+  }
+
+  if (!looksLikeEmail(raw) && !email) {
+    return {
+      user: null,
+      studentFromPhone: null,
+      error: "Enter a valid email or phone number",
+    };
+  }
+
+  const user = await User.findOne({ email: email || raw });
+  return { user, studentFromPhone: null, error: user ? null : "Invalid credentials" };
+};
+
 export const register = async (req, res) => {
   const { name, email, password, role } = req.body;
   try {
@@ -70,10 +178,18 @@ const resolveTeacherLoginContext = async (user) => {
 };
 
 export const login = async (req, res) => {
-  const { email, password } = req.body;
+  const { email, phone, password, identifier } = req.body;
   try {
-    // Find the user by email
-    const user = await User.findOne({ email });
+    if (!password) {
+      return res.status(400).json({ message: "Password is required" });
+    }
+
+    const resolved = await resolveLoginUser({ email, phone, identifier });
+    if (resolved.error) {
+      return res.status(resolved.status || 400).json({ message: resolved.error });
+    }
+
+    const user = resolved.user;
     if (!user) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
@@ -103,7 +219,9 @@ export const login = async (req, res) => {
     let teacherData = null;
 
     if (role.name === "student") {
-      const student = await Student.findOne({ email: user.email }).populate("batch");
+      const student =
+        resolved.studentFromPhone ||
+        (await Student.findOne({ email: user.email }).populate("batch"));
       if (!student) {
         return res.status(403).json({
           message: "Student account not found. Please contact Lahore CSS Academy.",
@@ -115,7 +233,7 @@ export const login = async (req, res) => {
         });
       }
       studentId = student._id;
-      studentData = student.toObject();
+      studentData = student.toObject ? student.toObject() : student;
       const hasEmptyFields = Object.values(studentData).some(
         (field) => field === "" || field === null || field === undefined
       );
@@ -169,6 +287,12 @@ export const login = async (req, res) => {
 export const adminlogin = async (req, res) => {
   const { email, password } = req.body;
   try {
+    if (!email || looksLikePhone(email)) {
+      return res.status(400).json({
+        message: "Staff login requires email. Students should log in with phone number.",
+      });
+    }
+
     // Find the user by email
     const user = await User.findOne({
       $and: [{ email }, { role: { $ne: "student" } }],
