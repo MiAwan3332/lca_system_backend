@@ -18,7 +18,7 @@ import {
 } from "../utils/googleClient.js";
 
 const appRedirect = (key) =>
-  process.env[key] || process.env.GOOGLE_OAUTH_SUCCESS_REDIRECT || "https://lca-portal.com/google-workspace";
+  process.env[key] || process.env.GOOGLE_OAUTH_SUCCESS_REDIRECT || "https://lca-portal.com/profile";
 
 const redirectWithStatus = (res, key, query) => {
   const target = new URL(appRedirect(key));
