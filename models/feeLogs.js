@@ -25,7 +25,13 @@ const feeLogSchema = mongoose.Schema({
     },
     payment_method: {
         type: String,
-        enum: ["Cash", "Online"],
+        enum: [
+            "Cash",
+            "Bank Transfer",
+            "Online Payment",
+            "Cheque",
+            "Online", // legacy
+        ],
     },
     payment_evidence: {
         type: String,

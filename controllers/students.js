@@ -242,12 +242,18 @@ export const addStudent = async (req, res) => {
     }
 
     if (payingNow > 0) {
-      if (!paymentMethod || !["Cash", "Online"].includes(paymentMethod)) {
+      if (!paymentMethod || !["Cash", "Online", "Bank Transfer", "Online Payment", "Cheque"].includes(paymentMethod)) {
         return res
           .status(400)
-          .json({ message: "Payment method is required (Cash or Online)" });
+          .json({
+            message:
+              "Payment method is required (Cash, Bank Transfer, Online Payment, or Cheque)",
+          });
       }
-      if (paymentMethod === "Online" && !req.files?.payment_evidence) {
+      if (
+        (paymentMethod === "Online" || paymentMethod === "Online Payment") &&
+        !req.files?.payment_evidence
+      ) {
         return res.status(400).json({
           message: "Online payment evidence attachment is required",
         });
@@ -342,7 +348,7 @@ export const addStudent = async (req, res) => {
 
     let paymentEvidenceUrl = "";
     const evidenceFile = req.files?.payment_evidence;
-    if (payingNow > 0 && paymentMethod === "Online" && evidenceFile) {
+    if (payingNow > 0 && (paymentMethod === "Online" || paymentMethod === "Online Payment") && evidenceFile) {
       const filesStorageUrl = process.env.FILES_STORAGE_URL;
       const filesStoragePath = process.env.FILES_STORAGE_PATH;
       const fileExt = path.extname(evidenceFile.name) || ".jpg";

@@ -11,7 +11,14 @@ import {
 } from "../utils/studentScope.js";
 import dotenv from "dotenv";
 import moment from "moment-timezone";
-import { recordFeePayment, syncStudentFeeFromLogs } from "../utils/feePayment.js";
+import { recordFeePayment, syncStudentFeeFromLogs, collectStudentPendingPayment } from "../utils/feePayment.js";
+import {
+  isValidFeePaymentMethod,
+  requiresPaymentEvidence,
+} from "../utils/paymentMethods.js";
+import { compressImage, uploadFile } from "../utils/fileStorage.js";
+import path from "path";
+import { logActivity } from "../utils/activityLogger.js";
 dotenv.config();
 
 const getPeriodRange = (period, date) => {
@@ -414,7 +421,7 @@ export const createFee = async (req, res) => {
 
 export const payFee = async (req, res) => {
     const { id } = req.params;
-    const { student_id, amount, description, payment_method } = req.body;
+    const { student_id, amount, description, payment_method, next_installment_date } = req.body;
     try {
         let fee = await Fee.findById(id);
         if (!fee) {
@@ -434,8 +441,61 @@ export const payFee = async (req, res) => {
             return res.status(400).json({ message: "Fee already paid" });
         }
 
-        if (!payment_method || !["Cash", "Online"].includes(payment_method)) {
-            return res.status(400).json({ message: "Payment method is required (Cash or Online)" });
+        if (!payment_method || !isValidFeePaymentMethod(payment_method)) {
+            return res.status(400).json({
+                message:
+                    "Payment method is required (Cash, Bank Transfer, Online Payment, or Cheque)",
+            });
+        }
+
+        if (requiresPaymentEvidence(payment_method) && !req.files?.payment_evidence) {
+            return res.status(400).json({
+                message: "Online payment receipt/slip attachment is required",
+            });
+        }
+
+        const remarks = String(description || "").trim();
+        if (!remarks) {
+            return res.status(400).json({ message: "Remarks are required" });
+        }
+
+        const isPartial = paymentAmount < fee.amount;
+        if (isPartial) {
+            if (!next_installment_date) {
+                return res.status(400).json({
+                    message: "Next installment date is required for partial payment",
+                });
+            }
+            if (moment(next_installment_date).isBefore(moment(), "day")) {
+                return res.status(400).json({
+                    message: "Next installment date must be today or in the future",
+                });
+            }
+        }
+
+        let paymentEvidenceUrl = "";
+        const evidenceFile = req.files?.payment_evidence;
+        if (requiresPaymentEvidence(payment_method) && evidenceFile) {
+            const filesStorageUrl = process.env.FILES_STORAGE_URL;
+            const filesStoragePath = process.env.FILES_STORAGE_PATH;
+            const fileExt = path.extname(evidenceFile.name) || ".jpg";
+            const baseName = `payment_evidence_${fee.student}_${Date.now()}`;
+            const fileName = `${baseName}${fileExt}`;
+            const folderPath = `${filesStoragePath}/students/payment-evidence`;
+            await uploadFile(evidenceFile, fileName, folderPath);
+
+            const isImage = /\.(jpe?g|png|webp|gif)$/i.test(fileExt);
+            if (isImage) {
+                const webpFileName = `${baseName}.jpeg`;
+                await compressImage(
+                    `${folderPath}/${fileName}`,
+                    `${folderPath}/${webpFileName}`,
+                    70
+                );
+                paymentEvidenceUrl = `${filesStorageUrl}/files/students/payment-evidence/${webpFileName}`;
+            } else {
+                paymentEvidenceUrl = `${filesStorageUrl}/files/students/payment-evidence/${fileName}`;
+            }
         }
 
         const actionUser = await User.findById(req.user.user.id);
@@ -446,14 +506,165 @@ export const payFee = async (req, res) => {
             actionUserId: actionUser?._id,
             studentId: student_id || fee.student,
             paymentMethod: payment_method,
-            description: description?.trim() || `Fee payment received (${payment_method})`,
+            paymentEvidence: paymentEvidenceUrl,
+            description: remarks,
+            nextInstallmentDate: isPartial ? next_installment_date : undefined,
         });
 
         res.status(200).json(updatedFee);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
-}
+};
+
+/**
+ * Collect pending fees for a student (full or partial) from the Generate Pending Fee Slip flow.
+ * Accepts multipart/form-data for optional online payment evidence.
+ */
+export const collectPendingFee = async (req, res) => {
+    const { studentId } = req.params;
+    const {
+        amount,
+        payment_option,
+        payment_method,
+        remarks,
+        next_installment_date,
+    } = req.body;
+
+    try {
+        if (isStudentRole(req)) {
+            return res.status(403).json({ message: "Access denied" });
+        }
+
+        const student = await Student.findById(studentId);
+        if (!student) {
+            return res.status(404).json({ message: "Student not found" });
+        }
+
+        const outstanding = Math.max(Number(student.pending_fee) || 0, 0);
+        if (outstanding <= 0) {
+            return res.status(400).json({ message: "Student has no outstanding balance" });
+        }
+
+        const option = String(payment_option || "").toLowerCase();
+        if (!["full", "partial"].includes(option)) {
+            return res.status(400).json({
+                message: "Payment option must be full or partial",
+            });
+        }
+
+        let paymentAmount =
+            option === "full" ? outstanding : Number(amount);
+
+        if (option === "full") {
+            paymentAmount = outstanding;
+        }
+
+        if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+            return res.status(400).json({ message: "Payment amount must be greater than 0" });
+        }
+
+        if (paymentAmount > outstanding) {
+            return res.status(400).json({
+                message: `Partial payment cannot exceed outstanding balance (${outstanding} Rs.)`,
+            });
+        }
+
+        if (option === "partial" && paymentAmount >= outstanding) {
+            return res.status(400).json({
+                message: "Use Pay Full Remaining Balance when paying the entire amount",
+            });
+        }
+
+        if (!payment_method || !isValidFeePaymentMethod(payment_method)) {
+            return res.status(400).json({
+                message:
+                    "Payment method is required (Cash, Bank Transfer, Online Payment, or Cheque)",
+            });
+        }
+
+        if (requiresPaymentEvidence(payment_method) && !req.files?.payment_evidence) {
+            return res.status(400).json({
+                message: "Online payment receipt/slip attachment is required",
+            });
+        }
+
+        const trimmedRemarks = String(remarks || "").trim();
+        if (!trimmedRemarks) {
+            return res.status(400).json({ message: "Remarks are required" });
+        }
+
+        let paymentEvidenceUrl = "";
+        const evidenceFile = req.files?.payment_evidence;
+        if (requiresPaymentEvidence(payment_method) && evidenceFile) {
+            const filesStorageUrl = process.env.FILES_STORAGE_URL;
+            const filesStoragePath = process.env.FILES_STORAGE_PATH;
+            const fileExt = path.extname(evidenceFile.name) || ".jpg";
+            const baseName = `payment_evidence_${studentId}_${Date.now()}`;
+            const fileName = `${baseName}${fileExt}`;
+            const folderPath = `${filesStoragePath}/students/payment-evidence`;
+            await uploadFile(evidenceFile, fileName, folderPath);
+
+            const isImage = /\.(jpe?g|png|webp|gif)$/i.test(fileExt);
+            if (isImage) {
+                const webpFileName = `${baseName}.jpeg`;
+                await compressImage(
+                    `${folderPath}/${fileName}`,
+                    `${folderPath}/${webpFileName}`,
+                    70
+                );
+                paymentEvidenceUrl = `${filesStorageUrl}/files/students/payment-evidence/${webpFileName}`;
+            } else {
+                paymentEvidenceUrl = `${filesStorageUrl}/files/students/payment-evidence/${fileName}`;
+            }
+        }
+
+        const actionUser = await User.findById(req.user.user.id);
+
+        const result = await collectStudentPendingPayment({
+            studentId,
+            paymentAmount,
+            actionUserId: actionUser?._id,
+            paymentMethod: payment_method,
+            paymentEvidence: paymentEvidenceUrl,
+            remarks: trimmedRemarks,
+            nextInstallmentDate:
+                option === "partial" ? next_installment_date : undefined,
+        });
+
+        await logActivity({
+            req,
+            action: "update",
+            module: "Fees",
+            description: `Collected ${paymentAmount} Rs. pending fee for ${student.name} via ${payment_method}`,
+            statusCode: 200,
+            targetId: String(studentId),
+            targetType: "Student",
+            metadata: {
+                amount_paid: result.amount_paid,
+                payment_method: result.payment_method,
+                payment_option: option,
+                next_installment_date: result.next_installment_date,
+                payment_evidence: paymentEvidenceUrl || null,
+                remarks: trimmedRemarks,
+                outstanding_before: result.outstanding_before,
+                outstanding_after: result.outstanding_after,
+                fee_ids: result.fee_ids,
+            },
+        });
+
+        res.status(200).json({
+            message: "Payment recorded successfully",
+            ...result,
+            payment_evidence: paymentEvidenceUrl || "",
+        });
+    } catch (error) {
+        const status = /required|exceed|greater|must|found|option/i.test(error.message)
+            ? 400
+            : 500;
+        res.status(status).json({ message: error.message });
+    }
+};
 
 export const discountFee = async (req, res) => {
     const { id } = req.params;
