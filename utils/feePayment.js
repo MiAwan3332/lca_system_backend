@@ -185,31 +185,57 @@ export async function collectStudentPendingPayment({
   paymentEvidence = "",
   remarks,
   nextInstallmentDate,
+  payFull = false,
 }) {
-  const amount = Number(paymentAmount);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    throw new Error("Payment amount must be greater than 0");
-  }
-
   const trimmedRemarks = String(remarks || "").trim();
   if (!trimmedRemarks) {
     throw new Error("Remarks are required");
   }
 
-  const pendingFees = await Fee.find({
+  let pendingFees = await Fee.find({
     student: studentId,
     status: "Pending",
     amount: { $gt: 0 },
   }).sort({ due_date: 1, _id: 1 });
 
+  // If student shows pending balance but fee rows are missing, create one to collect against
   if (!pendingFees.length) {
-    throw new Error("No pending fee found for this student");
+    const student = await Student.findById(studentId);
+    const studentPending = Math.max(Number(student?.pending_fee) || 0, 0);
+    if (!student || studentPending <= 0) {
+      throw new Error("No pending fee found for this student");
+    }
+    if (!student.batch) {
+      throw new Error(
+        "Student has pending balance but no batch/fee record. Assign a batch first."
+      );
+    }
+
+    const dueDate = nextInstallmentDate
+      ? moment(nextInstallmentDate).tz("Asia/Karachi").format("YYYY-MM-DD")
+      : moment().tz("Asia/Karachi").format("YYYY-MM-DD");
+
+    const recoveryFee = await new Fee({
+      student: studentId,
+      batch: student.batch,
+      amount: studentPending,
+      due_date: dueDate,
+      status: "Pending",
+    }).save();
+
+    pendingFees = [recoveryFee];
   }
 
   const outstanding = pendingFees.reduce(
     (sum, fee) => sum + (Number(fee.amount) || 0),
     0
   );
+
+  let amount = payFull ? outstanding : Number(paymentAmount);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Payment amount must be greater than 0");
+  }
 
   if (amount > outstanding) {
     throw new Error(

@@ -630,28 +630,33 @@ export const collectPendingFee = async (req, res) => {
             remarks: trimmedRemarks,
             nextInstallmentDate:
                 option === "partial" ? next_installment_date : undefined,
+            payFull: option === "full",
         });
 
-        await logActivity({
-            req,
-            action: "update",
-            module: "Fees",
-            description: `Collected ${paymentAmount} Rs. pending fee for ${student.name} via ${payment_method}`,
-            statusCode: 200,
-            targetId: String(studentId),
-            targetType: "Student",
-            metadata: {
-                amount_paid: result.amount_paid,
-                payment_method: result.payment_method,
-                payment_option: option,
-                next_installment_date: result.next_installment_date,
-                payment_evidence: paymentEvidenceUrl || null,
-                remarks: trimmedRemarks,
-                outstanding_before: result.outstanding_before,
-                outstanding_after: result.outstanding_after,
-                fee_ids: result.fee_ids,
-            },
-        });
+        try {
+            await logActivity({
+                req,
+                action: "update",
+                module: "Fees",
+                description: `Collected ${paymentAmount} Rs. pending fee for ${student.name} via ${payment_method}`,
+                statusCode: 200,
+                targetId: String(studentId),
+                targetType: "Student",
+                metadata: {
+                    amount_paid: result.amount_paid,
+                    payment_method: result.payment_method,
+                    payment_option: option,
+                    next_installment_date: result.next_installment_date,
+                    payment_evidence: paymentEvidenceUrl || null,
+                    remarks: trimmedRemarks,
+                    outstanding_before: result.outstanding_before,
+                    outstanding_after: result.outstanding_after,
+                    fee_ids: result.fee_ids,
+                },
+            });
+        } catch (logError) {
+            console.error("Activity log failed for pending fee collection:", logError);
+        }
 
         res.status(200).json({
             message: "Payment recorded successfully",
@@ -659,10 +664,13 @@ export const collectPendingFee = async (req, res) => {
             payment_evidence: paymentEvidenceUrl || "",
         });
     } catch (error) {
-        const status = /required|exceed|greater|must|found|option/i.test(error.message)
+        console.error("collectPendingFee error:", error);
+        const status = /required|exceed|greater|must|found|option|batch/i.test(
+            error.message || ""
+        )
             ? 400
             : 500;
-        res.status(status).json({ message: error.message });
+        res.status(status).json({ message: error.message || "Failed to collect payment" });
     }
 };
 
