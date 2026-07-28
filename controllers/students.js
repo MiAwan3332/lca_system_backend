@@ -24,10 +24,16 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { compressImage, uploadFile } from "../utils/fileStorage.js";
 import {
+  asUploadedFileArray,
+  normalizePaymentEvidenceForStorage,
+  uploadPaymentEvidenceFiles,
+} from "../utils/paymentEvidence.js";
+import {
   createStudentAdmissionFee,
   syncStudentFeeFromLogs,
 } from "../utils/feePayment.js";
 import Fee from "../models/fees.js";
+import RefundRequest from "../models/refundRequests.js";
 import FeeLog from "../models/feeLogs.js";
 import PendingFeeSlip from "../models/pendingFeeSlips.js";
 import Enrollment from "../models/enrollments.js";
@@ -252,7 +258,7 @@ export const addStudent = async (req, res) => {
       }
       if (
         (paymentMethod === "Online" || paymentMethod === "Online Payment") &&
-        !req.files?.payment_evidence
+        asUploadedFileArray(req.files?.payment_evidence).length === 0
       ) {
         return res.status(400).json({
           message: "Online payment evidence attachment is required",
@@ -346,29 +352,16 @@ export const addStudent = async (req, res) => {
 
     await generateQrCode(newStudent._id);
 
-    let paymentEvidenceUrl = "";
-    const evidenceFile = req.files?.payment_evidence;
-    if (payingNow > 0 && (paymentMethod === "Online" || paymentMethod === "Online Payment") && evidenceFile) {
-      const filesStorageUrl = process.env.FILES_STORAGE_URL;
-      const filesStoragePath = process.env.FILES_STORAGE_PATH;
-      const fileExt = path.extname(evidenceFile.name) || ".jpg";
-      const baseName = `payment_evidence_${newStudent._id}_${Date.now()}`;
-      const fileName = `${baseName}${fileExt}`;
-      const folderPath = `${filesStoragePath}/students/payment-evidence`;
-      await uploadFile(evidenceFile, fileName, folderPath);
-
-      const isImage = /\.(jpe?g|png|webp|gif)$/i.test(fileExt);
-      if (isImage) {
-        const webpFileName = `${baseName}.jpeg`;
-        await compressImage(
-          `${folderPath}/${fileName}`,
-          `${folderPath}/${webpFileName}`,
-          70
-        );
-        paymentEvidenceUrl = `${filesStorageUrl}/files/students/payment-evidence/${webpFileName}`;
-      } else {
-        paymentEvidenceUrl = `${filesStorageUrl}/files/students/payment-evidence/${fileName}`;
-      }
+    let paymentEvidence = "";
+    if (
+      payingNow > 0 &&
+      (paymentMethod === "Online" || paymentMethod === "Online Payment")
+    ) {
+      const urls = await uploadPaymentEvidenceFiles(
+        req.files?.payment_evidence,
+        newStudent._id
+      );
+      paymentEvidence = normalizePaymentEvidenceForStorage(urls);
     }
 
     if (batch && grossFee > 0) {
@@ -382,7 +375,7 @@ export const addStudent = async (req, res) => {
         discountDescription,
         actionUserId,
         paymentMethod: payingNow > 0 ? paymentMethod : undefined,
-        paymentEvidence: paymentEvidenceUrl,
+        paymentEvidence,
         nextInstallmentDate: isPartialPayment ? nextInstallmentDate : undefined,
       });
     }
@@ -766,6 +759,42 @@ export const getStudents = async (req, res) => {
       sort: { _id: -1 },
     });
 
+    const docs = students.docs || [];
+    const studentIds = docs.map((s) => s._id);
+    let approvedByStudent = {};
+    let pendingByStudent = {};
+    let refundedStudentIds = new Set();
+
+    if (studentIds.length) {
+      const relatedRefunds = await RefundRequest.find({
+        student: { $in: studentIds },
+      }).select("_id student amount reason status is_refunded approved_at");
+
+      relatedRefunds.forEach((item) => {
+        const key = String(item.student);
+        if (item.status === "Approved" && item.is_refunded !== true) {
+          approvedByStudent[key] = item;
+        }
+        if (item.status === "Pending") {
+          pendingByStudent[key] = item;
+        }
+        if (item.is_refunded === true) {
+          refundedStudentIds.add(key);
+        }
+      });
+    }
+
+    students.docs = docs.map((doc) => {
+      const plain = typeof doc.toObject === "function" ? doc.toObject() : doc;
+      const key = String(plain._id);
+      return {
+        ...plain,
+        approved_refund_request: approvedByStudent[key] || null,
+        pending_refund_request: pendingByStudent[key] || null,
+        has_refunded_request: refundedStudentIds.has(key),
+      };
+    });
+
     res.status(200).json(students);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -895,7 +924,8 @@ export const getStudentHistory = async (req, res) => {
       "name batch_fee is_active"
     );
 
-    const [fees, enrollments, pendingFeeSlips, activityLogs] = await Promise.all([
+    const [fees, enrollments, pendingFeeSlips, activityLogs, refundRequests] =
+      await Promise.all([
       Fee.find({ student: id })
         .populate("batch", "name batch_fee is_active")
         .sort({ _id: -1 }),
@@ -914,6 +944,12 @@ export const getStudentHistory = async (req, res) => {
         .sort({ created_at: -1 })
         .limit(50)
         .populate("actor_user", "name email role"),
+      RefundRequest.find({ student: id })
+        .sort({ createdAt: -1 })
+        .populate("requested_by", "name email")
+        .populate("approved_by", "name email")
+        .populate("rejected_by", "name email")
+        .populate("refunded_by", "name email"),
     ]);
 
     const feeIds = fees.map((fee) => fee._id);
@@ -1032,10 +1068,45 @@ export const getStudentHistory = async (req, res) => {
       logs: logsByFeeId[String(fee._id)] || [],
     }));
 
+    const refundedRequests = (refundRequests || []).filter(
+      (reqItem) => reqItem.is_refunded === true
+    );
+    const refundedAmount = refundedRequests.reduce((sum, reqItem) => {
+      const value =
+        reqItem.refunded_amount != null
+          ? Number(reqItem.refunded_amount)
+          : Number(reqItem.amount);
+      return sum + (Number.isFinite(value) ? value : 0);
+    }, 0);
+
+    const hasPendingRefund = (refundRequests || []).some(
+      (reqItem) => reqItem.status === "Pending"
+    );
+    const hasApprovedAwaitingRefund = (refundRequests || []).some(
+      (reqItem) => reqItem.status === "Approved" && reqItem.is_refunded !== true
+    );
+
+    let refundStatus = null;
+    if (refundedRequests.length > 0) {
+      refundStatus = "Refunded";
+    } else if (hasApprovedAwaitingRefund) {
+      refundStatus = "Approved";
+    } else if (hasPendingRefund) {
+      refundStatus = "Pending";
+    } else {
+      const rejectedOnly =
+        (refundRequests || []).length > 0 &&
+        (refundRequests || []).every((reqItem) => reqItem.status === "Rejected");
+      if (rejectedOnly) refundStatus = "Rejected";
+    }
+
     const summary = {
       total_fee: Number(refreshedStudent.total_fee) || 0,
       paid_fee: Number(refreshedStudent.paid_fee) || 0,
       pending_fee: Number(refreshedStudent.pending_fee) || 0,
+      refunded_amount: Math.round(refundedAmount),
+      is_refunded: refundedRequests.length > 0,
+      refund_status: refundStatus,
       fee_records: fees.length,
       payment_events: paymentLogs.length,
       batches_touched: batchHistory.length,
@@ -1054,6 +1125,7 @@ export const getStudentHistory = async (req, res) => {
       enrollments,
       pending_fee_slips: pendingFeeSlips,
       activity_logs: activityLogs,
+      refund_requests: refundRequests || [],
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

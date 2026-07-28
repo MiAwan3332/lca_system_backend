@@ -2,6 +2,7 @@ import Fee from "../models/fees.js";
 import FeeLog from "../models/feeLogs.js";
 import Student from "../models/students.js";
 import moment from "moment-timezone";
+import { normalizePaymentEvidenceForStorage } from "./paymentEvidence.js";
 
 export async function createStudentAdmissionFee({
   studentId,
@@ -163,7 +164,7 @@ export async function recordFeePayment({
     fee: fee._id,
     student: resolvedStudentId,
     payment_method: paymentMethod || "Cash",
-    payment_evidence: paymentEvidence || "",
+    payment_evidence: normalizePaymentEvidenceForStorage(paymentEvidence),
     description,
   }).save();
 

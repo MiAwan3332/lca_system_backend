@@ -16,8 +16,11 @@ import {
   isValidFeePaymentMethod,
   requiresPaymentEvidence,
 } from "../utils/paymentMethods.js";
-import { compressImage, uploadFile } from "../utils/fileStorage.js";
-import path from "path";
+import {
+  asUploadedFileArray,
+  normalizePaymentEvidenceForStorage,
+  uploadPaymentEvidenceFiles,
+} from "../utils/paymentEvidence.js";
 import { logActivity } from "../utils/activityLogger.js";
 dotenv.config();
 
@@ -448,7 +451,10 @@ export const payFee = async (req, res) => {
             });
         }
 
-        if (requiresPaymentEvidence(payment_method) && !req.files?.payment_evidence) {
+        if (
+            requiresPaymentEvidence(payment_method) &&
+            asUploadedFileArray(req.files?.payment_evidence).length === 0
+        ) {
             return res.status(400).json({
                 message: "Online payment receipt/slip attachment is required",
             });
@@ -473,29 +479,13 @@ export const payFee = async (req, res) => {
             }
         }
 
-        let paymentEvidenceUrl = "";
-        const evidenceFile = req.files?.payment_evidence;
-        if (requiresPaymentEvidence(payment_method) && evidenceFile) {
-            const filesStorageUrl = process.env.FILES_STORAGE_URL;
-            const filesStoragePath = process.env.FILES_STORAGE_PATH;
-            const fileExt = path.extname(evidenceFile.name) || ".jpg";
-            const baseName = `payment_evidence_${fee.student}_${Date.now()}`;
-            const fileName = `${baseName}${fileExt}`;
-            const folderPath = `${filesStoragePath}/students/payment-evidence`;
-            await uploadFile(evidenceFile, fileName, folderPath);
-
-            const isImage = /\.(jpe?g|png|webp|gif)$/i.test(fileExt);
-            if (isImage) {
-                const webpFileName = `${baseName}.jpeg`;
-                await compressImage(
-                    `${folderPath}/${fileName}`,
-                    `${folderPath}/${webpFileName}`,
-                    70
-                );
-                paymentEvidenceUrl = `${filesStorageUrl}/files/students/payment-evidence/${webpFileName}`;
-            } else {
-                paymentEvidenceUrl = `${filesStorageUrl}/files/students/payment-evidence/${fileName}`;
-            }
+        let paymentEvidence = "";
+        if (requiresPaymentEvidence(payment_method)) {
+            const urls = await uploadPaymentEvidenceFiles(
+                req.files?.payment_evidence,
+                fee.student
+            );
+            paymentEvidence = normalizePaymentEvidenceForStorage(urls);
         }
 
         const actionUser = await User.findById(req.user.user.id);
@@ -506,7 +496,7 @@ export const payFee = async (req, res) => {
             actionUserId: actionUser?._id,
             studentId: student_id || fee.student,
             paymentMethod: payment_method,
-            paymentEvidence: paymentEvidenceUrl,
+            paymentEvidence,
             description: remarks,
             nextInstallmentDate: isPartial ? next_installment_date : undefined,
         });
@@ -583,7 +573,10 @@ export const collectPendingFee = async (req, res) => {
             });
         }
 
-        if (requiresPaymentEvidence(payment_method) && !req.files?.payment_evidence) {
+        if (
+            requiresPaymentEvidence(payment_method) &&
+            asUploadedFileArray(req.files?.payment_evidence).length === 0
+        ) {
             return res.status(400).json({
                 message: "Online payment receipt/slip attachment is required",
             });
@@ -594,29 +587,13 @@ export const collectPendingFee = async (req, res) => {
             return res.status(400).json({ message: "Remarks are required" });
         }
 
-        let paymentEvidenceUrl = "";
-        const evidenceFile = req.files?.payment_evidence;
-        if (requiresPaymentEvidence(payment_method) && evidenceFile) {
-            const filesStorageUrl = process.env.FILES_STORAGE_URL;
-            const filesStoragePath = process.env.FILES_STORAGE_PATH;
-            const fileExt = path.extname(evidenceFile.name) || ".jpg";
-            const baseName = `payment_evidence_${studentId}_${Date.now()}`;
-            const fileName = `${baseName}${fileExt}`;
-            const folderPath = `${filesStoragePath}/students/payment-evidence`;
-            await uploadFile(evidenceFile, fileName, folderPath);
-
-            const isImage = /\.(jpe?g|png|webp|gif)$/i.test(fileExt);
-            if (isImage) {
-                const webpFileName = `${baseName}.jpeg`;
-                await compressImage(
-                    `${folderPath}/${fileName}`,
-                    `${folderPath}/${webpFileName}`,
-                    70
-                );
-                paymentEvidenceUrl = `${filesStorageUrl}/files/students/payment-evidence/${webpFileName}`;
-            } else {
-                paymentEvidenceUrl = `${filesStorageUrl}/files/students/payment-evidence/${fileName}`;
-            }
+        let paymentEvidence = "";
+        if (requiresPaymentEvidence(payment_method)) {
+            const urls = await uploadPaymentEvidenceFiles(
+                req.files?.payment_evidence,
+                studentId
+            );
+            paymentEvidence = normalizePaymentEvidenceForStorage(urls);
         }
 
         const actionUser = await User.findById(req.user.user.id);
@@ -626,7 +603,7 @@ export const collectPendingFee = async (req, res) => {
             paymentAmount,
             actionUserId: actionUser?._id,
             paymentMethod: payment_method,
-            paymentEvidence: paymentEvidenceUrl,
+            paymentEvidence,
             remarks: trimmedRemarks,
             nextInstallmentDate:
                 option === "partial" ? next_installment_date : undefined,
@@ -647,7 +624,7 @@ export const collectPendingFee = async (req, res) => {
                     payment_method: result.payment_method,
                     payment_option: option,
                     next_installment_date: result.next_installment_date,
-                    payment_evidence: paymentEvidenceUrl || null,
+                    payment_evidence: paymentEvidence || null,
                     remarks: trimmedRemarks,
                     outstanding_before: result.outstanding_before,
                     outstanding_after: result.outstanding_after,
@@ -661,7 +638,7 @@ export const collectPendingFee = async (req, res) => {
         res.status(200).json({
             message: "Payment recorded successfully",
             ...result,
-            payment_evidence: paymentEvidenceUrl || "",
+            payment_evidence: paymentEvidence || "",
         });
     } catch (error) {
         console.error("collectPendingFee error:", error);
@@ -869,13 +846,15 @@ export const getFeesByStudentId = async (req, res) => {
     }
 }
 
-const sumFeeLogs = async (action_type, dateFilter, feeIds, changed_by) => {
+const sumFeeLogs = async (action_type, dateFilter, feeIds, changedByIds = []) => {
     const match = { action_type, ...dateFilter };
     if (feeIds) {
         match.fee = { $in: feeIds };
     }
-    if (changed_by) {
-        match.action_by = changed_by;
+    if (changedByIds.length === 1) {
+        match.action_by = changedByIds[0];
+    } else if (changedByIds.length > 1) {
+        match.action_by = { $in: changedByIds };
     }
 
     const amountField = action_type === "Created" || action_type === "Deleted"
@@ -930,7 +909,7 @@ const getBreakdownBuckets = (period, start, end) => {
     return buckets;
 };
 
-const getBucketTotals = async (bucket, feeIds, changed_by) => {
+const getBucketTotals = async (bucket, feeIds, changedByIds = []) => {
     const dateFilter = {
         action_date: {
             $gte: bucket.start.toDate(),
@@ -938,10 +917,11 @@ const getBucketTotals = async (bucket, feeIds, changed_by) => {
         },
     };
 
-    const [created, recovered, discounted] = await Promise.all([
-        sumFeeLogs("Created", dateFilter, feeIds, changed_by),
-        sumFeeLogs("Paid", dateFilter, feeIds, changed_by),
-        sumFeeLogs("Discounted", dateFilter, feeIds, changed_by),
+    const [created, recovered, discounted, refunded] = await Promise.all([
+        sumFeeLogs("Created", dateFilter, feeIds, changedByIds),
+        sumFeeLogs("Paid", dateFilter, feeIds, changedByIds),
+        sumFeeLogs("Discounted", dateFilter, feeIds, changedByIds),
+        sumFeeLogs("Refund", dateFilter, feeIds, changedByIds),
     ]);
 
     return {
@@ -949,6 +929,7 @@ const getBucketTotals = async (bucket, feeIds, changed_by) => {
         created,
         recovered,
         discounted,
+        refunded,
     };
 };
 
@@ -993,6 +974,22 @@ export const getFinanceReport = async (req, res) => {
         const { period = "daily", date, batch_id, changed_by } = req.query;
         const { start, end } = getPeriodRange(period, date);
 
+        const parseIdList = (value) => {
+            if (value == null || value === "") return [];
+            const raw = Array.isArray(value) ? value : String(value).split(",");
+            return [
+                ...new Set(
+                    raw
+                        .flatMap((item) => String(item).split(","))
+                        .map((item) => item.trim())
+                        .filter(Boolean)
+                ),
+            ];
+        };
+
+        const batchIds = parseIdList(batch_id);
+        const changedByIds = parseIdList(changed_by);
+
         const dateFilter = {
             action_date: {
                 $gte: start.toDate(),
@@ -1000,8 +997,8 @@ export const getFinanceReport = async (req, res) => {
             },
         };
 
-        const feeIds = batch_id
-            ? await Fee.find({ batch: batch_id }).distinct("_id")
+        const feeIds = batchIds.length
+            ? await Fee.find({ batch: { $in: batchIds } }).distinct("_id")
             : null;
 
         const [
@@ -1009,11 +1006,13 @@ export const getFinanceReport = async (req, res) => {
             total_fee_recovered,
             total_fee_discounted,
             total_fee_deleted,
+            total_fee_refunded,
         ] = await Promise.all([
-            sumFeeLogs("Created", dateFilter, feeIds, changed_by),
-            sumFeeLogs("Paid", dateFilter, feeIds, changed_by),
-            sumFeeLogs("Discounted", dateFilter, feeIds, changed_by),
-            sumFeeLogs("Deleted", dateFilter, feeIds, changed_by),
+            sumFeeLogs("Created", dateFilter, feeIds, changedByIds),
+            sumFeeLogs("Paid", dateFilter, feeIds, changedByIds),
+            sumFeeLogs("Discounted", dateFilter, feeIds, changedByIds),
+            sumFeeLogs("Deleted", dateFilter, feeIds, changedByIds),
+            sumFeeLogs("Refund", dateFilter, feeIds, changedByIds),
         ]);
 
         const total_fee_record = total_fee_created - total_fee_discounted - total_fee_deleted;
@@ -1022,9 +1021,10 @@ export const getFinanceReport = async (req, res) => {
         let total_pending_amount = 0;
         let total_fee_defaulters = 0;
 
-        if (!changed_by) {
+        if (changedByIds.length === 0) {
             const pendingFilter = { status: "Pending" };
-            if (batch_id) pendingFilter.batch = batch_id;
+            if (batchIds.length === 1) pendingFilter.batch = batchIds[0];
+            else if (batchIds.length > 1) pendingFilter.batch = { $in: batchIds };
 
             const pendingFees = await Fee.find(pendingFilter);
             total_pending_amount = pendingFees.reduce(
@@ -1036,21 +1036,25 @@ export const getFinanceReport = async (req, res) => {
                 status: "Pending",
                 due_date: { $lte: end.format("YYYY-MM-DD") },
             };
-            if (batch_id) defaulterFilter.batch = batch_id;
+            if (batchIds.length === 1) defaulterFilter.batch = batchIds[0];
+            else if (batchIds.length > 1) defaulterFilter.batch = { $in: batchIds };
 
             total_fee_defaulters = await Fee.countDocuments(defaulterFilter);
         }
 
         const buckets = getBreakdownBuckets(period, start, end);
         const feeBreakdown = await Promise.all(
-            buckets.map((bucket) => getBucketTotals(bucket, feeIds, changed_by))
+            buckets.map((bucket) => getBucketTotals(bucket, feeIds, changedByIds))
         );
         const expenseBreakdown = await getApprovedExpensesBreakdown(period, start, end);
 
         const breakdown = feeBreakdown.map((item, index) => ({
             ...item,
             expenses: expenseBreakdown[index] || 0,
-            net: (item.recovered || 0) - (expenseBreakdown[index] || 0),
+            net:
+                (item.recovered || 0) -
+                (expenseBreakdown[index] || 0) -
+                (item.refunded || 0),
         }));
 
         const total_approved_expenses = await sumApprovedExpensesInRange(
@@ -1073,18 +1077,22 @@ export const getFinanceReport = async (req, res) => {
         const total_pending_expenses =
             pending_expenses.length > 0 ? pending_expenses[0].total : 0;
 
-        const net_balance = total_fee_recovered - total_approved_expenses;
+        const net_balance =
+            total_fee_recovered - total_approved_expenses - total_fee_refunded;
 
         const transactionFilter = { ...dateFilter };
         if (feeIds) {
             transactionFilter.fee = { $in: feeIds };
         }
-        if (changed_by) {
-            transactionFilter.action_by = changed_by;
+        if (changedByIds.length === 1) {
+            transactionFilter.action_by = changedByIds[0];
+        } else if (changedByIds.length > 1) {
+            transactionFilter.action_by = { $in: changedByIds };
         }
 
         const transactions = await FeeLog.find(transactionFilter)
             .populate("action_by", "name email")
+            .populate("student", "name _id email")
             .populate({
                 path: "fee",
                 populate: [
@@ -1115,8 +1123,12 @@ export const getFinanceReport = async (req, res) => {
             action_amount: log.action_amount,
             action_date: log.action_date,
             action_by: log.action_by?.name || "N/A",
-            student_name: log.fee?.student?.name || "N/A",
-            student_id: log.fee?.student?._id?.toString() || "N/A",
+            student_name:
+                log.fee?.student?.name || log.student?.name || "N/A",
+            student_id:
+                log.fee?.student?._id?.toString() ||
+                log.student?._id?.toString() ||
+                "N/A",
             batch_name: log.fee?.batch?.name || "N/A",
             program: log.fee?.batch?.name || "N/A",
             title: null,
@@ -1138,11 +1150,13 @@ export const getFinanceReport = async (req, res) => {
             status: "Pending",
             amount: { $gt: 0 },
         };
-        if (batch_id) {
-            pendingFeeFilter.batch = batch_id;
+        if (batchIds.length === 1) {
+            pendingFeeFilter.batch = batchIds[0];
+        } else if (batchIds.length > 1) {
+            pendingFeeFilter.batch = { $in: batchIds };
         }
 
-        const pendingFeeRecords = changed_by
+        const pendingFeeRecords = changedByIds.length
             ? []
             : await Fee.find(pendingFeeFilter)
                   .populate("student", "name _id email")
@@ -1213,6 +1227,7 @@ export const getFinanceReport = async (req, res) => {
                 total_fee_recovered,
                 total_fee_discounted,
                 total_fee_deleted,
+                total_fee_refunded,
                 total_fee_record,
                 total_fee_pending,
                 total_pending_amount,

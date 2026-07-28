@@ -24,6 +24,7 @@ import pastPaperRoutes from './routes/pastPapers.js';
 import feesRoutes from './routes/fees.js';
 import { serveStoredPublicFile } from './utils/fileStorage.js';
 import expensesRoutes from './routes/expenses.js';
+import refundRequestRoutes from './routes/refundRequests.js';
 import quizRoutes from './routes/quiz.js';
 import assignmentRoutes from './routes/assignments.js';
 import courseQuizRoutes from './routes/courseQuizzes.js';
@@ -63,6 +64,7 @@ app.use('/mcqs', mcqsRoutes);
 app.use('/pastPapers', pastPaperRoutes);
 app.use('/fees', feesRoutes);
 app.use('/expenses', expensesRoutes);
+app.use('/refund-requests', refundRequestRoutes);
 app.use('/quiz', quizRoutes);
 app.use('/assignments', assignmentRoutes);
 app.use('/course-quizzes', courseQuizRoutes);
@@ -74,7 +76,7 @@ app.use('/google', googleRoutes);
 app.use('/api/google', googleRoutes);
 
 const CONNECTION_URL = process.env.MONGO_URI;
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 mongoose.connect(CONNECTION_URL)
     .then(() => {

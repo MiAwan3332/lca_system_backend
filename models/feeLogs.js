@@ -9,7 +9,7 @@ const feeLogSchema = mongoose.Schema({
     action_type: {
         type: String,
         default: "Paid",
-        enum: ["Created", "Paid", "Discounted", "Deleted"]
+        enum: ["Created", "Paid", "Discounted", "Deleted", "Refund"]
     },
     action_by: {
         type: mongoose.Schema.Types.ObjectId,
@@ -34,7 +34,7 @@ const feeLogSchema = mongoose.Schema({
         ],
     },
     payment_evidence: {
-        type: String,
+        type: mongoose.Schema.Types.Mixed,
         default: "",
     },
 });
