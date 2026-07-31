@@ -198,6 +198,8 @@ export const addBatch = async (req, res) => {
     batch_type,
     startdate,
     enddate,
+    class_start_time,
+    class_end_time,
     is_special_batch,
   } = req.body;
   try {
@@ -207,6 +209,18 @@ export const addBatch = async (req, res) => {
       return res.status(400).json({ message: parsedFees.error });
     }
 
+    if (!class_start_time || !class_end_time) {
+      return res.status(400).json({
+        message: "Daily class start time and end time are required",
+      });
+    }
+
+    if (String(class_end_time) <= String(class_start_time)) {
+      return res.status(400).json({
+        message: "Class end time must be after start time",
+      });
+    }
+
     const newBatch = new Batch({
       name,
       description,
@@ -214,6 +228,8 @@ export const addBatch = async (req, res) => {
       batch_type,
       startdate,
       enddate,
+      class_start_time,
+      class_end_time,
       is_special_batch: isSpecialBatch,
       special_fee_options: parsedFees.fees,
       is_active: true,
@@ -236,6 +252,8 @@ export const updateBatch = async (req, res) => {
     batch_type,
     startdate,
     enddate,
+    class_start_time,
+    class_end_time,
     is_active,
     is_special_batch,
   } = req.body;
@@ -255,6 +273,27 @@ export const updateBatch = async (req, res) => {
       return res.status(400).json({ message: parsedFees.error });
     }
 
+    const nextStartTime =
+      class_start_time !== undefined
+        ? class_start_time
+        : existingBatch.class_start_time;
+    const nextEndTime =
+      class_end_time !== undefined
+        ? class_end_time
+        : existingBatch.class_end_time;
+
+    if (!nextStartTime || !nextEndTime) {
+      return res.status(400).json({
+        message: "Daily class start time and end time are required",
+      });
+    }
+
+    if (String(nextEndTime) <= String(nextStartTime)) {
+      return res.status(400).json({
+        message: "Class end time must be after start time",
+      });
+    }
+
     const updatePayload = {
       name,
       description,
@@ -262,6 +301,8 @@ export const updateBatch = async (req, res) => {
       batch_type,
       startdate,
       enddate,
+      class_start_time: nextStartTime,
+      class_end_time: nextEndTime,
       is_special_batch: isSpecialBatch,
       special_fee_options: parsedFees.fees,
     };

@@ -6,6 +6,8 @@ const batchesSchema = mongoose.Schema({
   description: String,
   startdate: String,
   enddate: String,
+  class_start_time: String,
+  class_end_time: String,
   batch_fee: String,
   batch_type: String,
   is_special_batch: {
