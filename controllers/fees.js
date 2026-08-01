@@ -869,6 +869,122 @@ const sumFeeLogs = async (action_type, dateFilter, feeIds, changedByIds = []) =>
     return result.length > 0 ? result[0].total : 0;
 };
 
+const isOnlinePaymentMethodExpr = {
+    $in: [
+        {
+            $trim: {
+                input: { $ifNull: ["$payment_method", ""] },
+            },
+        },
+        ["Online Payment", "Online", "Bank Transfer"],
+    ],
+};
+
+/**
+ * Paid collections split by cash/online and by batch for the period.
+ */
+const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []) => {
+    const match = { action_type: "Paid", ...dateFilter };
+    if (feeIds) {
+        match.fee = { $in: feeIds };
+    }
+    if (changedByIds.length === 1) {
+        match.action_by = changedByIds[0];
+    } else if (changedByIds.length > 1) {
+        match.action_by = { $in: changedByIds };
+    }
+
+    const rows = await FeeLog.aggregate([
+        { $match: match },
+        {
+            $lookup: {
+                from: "fees",
+                localField: "fee",
+                foreignField: "_id",
+                as: "feeDoc",
+            },
+        },
+        { $unwind: { path: "$feeDoc", preserveNullAndEmptyArrays: true } },
+        {
+            $lookup: {
+                from: "batches",
+                localField: "feeDoc.batch",
+                foreignField: "_id",
+                as: "batchDoc",
+            },
+        },
+        { $unwind: { path: "$batchDoc", preserveNullAndEmptyArrays: true } },
+        {
+            $addFields: {
+                paidAmount: {
+                    $toDouble: { $ifNull: ["$action_amount", 0] },
+                },
+                isOnline: isOnlinePaymentMethodExpr,
+                batchId: "$batchDoc._id",
+                batchName: {
+                    $ifNull: ["$batchDoc.name", "Unassigned"],
+                },
+            },
+        },
+        {
+            $group: {
+                _id: {
+                    batchId: "$batchId",
+                    batchName: "$batchName",
+                    channel: {
+                        $cond: [{ $eq: ["$isOnline", true] }, "online", "cash"],
+                    },
+                },
+                total: { $sum: "$paidAmount" },
+            },
+        },
+    ]);
+
+    let total_cash = 0;
+    let total_online = 0;
+    const byBatch = {};
+
+    for (const row of rows) {
+        const amount = Number(row.total) || 0;
+        const batchKey =
+            row._id?.batchId?.toString?.() ||
+            String(row._id?.batchId || "unassigned");
+        const batchName = row._id?.batchName || "Unassigned";
+        const channel = row._id?.channel === "online" ? "online" : "cash";
+
+        if (!byBatch[batchKey]) {
+            byBatch[batchKey] = {
+                batch_id: row._id?.batchId || null,
+                batch_name: batchName,
+                total_cash: 0,
+                total_online: 0,
+                total: 0,
+            };
+        }
+
+        if (channel === "online") {
+            total_online += amount;
+            byBatch[batchKey].total_online += amount;
+        } else {
+            total_cash += amount;
+            byBatch[batchKey].total_cash += amount;
+        }
+        byBatch[batchKey].total += amount;
+    }
+
+    const batch_wise = Object.values(byBatch).sort((a, b) =>
+        String(a.batch_name).localeCompare(String(b.batch_name), undefined, {
+            sensitivity: "base",
+        })
+    );
+
+    return {
+        total_cash,
+        total_online,
+        batch_wise,
+    };
+};
+
 const getBreakdownBuckets = (period, start, end) => {
     const buckets = [];
 
@@ -1080,6 +1196,12 @@ export const getFinanceReport = async (req, res) => {
         const net_balance =
             total_fee_recovered - total_approved_expenses - total_fee_refunded;
 
+        const paidCollections = await getPaidCollectionsBreakdown(
+            dateFilter,
+            feeIds,
+            changedByIds
+        );
+
         const transactionFilter = { ...dateFilter };
         if (feeIds) {
             transactionFilter.fee = { $in: feeIds };
@@ -1090,14 +1212,18 @@ export const getFinanceReport = async (req, res) => {
             transactionFilter.action_by = { $in: changedByIds };
         }
 
+        const studentFeeSelect =
+            "name _id email paid_fee pending_fee total_fee";
+        const batchFeeSelect = "name batch_fee";
+
         const transactions = await FeeLog.find(transactionFilter)
             .populate("action_by", "name email")
-            .populate("student", "name _id email")
+            .populate("student", studentFeeSelect)
             .populate({
                 path: "fee",
                 populate: [
-                    { path: "student", select: "name _id email" },
-                    { path: "batch", select: "name" },
+                    { path: "student", select: studentFeeSelect },
+                    { path: "batch", select: batchFeeSelect },
                 ],
             })
             .sort({ action_date: -1 })
@@ -1115,36 +1241,95 @@ export const getFinanceReport = async (req, res) => {
             .sort({ approved_at: -1 })
             .limit(100);
 
-        const feeTransactions = transactions.map((log) => ({
-            _id: log._id,
-            type: "fee",
-            action_type: log.action_type,
-            amount: log.amount,
-            action_amount: log.action_amount,
-            action_date: log.action_date,
-            action_by: log.action_by?.name || "N/A",
-            student_name:
-                log.fee?.student?.name || log.student?.name || "N/A",
-            student_id:
-                log.fee?.student?._id?.toString() ||
-                log.student?._id?.toString() ||
-                "N/A",
-            batch_name: log.fee?.batch?.name || "N/A",
-            program: log.fee?.batch?.name || "N/A",
-            title: null,
-            category: null,
-            description: log.description || "",
-            fee_description: log.description || `${log.action_type || "Fee"} transaction`,
-            due_date: log.fee?.due_date || null,
-            payment_method:
-                log.payment_method ||
-                (log.action_type === "Paid" ? "Cash" : null),
-            fee_status: log.fee?.status || null,
-            fee_pending_amount:
-                log.fee?.status === "Pending" ? Number(log.fee?.amount) || 0 : 0,
-            has_pending_dues:
-                log.fee?.status === "Pending" && Number(log.fee?.amount) > 0,
-        }));
+        const feeTransactions = transactions.map((log) => {
+            const studentDoc = log.fee?.student || log.student;
+            const paidFee = Number(studentDoc?.paid_fee) || 0;
+            const pendingFee =
+                studentDoc?.pending_fee != null && studentDoc?.pending_fee !== ""
+                    ? Number(studentDoc.pending_fee) || 0
+                    : log.fee?.status === "Pending"
+                      ? Number(log.fee?.amount) || 0
+                      : 0;
+            const totalBatchFee =
+                Number(studentDoc?.total_fee) ||
+                Number(log.fee?.batch?.batch_fee) ||
+                0;
+            const nextInstallmentDate =
+                pendingFee > 0 ? log.fee?.due_date || null : null;
+
+            return {
+                _id: log._id,
+                type: "fee",
+                action_type: log.action_type,
+                amount: log.amount,
+                action_amount: log.action_amount,
+                action_date: log.action_date,
+                action_by: log.action_by?.name || "N/A",
+                student_name: studentDoc?.name || "N/A",
+                student_id: studentDoc?._id?.toString() || "N/A",
+                batch_name: log.fee?.batch?.name || "N/A",
+                program: log.fee?.batch?.name || "N/A",
+                title: null,
+                category: null,
+                description: log.description || "",
+                fee_description:
+                    log.description || `${log.action_type || "Fee"} transaction`,
+                due_date: log.fee?.due_date || null,
+                next_installment_date: nextInstallmentDate,
+                payment_method:
+                    log.payment_method ||
+                    (log.action_type === "Paid" ? "Cash" : null),
+                fee_status: log.fee?.status || null,
+                paid_fee: paidFee,
+                total_batch_fee: totalBatchFee,
+                pending_amount: pendingFee,
+                fee_pending_amount:
+                    log.fee?.status === "Pending"
+                        ? Number(log.fee?.amount) || 0
+                        : pendingFee,
+                has_pending_dues: pendingFee > 0,
+            };
+        });
+
+        const studentsMissingInstallment = [
+            ...new Set(
+                feeTransactions
+                    .filter(
+                        (row) =>
+                            Number(row.pending_amount) > 0 &&
+                            !row.next_installment_date &&
+                            row.student_id &&
+                            row.student_id !== "N/A"
+                    )
+                    .map((row) => row.student_id)
+            ),
+        ];
+
+        if (studentsMissingInstallment.length) {
+            const upcomingFees = await Fee.find({
+                student: { $in: studentsMissingInstallment },
+                status: "Pending",
+                amount: { $gt: 0 },
+                due_date: { $ne: null },
+            })
+                .select("student due_date")
+                .sort({ due_date: 1 })
+                .lean();
+
+            const nextByStudent = {};
+            for (const fee of upcomingFees) {
+                const sid = fee.student?.toString?.() || String(fee.student);
+                if (!nextByStudent[sid]) {
+                    nextByStudent[sid] = fee.due_date;
+                }
+            }
+
+            for (const row of feeTransactions) {
+                if (!row.next_installment_date && nextByStudent[row.student_id]) {
+                    row.next_installment_date = nextByStudent[row.student_id];
+                }
+            }
+        }
 
         const pendingFeeFilter = {
             status: "Pending",
@@ -1159,33 +1344,50 @@ export const getFinanceReport = async (req, res) => {
         const pendingFeeRecords = changedByIds.length
             ? []
             : await Fee.find(pendingFeeFilter)
-                  .populate("student", "name _id email")
-                  .populate("batch", "name")
+                  .populate("student", studentFeeSelect)
+                  .populate("batch", batchFeeSelect)
                   .sort({ due_date: 1 })
                   .limit(100);
 
-        const pendingDueTransactions = pendingFeeRecords.map((fee) => ({
-            _id: `pending-${fee._id}`,
-            type: "fee",
-            action_type: "Pending",
-            amount: fee.amount,
-            action_amount: fee.amount,
-            action_date: fee.due_date || fee._id?.getTimestamp?.() || new Date(),
-            action_by: "System",
-            student_name: fee.student?.name || "N/A",
-            student_id: fee.student?._id?.toString() || "N/A",
-            batch_name: fee.batch?.name || "N/A",
-            program: fee.batch?.name || "N/A",
-            title: null,
-            category: null,
-            description: "Outstanding pending fee balance",
-            fee_description: "Outstanding pending fee balance",
-            due_date: fee.due_date || null,
-            payment_method: null,
-            fee_status: "Pending",
-            fee_pending_amount: Number(fee.amount) || 0,
-            has_pending_dues: true,
-        }));
+        const pendingDueTransactions = pendingFeeRecords.map((fee) => {
+            const paidFee = Number(fee.student?.paid_fee) || 0;
+            const pendingFee =
+                fee.student?.pending_fee != null && fee.student?.pending_fee !== ""
+                    ? Number(fee.student.pending_fee) || 0
+                    : Number(fee.amount) || 0;
+            const totalBatchFee =
+                Number(fee.student?.total_fee) ||
+                Number(fee.batch?.batch_fee) ||
+                0;
+
+            return {
+                _id: `pending-${fee._id}`,
+                type: "fee",
+                action_type: "Pending",
+                amount: fee.amount,
+                action_amount: fee.amount,
+                action_date:
+                    fee.due_date || fee._id?.getTimestamp?.() || new Date(),
+                action_by: "System",
+                student_name: fee.student?.name || "N/A",
+                student_id: fee.student?._id?.toString() || "N/A",
+                batch_name: fee.batch?.name || "N/A",
+                program: fee.batch?.name || "N/A",
+                title: null,
+                category: null,
+                description: "Outstanding pending fee balance",
+                fee_description: "Outstanding pending fee balance",
+                due_date: fee.due_date || null,
+                next_installment_date: fee.due_date || null,
+                payment_method: null,
+                fee_status: "Pending",
+                paid_fee: paidFee,
+                total_batch_fee: totalBatchFee,
+                pending_amount: pendingFee,
+                fee_pending_amount: Number(fee.amount) || 0,
+                has_pending_dues: true,
+            };
+        });
 
         const expenseTransactions = approvedExpenseRecords.map((expense) => ({
             _id: expense._id,
@@ -1204,8 +1406,12 @@ export const getFinanceReport = async (req, res) => {
             description: expense.description || "",
             fee_description: expense.description || expense.title || "Approved expense",
             due_date: expense.expense_date || null,
+            next_installment_date: null,
             payment_method: expense.payment_method || "N/A",
             fee_status: null,
+            paid_fee: null,
+            total_batch_fee: null,
+            pending_amount: 0,
             fee_pending_amount: 0,
             has_pending_dues: false,
         }));
@@ -1235,6 +1441,9 @@ export const getFinanceReport = async (req, res) => {
                 total_approved_expenses,
                 total_pending_expenses,
                 net_balance,
+                total_cash: paidCollections.total_cash,
+                total_online: paidCollections.total_online,
+                batch_wise: paidCollections.batch_wise,
             },
             breakdown,
             transactions: mergedTransactions,
