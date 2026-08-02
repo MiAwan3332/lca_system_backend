@@ -529,9 +529,18 @@ const importStudentFromRow = async ({
 
     await generateQrCode(newStudent._id);
 
-    if (validated.totalFee > 0) {
+    const batchFee = Math.max(Number(batchRecord.batch_fee) || 0, 0);
+    const sheetTotal = validated.totalFee;
+    const discountAmount =
+      batchFee > 0 && sheetTotal < batchFee
+        ? Math.round((batchFee - sheetTotal) * 100) / 100
+        : 0;
+    const grossFee = discountAmount > 0 ? batchFee : sheetTotal;
+
+    if (grossFee > 0) {
+      const payableFee = Math.max(grossFee - discountAmount, 0);
       const isPartialPayment =
-        validated.paidFee > 0 && validated.paidFee < validated.totalFee;
+        validated.paidFee > 0 && validated.paidFee < payableFee;
       const nextInstallmentDate = isPartialPayment
         ? moment().add(30, "days").format("YYYY-MM-DD")
         : undefined;
@@ -553,8 +562,13 @@ const importStudentFromRow = async ({
       await createStudentAdmissionFee({
         studentId: newStudent._id,
         batchId,
-        totalFee: validated.totalFee,
+        totalFee: grossFee,
         payingNow: validated.paidFee,
+        discountAmount,
+        discountDescription:
+          discountAmount > 0
+            ? `Import discount: batch fee ${batchFee} minus sheet total ${sheetTotal}`
+            : undefined,
         actionUserId,
         paymentMethod:
           validated.cashAmount > 0
@@ -573,6 +587,9 @@ const importStudentFromRow = async ({
           $set: {
             online_amount: validated.onlineAmount,
             cash_amount: validated.cashAmount,
+            total_fee: payableFee,
+            paid_fee: validated.paidFee,
+            pending_fee: Math.max(payableFee - validated.paidFee, 0),
           },
         }
       );
