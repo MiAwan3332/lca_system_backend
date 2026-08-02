@@ -4,6 +4,7 @@ import Expense from "../models/expenses.js";
 import User from "../models/users.js";
 import Student from "../models/students.js";
 import Batch from "../models/batches.js";
+import mongoose from "mongoose";
 import {
   isStudentRole,
   resolveStudentId,
@@ -1049,17 +1050,28 @@ const getBucketTotals = async (bucket, feeIds, changedByIds = []) => {
     };
 };
 
-const sumApprovedExpensesInRange = async (startDate, endDate) => {
-    const result = await Expense.aggregate([
-        {
-            $match: {
-                status: "Approved",
-                expense_date: {
-                    $gte: startDate,
-                    $lte: endDate,
-                },
-            },
+const sumApprovedExpensesInRange = async (startDate, endDate, userIds = []) => {
+    const match = {
+        status: "Approved",
+        expense_date: {
+            $gte: startDate,
+            $lte: endDate,
         },
+    };
+    if (userIds.length === 1) {
+        match.$or = [
+            { created_by: userIds[0] },
+            { approved_by: userIds[0] },
+        ];
+    } else if (userIds.length > 1) {
+        match.$or = [
+            { created_by: { $in: userIds } },
+            { approved_by: { $in: userIds } },
+        ];
+    }
+
+    const result = await Expense.aggregate([
+        { $match: match },
         { $group: { _id: null, total: { $sum: { $toDouble: "$amount" } } } },
     ]);
 
@@ -1104,7 +1116,9 @@ export const getFinanceReport = async (req, res) => {
         };
 
         const batchIds = parseIdList(batch_id);
-        const changedByIds = parseIdList(changed_by);
+        const changedByIds = parseIdList(changed_by)
+            .filter((id) => mongoose.Types.ObjectId.isValid(id))
+            .map((id) => new mongoose.Types.ObjectId(id));
 
         const dateFilter = {
             action_date: {
@@ -1175,19 +1189,25 @@ export const getFinanceReport = async (req, res) => {
 
         const total_approved_expenses = await sumApprovedExpensesInRange(
             start.format("YYYY-MM-DD"),
-            end.format("YYYY-MM-DD")
+            end.format("YYYY-MM-DD"),
+            changedByIds
         );
 
-        const pending_expenses = await Expense.aggregate([
-            {
-                $match: {
-                    status: "Pending",
-                    expense_date: {
-                        $gte: start.format("YYYY-MM-DD"),
-                        $lte: end.format("YYYY-MM-DD"),
-                    },
-                },
+        const pendingExpenseMatch = {
+            status: "Pending",
+            expense_date: {
+                $gte: start.format("YYYY-MM-DD"),
+                $lte: end.format("YYYY-MM-DD"),
             },
+        };
+        if (changedByIds.length === 1) {
+            pendingExpenseMatch.created_by = changedByIds[0];
+        } else if (changedByIds.length > 1) {
+            pendingExpenseMatch.created_by = { $in: changedByIds };
+        }
+
+        const pending_expenses = await Expense.aggregate([
+            { $match: pendingExpenseMatch },
             { $group: { _id: null, total: { $sum: { $toDouble: "$amount" } } } },
         ]);
         const total_pending_expenses =
@@ -1229,13 +1249,26 @@ export const getFinanceReport = async (req, res) => {
             .sort({ action_date: -1 })
             .limit(100);
 
-        const approvedExpenseRecords = await Expense.find({
+        const approvedExpenseFilter = {
             status: "Approved",
             expense_date: {
                 $gte: start.format("YYYY-MM-DD"),
                 $lte: end.format("YYYY-MM-DD"),
             },
-        })
+        };
+        if (changedByIds.length === 1) {
+            approvedExpenseFilter.$or = [
+                { created_by: changedByIds[0] },
+                { approved_by: changedByIds[0] },
+            ];
+        } else if (changedByIds.length > 1) {
+            approvedExpenseFilter.$or = [
+                { created_by: { $in: changedByIds } },
+                { approved_by: { $in: changedByIds } },
+            ];
+        }
+
+        const approvedExpenseRecords = await Expense.find(approvedExpenseFilter)
             .populate("created_by", "name email")
             .populate("approved_by", "name email")
             .sort({ approved_at: -1 })
