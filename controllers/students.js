@@ -396,6 +396,8 @@ const validateStudentImportRow = (row, rowNumber) => {
   const totalFee = Number(row?.total_fee);
   const paidFee = Number(row?.paid_fee);
   const pendingFee = Number(row?.pending_fee);
+  const onlineAmount = Number(row?.online_amount);
+  const cashAmount = Number(row?.cash_amount);
 
   if (!name) {
     throw new Error("Name is required");
@@ -412,11 +414,20 @@ const validateStudentImportRow = (row, rowNumber) => {
   if (!Number.isFinite(pendingFee) || pendingFee < 0) {
     throw new Error("Pending amount must be a valid non-negative number");
   }
+  if (!Number.isFinite(onlineAmount) || onlineAmount < 0) {
+    throw new Error("Online amount must be a valid non-negative number");
+  }
+  if (!Number.isFinite(cashAmount) || cashAmount < 0) {
+    throw new Error("Cash amount must be a valid non-negative number");
+  }
   if (paidFee > totalFee) {
     throw new Error("Paid amount cannot exceed total fee");
   }
   if (Math.abs(pendingFee - (totalFee - paidFee)) > 0.01) {
     throw new Error("Pending amount must equal total fee minus paid amount");
+  }
+  if (Math.abs(onlineAmount + cashAmount - paidFee) > 0.01) {
+    throw new Error("Online amount + cash amount must equal paid amount");
   }
 
   const email = buildStudentAccountEmail(phone);
@@ -428,6 +439,8 @@ const validateStudentImportRow = (row, rowNumber) => {
     totalFee,
     paidFee,
     pendingFee,
+    onlineAmount,
+    cashAmount,
     remarks: String(row?.remarks ?? "").trim(),
     rowNumber,
   };
@@ -489,6 +502,8 @@ const importStudentFromRow = async ({
       total_fee: validated.totalFee,
       paid_fee: validated.paidFee,
       pending_fee: validated.pendingFee,
+      online_amount: validated.onlineAmount,
+      cash_amount: validated.cashAmount,
       cnic: "",
       date_of_birth: "",
       father_name: "",
@@ -521,15 +536,46 @@ const importStudentFromRow = async ({
         ? moment().add(30, "days").format("YYYY-MM-DD")
         : undefined;
 
+      const paymentBreakdown = [];
+      if (validated.cashAmount > 0) {
+        paymentBreakdown.push({
+          paymentMethod: "Cash",
+          amount: validated.cashAmount,
+        });
+      }
+      if (validated.onlineAmount > 0) {
+        paymentBreakdown.push({
+          paymentMethod: "Online Payment",
+          amount: validated.onlineAmount,
+        });
+      }
+
       await createStudentAdmissionFee({
         studentId: newStudent._id,
         batchId,
         totalFee: validated.totalFee,
         payingNow: validated.paidFee,
         actionUserId,
-        paymentMethod: validated.paidFee > 0 ? "Cash" : undefined,
+        paymentMethod:
+          validated.cashAmount > 0
+            ? "Cash"
+            : validated.onlineAmount > 0
+              ? "Online Payment"
+              : undefined,
+        paymentBreakdown,
         nextInstallmentDate,
       });
+
+      // Keep explicit cash/online totals on the student record
+      await Student.updateOne(
+        { _id: newStudent._id },
+        {
+          $set: {
+            online_amount: validated.onlineAmount,
+            cash_amount: validated.cashAmount,
+          },
+        }
+      );
     }
 
     return newStudent;

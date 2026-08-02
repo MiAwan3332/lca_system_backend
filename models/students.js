@@ -41,6 +41,14 @@ const studentSchema = mongoose.Schema({
     type: Number,
     default: 0,
   },
+  online_amount: {
+    type: Number,
+    default: 0,
+  },
+  cash_amount: {
+    type: Number,
+    default: 0,
+  },
   is_special_batch: {
     type: Boolean,
     default: false,

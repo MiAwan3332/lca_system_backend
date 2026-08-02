@@ -15,6 +15,7 @@ export async function createStudentAdmissionFee({
   paymentMethod,
   paymentEvidence,
   nextInstallmentDate,
+  paymentBreakdown,
 }) {
   if (!studentId || !batchId || totalFee <= 0) {
     return null;
@@ -33,8 +34,25 @@ export async function createStudentAdmissionFee({
     throw new Error("Discount cannot be greater than total fee");
   }
 
+  const breakdownParts = Array.isArray(paymentBreakdown)
+    ? paymentBreakdown
+        .map((part) => ({
+          paymentMethod: part?.paymentMethod || part?.payment_method || "Cash",
+          amount: Number(part?.amount) || 0,
+        }))
+        .filter((part) => part.amount > 0)
+    : [];
+
+  const breakdownTotal = breakdownParts.reduce(
+    (sum, part) => sum + part.amount,
+    0
+  );
+  const resolvedPayingNow =
+    breakdownParts.length > 0 ? breakdownTotal : Number(payingNow) || 0;
+
   const netFee = Math.max(totalFee - discount, 0);
-  const isPartialPayment = payingNow > 0 && payingNow < netFee;
+  const isPartialPayment =
+    resolvedPayingNow > 0 && resolvedPayingNow < netFee;
   let dueDate = moment().tz("Asia/Karachi").format("YYYY-MM-DD");
 
   if (isPartialPayment) {
@@ -85,10 +103,33 @@ export async function createStudentAdmissionFee({
     }).save();
   }
 
-  if (payingNow > 0) {
+  if (breakdownParts.length > 0) {
+    let feeDoc = newFee;
+    for (const part of breakdownParts) {
+      feeDoc = await Fee.findById(newFee._id);
+      await recordFeePayment({
+        fee: feeDoc,
+        paymentAmount: part.amount,
+        actionUserId,
+        studentId,
+        paymentMethod: part.paymentMethod,
+        paymentEvidence:
+          part.paymentMethod === paymentMethod ? paymentEvidence : undefined,
+        description: `Payment received on student admission (${part.paymentMethod})`,
+      });
+    }
+
+    if (isPartialPayment) {
+      const updatedFee = await Fee.findById(newFee._id);
+      if (updatedFee) {
+        updatedFee.due_date = dueDate;
+        await updatedFee.save();
+      }
+    }
+  } else if (resolvedPayingNow > 0) {
     await recordFeePayment({
       fee: newFee,
-      paymentAmount: payingNow,
+      paymentAmount: resolvedPayingNow,
       actionUserId,
       studentId,
       paymentMethod,
