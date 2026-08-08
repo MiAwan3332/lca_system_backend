@@ -520,6 +520,8 @@ export const collectPendingFee = async (req, res) => {
         payment_method,
         remarks,
         next_installment_date,
+        discount_amount,
+        discount_description,
     } = req.body;
 
     try {
@@ -537,6 +539,18 @@ export const collectPendingFee = async (req, res) => {
             return res.status(400).json({ message: "Student has no outstanding balance" });
         }
 
+        const discountAmount = Math.round(Number(discount_amount) || 0);
+        if (discountAmount < 0) {
+            return res.status(400).json({ message: "Discount cannot be negative" });
+        }
+        if (discountAmount > outstanding) {
+            return res.status(400).json({
+                message: `Discount cannot exceed outstanding balance (${outstanding} Rs.)`,
+            });
+        }
+
+        const payableAfterDiscount = Math.max(outstanding - discountAmount, 0);
+
         const option = String(payment_option || "").toLowerCase();
         if (!["full", "partial"].includes(option)) {
             return res.status(400).json({
@@ -545,41 +559,54 @@ export const collectPendingFee = async (req, res) => {
         }
 
         let paymentAmount =
-            option === "full" ? outstanding : Number(amount);
+            option === "full" ? payableAfterDiscount : Number(amount);
 
         if (option === "full") {
-            paymentAmount = outstanding;
+            paymentAmount = payableAfterDiscount;
         }
 
-        if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+        if (!Number.isFinite(paymentAmount) || paymentAmount < 0) {
+            return res.status(400).json({ message: "Payment amount must be greater than or equal to 0" });
+        }
+
+        if (paymentAmount === 0 && discountAmount <= 0) {
             return res.status(400).json({ message: "Payment amount must be greater than 0" });
         }
 
-        if (paymentAmount > outstanding) {
+        if (paymentAmount > payableAfterDiscount) {
             return res.status(400).json({
-                message: `Partial payment cannot exceed outstanding balance (${outstanding} Rs.)`,
+                message: `Partial payment cannot exceed payable balance (${payableAfterDiscount} Rs.)`,
             });
         }
 
-        if (option === "partial" && paymentAmount >= outstanding) {
+        if (option === "partial" && paymentAmount >= payableAfterDiscount && payableAfterDiscount > 0) {
             return res.status(400).json({
                 message: "Use Pay Full Remaining Balance when paying the entire amount",
             });
         }
 
-        if (!payment_method || !isValidFeePaymentMethod(payment_method)) {
-            return res.status(400).json({
-                message:
-                    "Payment method is required (Cash, Bank Transfer, Online Payment, or Cheque)",
-            });
+        const needsPayment = paymentAmount > 0;
+        if (needsPayment) {
+            if (!payment_method || !isValidFeePaymentMethod(payment_method)) {
+                return res.status(400).json({
+                    message:
+                        "Payment method is required (Cash, Bank Transfer, Online Payment, or Cheque)",
+                });
+            }
+
+            if (
+                requiresPaymentEvidence(payment_method) &&
+                asUploadedFileArray(req.files?.payment_evidence).length === 0
+            ) {
+                return res.status(400).json({
+                    message: "Online payment receipt/slip attachment is required",
+                });
+            }
         }
 
-        if (
-            requiresPaymentEvidence(payment_method) &&
-            asUploadedFileArray(req.files?.payment_evidence).length === 0
-        ) {
+        if (discountAmount > 0 && !String(discount_description || "").trim() && !String(remarks || "").trim()) {
             return res.status(400).json({
-                message: "Online payment receipt/slip attachment is required",
+                message: "Discount description or remarks are required when applying a discount",
             });
         }
 
@@ -589,7 +616,7 @@ export const collectPendingFee = async (req, res) => {
         }
 
         let paymentEvidence = "";
-        if (requiresPaymentEvidence(payment_method)) {
+        if (needsPayment && requiresPaymentEvidence(payment_method)) {
             const urls = await uploadPaymentEvidenceFiles(
                 req.files?.payment_evidence,
                 studentId
@@ -603,12 +630,15 @@ export const collectPendingFee = async (req, res) => {
             studentId,
             paymentAmount,
             actionUserId: actionUser?._id,
-            paymentMethod: payment_method,
+            paymentMethod: needsPayment ? payment_method : undefined,
             paymentEvidence,
             remarks: trimmedRemarks,
             nextInstallmentDate:
                 option === "partial" ? next_installment_date : undefined,
             payFull: option === "full",
+            discountAmount,
+            discountDescription:
+                String(discount_description || "").trim() || trimmedRemarks,
         });
 
         try {
@@ -616,12 +646,15 @@ export const collectPendingFee = async (req, res) => {
                 req,
                 action: "update",
                 module: "Fees",
-                description: `Collected ${paymentAmount} Rs. pending fee for ${student.name} via ${payment_method}`,
+                description: `Collected ${paymentAmount} Rs. pending fee for ${student.name}${
+                    discountAmount > 0 ? ` (discount ${discountAmount} Rs.)` : ""
+                }${payment_method ? ` via ${payment_method}` : ""}`,
                 statusCode: 200,
                 targetId: String(studentId),
                 targetType: "Student",
                 metadata: {
                     amount_paid: result.amount_paid,
+                    discount_applied: result.discount_applied,
                     payment_method: result.payment_method,
                     payment_option: option,
                     next_installment_date: result.next_installment_date,
@@ -643,7 +676,7 @@ export const collectPendingFee = async (req, res) => {
         });
     } catch (error) {
         console.error("collectPendingFee error:", error);
-        const status = /required|exceed|greater|must|found|option|batch/i.test(
+        const status = /required|exceed|greater|must|found|option|batch|discount/i.test(
             error.message || ""
         )
             ? 400
@@ -1222,7 +1255,10 @@ export const getFinanceReport = async (req, res) => {
             changedByIds
         );
 
-        const transactionFilter = { ...dateFilter };
+        const transactionFilter = {
+            ...dateFilter,
+            action_type: { $in: ["Paid"] },
+        };
         if (feeIds) {
             transactionFilter.fee = { $in: feeIds };
         }

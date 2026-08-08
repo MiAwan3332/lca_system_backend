@@ -216,6 +216,114 @@ export async function recordFeePayment({
   return fee;
 }
 
+async function ensurePendingFees(studentId, nextInstallmentDate) {
+  let pendingFees = await Fee.find({
+    student: studentId,
+    status: "Pending",
+    amount: { $gt: 0 },
+  }).sort({ due_date: 1, _id: 1 });
+
+  if (pendingFees.length) {
+    return pendingFees;
+  }
+
+  const student = await Student.findById(studentId);
+  const studentPending = Math.max(Number(student?.pending_fee) || 0, 0);
+  if (!student || studentPending <= 0) {
+    throw new Error("No pending fee found for this student");
+  }
+  if (!student.batch) {
+    throw new Error(
+      "Student has pending balance but no batch/fee record. Assign a batch first."
+    );
+  }
+
+  const dueDate = nextInstallmentDate
+    ? moment(nextInstallmentDate).tz("Asia/Karachi").format("YYYY-MM-DD")
+    : moment().tz("Asia/Karachi").format("YYYY-MM-DD");
+
+  const recoveryFee = await new Fee({
+    student: studentId,
+    batch: student.batch,
+    amount: studentPending,
+    due_date: dueDate,
+    status: "Pending",
+  }).save();
+
+  return [recoveryFee];
+}
+
+/**
+ * Apply a discount against a student's pending fee records (oldest due first).
+ */
+export async function applyStudentPendingDiscount({
+  studentId,
+  discountAmount,
+  description,
+  actionUserId,
+  nextInstallmentDate,
+}) {
+  const discount = Math.round(Number(discountAmount) || 0);
+  if (discount <= 0) {
+    return { discounted: 0, fee_ids: [] };
+  }
+
+  const trimmedDescription = String(description || "").trim();
+  if (!trimmedDescription) {
+    throw new Error("Discount description is required");
+  }
+
+  const pendingFees = await ensurePendingFees(studentId, nextInstallmentDate);
+  const outstanding = pendingFees.reduce(
+    (sum, fee) => sum + (Number(fee.amount) || 0),
+    0
+  );
+
+  if (discount > outstanding) {
+    throw new Error(
+      `Discount cannot exceed outstanding balance (${outstanding} Rs.)`
+    );
+  }
+
+  let remaining = discount;
+  const feeIds = [];
+
+  for (const fee of pendingFees) {
+    if (remaining <= 0) break;
+    const applyNow = Math.min(remaining, Number(fee.amount) || 0);
+    if (applyNow <= 0) continue;
+
+    const originalAmount = fee.amount;
+    fee.amount = Math.max(originalAmount - applyNow, 0);
+    if (fee.amount <= 0) {
+      fee.amount = 0;
+      fee.status = "Paid";
+    }
+    await fee.save();
+
+    await new FeeLog({
+      amount: originalAmount,
+      action_amount: applyNow,
+      action_date: new Date(),
+      action_type: "Discounted",
+      action_by: actionUserId,
+      fee: fee._id,
+      student: studentId,
+      description: trimmedDescription,
+    }).save();
+
+    feeIds.push(fee._id);
+    remaining -= applyNow;
+  }
+
+  await syncStudentFeeFromLogs(studentId);
+
+  return {
+    discounted: discount - remaining,
+    fee_ids: feeIds,
+  };
+}
+
 /**
  * Apply a payment against a student's pending fee records (oldest due first).
  */
@@ -228,10 +336,24 @@ export async function collectStudentPendingPayment({
   remarks,
   nextInstallmentDate,
   payFull = false,
+  discountAmount = 0,
+  discountDescription = "",
 }) {
   const trimmedRemarks = String(remarks || "").trim();
   if (!trimmedRemarks) {
     throw new Error("Remarks are required");
+  }
+
+  const discount = Math.round(Number(discountAmount) || 0);
+  let discountResult = { discounted: 0, fee_ids: [] };
+  if (discount > 0) {
+    discountResult = await applyStudentPendingDiscount({
+      studentId,
+      discountAmount: discount,
+      description: discountDescription || trimmedRemarks,
+      actionUserId,
+      nextInstallmentDate,
+    });
   }
 
   let pendingFees = await Fee.find({
@@ -240,32 +362,27 @@ export async function collectStudentPendingPayment({
     amount: { $gt: 0 },
   }).sort({ due_date: 1, _id: 1 });
 
-  // If student shows pending balance but fee rows are missing, create one to collect against
+  if (!pendingFees.length && discount > 0) {
+    const student = await Student.findById(studentId)
+      .populate("batch", "name")
+      .lean();
+    return {
+      student,
+      amount_paid: 0,
+      discount_applied: discountResult.discounted,
+      outstanding_before:
+        (Number(student?.pending_fee) || 0) + discountResult.discounted,
+      outstanding_after: 0,
+      is_partial: false,
+      next_installment_date: null,
+      payment_method: paymentMethod || null,
+      remarks: trimmedRemarks,
+      fee_ids: discountResult.fee_ids,
+    };
+  }
+
   if (!pendingFees.length) {
-    const student = await Student.findById(studentId);
-    const studentPending = Math.max(Number(student?.pending_fee) || 0, 0);
-    if (!student || studentPending <= 0) {
-      throw new Error("No pending fee found for this student");
-    }
-    if (!student.batch) {
-      throw new Error(
-        "Student has pending balance but no batch/fee record. Assign a batch first."
-      );
-    }
-
-    const dueDate = nextInstallmentDate
-      ? moment(nextInstallmentDate).tz("Asia/Karachi").format("YYYY-MM-DD")
-      : moment().tz("Asia/Karachi").format("YYYY-MM-DD");
-
-    const recoveryFee = await new Fee({
-      student: studentId,
-      batch: student.batch,
-      amount: studentPending,
-      due_date: dueDate,
-      status: "Pending",
-    }).save();
-
-    pendingFees = [recoveryFee];
+    pendingFees = await ensurePendingFees(studentId, nextInstallmentDate);
   }
 
   const outstanding = pendingFees.reduce(
@@ -275,7 +392,15 @@ export async function collectStudentPendingPayment({
 
   let amount = payFull ? outstanding : Number(paymentAmount);
 
-  if (!Number.isFinite(amount) || amount <= 0) {
+  if (payFull && outstanding <= 0) {
+    amount = 0;
+  }
+
+  if (!Number.isFinite(amount) || amount < 0) {
+    throw new Error("Payment amount must be greater than or equal to 0");
+  }
+
+  if (amount === 0 && discountResult.discounted <= 0) {
     throw new Error("Payment amount must be greater than 0");
   }
 
@@ -285,7 +410,7 @@ export async function collectStudentPendingPayment({
     );
   }
 
-  const isPartial = amount < outstanding;
+  const isPartial = amount > 0 && amount < outstanding;
   if (isPartial) {
     if (!nextInstallmentDate) {
       throw new Error("Next installment date is required for partial payment");
@@ -296,7 +421,7 @@ export async function collectStudentPendingPayment({
   }
 
   let remainingToApply = amount;
-  const paidFeeIds = [];
+  const paidFeeIds = [...discountResult.fee_ids];
 
   for (const fee of pendingFees) {
     if (remainingToApply <= 0) break;
@@ -350,13 +475,14 @@ export async function collectStudentPendingPayment({
   return {
     student,
     amount_paid: amount,
-    outstanding_before: outstanding,
+    discount_applied: discountResult.discounted,
+    outstanding_before: outstanding + discountResult.discounted,
     outstanding_after: Math.max(outstanding - amount, 0),
     is_partial: isPartial,
     next_installment_date: isPartial
       ? moment(nextInstallmentDate).tz("Asia/Karachi").format("YYYY-MM-DD")
       : null,
-    payment_method: paymentMethod,
+    payment_method: paymentMethod || null,
     remarks: trimmedRemarks,
     fee_ids: paidFeeIds,
   };
