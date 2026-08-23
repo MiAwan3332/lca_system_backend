@@ -28,6 +28,7 @@ import {
   normalizePaymentEvidenceForStorage,
   uploadPaymentEvidenceFiles,
 } from "../utils/paymentEvidence.js";
+import { parseSpecialFeeOptionsFromBatch } from "../utils/specialFeeOptions.js";
 import {
   createStudentAdmissionFee,
   syncStudentFeeFromLogs,
@@ -77,46 +78,6 @@ const buildPendingFeeBlockPayload = async (studentId, pendingAmount) => {
 };
 
 // const crypto = require("crypto");
-
-const coerceBooleanFlag = (value) =>
-  value === true || value === "true" || value === "1" || value === 1;
-
-const parseSpecialFeeOptionsFromBatch = (body, batchRecord) => {
-  const batchFees = batchRecord.special_fee_options || {};
-  const selections = {
-    test_session: coerceBooleanFlag(body.special_test_session),
-    optional_revision: coerceBooleanFlag(body.special_optional_revision),
-    compulsory_revision: coerceBooleanFlag(body.special_compulsory_revision),
-  };
-
-  const selectedKeys = Object.keys(selections).filter((key) => selections[key]);
-
-  if (selectedKeys.length === 0) {
-    return {
-      error:
-        "Select at least one special batch option (Test Session, Optional Revision, or Compulsory Revision)",
-    };
-  }
-
-  const options = {
-    test_session: { selected: false, fee: 0 },
-    optional_revision: { selected: false, fee: 0 },
-    compulsory_revision: { selected: false, fee: 0 },
-  };
-
-  for (const key of selectedKeys) {
-    const fee = Number(batchFees[key]) || 0;
-    if (!Number.isFinite(fee) || fee <= 0) {
-      return {
-        error: `Selected option "${key.replace(/_/g, " ")}" has no fee configured on this batch`,
-      };
-    }
-    options[key] = { selected: true, fee };
-  }
-
-  const totalFee = selectedKeys.reduce((sum, key) => sum + options[key].fee, 0);
-  return { options, totalFee };
-};
 
 const DEFAULT_STUDENT_PASSWORD = "lca@123456";
 
@@ -184,11 +145,7 @@ export const addStudent = async (req, res) => {
     let totalFee = 0;
     let rollNumber = "";
     let isSpecialBatch = false;
-    let specialFeeOptions = {
-      test_session: { selected: false, fee: 0 },
-      optional_revision: { selected: false, fee: 0 },
-      compulsory_revision: { selected: false, fee: 0 },
-    };
+    let specialFeeOptions = {};
 
     if (batch) {
       batchRecord = await Batch.findById(batch);

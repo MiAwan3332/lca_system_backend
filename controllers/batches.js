@@ -11,6 +11,7 @@ import {
   buildEmptyPaginatedResponse,
   denyUnlessInstitutionAdmin,
 } from "../utils/lmsAccess.js";
+import { parseBatchSpecialFees } from "../utils/specialFeeOptions.js";
 
 const getBatchEnrolledStudentCount = async (batchId) =>
   Student.countDocuments({ batch: batchId });
@@ -153,40 +154,6 @@ export const getBatch = async (req, res) => {
 };
 
 const coerceBoolean = (value) => value === true || value === "true";
-
-const parseBatchSpecialFees = (body, isSpecialBatch) => {
-  if (!isSpecialBatch) {
-    return {
-      test_session: 0,
-      optional_revision: 0,
-      compulsory_revision: 0,
-    };
-  }
-
-  const fees = {
-    test_session: Number(body.test_session_fee ?? body.special_fee_options?.test_session) || 0,
-    optional_revision:
-      Number(body.optional_revision_fee ?? body.special_fee_options?.optional_revision) || 0,
-    compulsory_revision:
-      Number(body.compulsory_revision_fee ?? body.special_fee_options?.compulsory_revision) || 0,
-  };
-
-  const hasAtLeastOneFee = Object.values(fees).some((fee) => fee > 0);
-  if (!hasAtLeastOneFee) {
-    return {
-      error:
-        "Special batch requires at least one option fee greater than 0 (Test Session, Optional Revision, or Compulsory Revision)",
-    };
-  }
-
-  for (const [key, fee] of Object.entries(fees)) {
-    if (!Number.isFinite(fee) || fee < 0) {
-      return { error: `Invalid fee for ${key.replace(/_/g, " ")}` };
-    }
-  }
-
-  return { fees };
-};
 
 export const addBatch = async (req, res) => {
   if (denyUnlessInstitutionAdmin(req, res)) return;

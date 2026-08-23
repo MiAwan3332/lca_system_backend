@@ -14,10 +14,10 @@ const batchesSchema = mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  // Array of { key, label, fee } (legacy object shape still readable via helpers)
   special_fee_options: {
-    test_session: { type: Number, default: 0 },
-    optional_revision: { type: Number, default: 0 },
-    compulsory_revision: { type: Number, default: 0 },
+    type: mongoose.Schema.Types.Mixed,
+    default: [],
   },
   is_active: {
     type: Boolean,

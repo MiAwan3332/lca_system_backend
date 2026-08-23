@@ -53,19 +53,10 @@ const studentSchema = mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  // Map of optionKey -> { selected, fee, label } (supports dynamic options)
   special_fee_options: {
-    test_session: {
-      selected: { type: Boolean, default: false },
-      fee: { type: Number, default: 0 },
-    },
-    optional_revision: {
-      selected: { type: Boolean, default: false },
-      fee: { type: Number, default: 0 },
-    },
-    compulsory_revision: {
-      selected: { type: Boolean, default: false },
-      fee: { type: Number, default: 0 },
-    },
+    type: mongoose.Schema.Types.Mixed,
+    default: {},
   },
   profile_updated_once: {
     type: Boolean,
