@@ -34,6 +34,7 @@ import announcementRoutes from './routes/announcements.js';
 import activityLogRoutes from './routes/activityLogs.js';
 import googleRoutes from './routes/google.js';
 import interviewPanelRoutes from './routes/interviewPanels.js';
+import admissionSlipVerificationRoutes from './routes/admissionSlipVerification.js';
 import { startInstallmentReminderScheduler } from './utils/feeInstallmentReminders.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -73,6 +74,7 @@ app.use('/notifications', notificationRoutes);
 app.use('/complaints', complaintRoutes);
 app.use('/announcements', announcementRoutes);
 app.use('/interview-panels', interviewPanelRoutes);
+app.use('/admission-slips', admissionSlipVerificationRoutes);
 app.use('/activity-logs', activityLogRoutes);
 app.use('/google', googleRoutes);
 app.use('/api/google', googleRoutes);
