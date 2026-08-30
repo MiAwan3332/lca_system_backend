@@ -1,5 +1,6 @@
 import express from "express";
 import auth from "../middlewares/auth.js";
+import { denyUnlessPlatformSuperAdmin } from "../utils/lmsAccess.js";
 import {
   connectWhatsApp,
   createWhatsAppSession,
@@ -26,25 +27,33 @@ import {
 
 const router = express.Router();
 
-router.get("/config", auth, getWhatsAppConfig);
-router.get("/sessions", auth, listWhatsAppSessions);
-router.post("/sessions", auth, createWhatsAppSession);
-router.post("/connect", auth, connectWhatsApp);
-router.get("/sessions/:id", auth, getWhatsAppSession);
-router.post("/sessions/:id/start", auth, startWhatsAppSession);
-router.post("/sessions/:id/stop", auth, stopWhatsAppSession);
-router.post("/sessions/:id/logout", auth, logoutWhatsAppSession);
-router.delete("/sessions/:id", auth, deleteWhatsAppSession);
-router.get("/sessions/:id/qr", auth, getWhatsAppSessionQr);
-router.post("/sessions/:id/pairing-code", auth, requestWhatsAppPairingCode);
+const requirePlatformSuperAdmin = (req, res, next) => {
+  if (denyUnlessPlatformSuperAdmin(req, res)) return;
+  next();
+};
 
-router.get("/templates/tags", auth, listWhatsAppTemplateTags);
-router.get("/templates", auth, listWhatsAppTemplates);
-router.post("/templates", auth, createWhatsAppTemplate);
-router.get("/templates/:keyOrId", auth, getWhatsAppTemplate);
-router.put("/templates/:keyOrId", auth, updateWhatsAppTemplate);
-router.delete("/templates/:keyOrId", auth, deleteWhatsAppTemplate);
-router.post("/templates/:keyOrId/preview", auth, previewWhatsAppTemplate);
-router.post("/templates/:keyOrId/test", auth, testWhatsAppTemplate);
+// WhatsApp Connect + Templates: Super Admin only
+router.use(auth, requirePlatformSuperAdmin);
+
+router.get("/config", getWhatsAppConfig);
+router.get("/sessions", listWhatsAppSessions);
+router.post("/sessions", createWhatsAppSession);
+router.post("/connect", connectWhatsApp);
+router.get("/sessions/:id", getWhatsAppSession);
+router.post("/sessions/:id/start", startWhatsAppSession);
+router.post("/sessions/:id/stop", stopWhatsAppSession);
+router.post("/sessions/:id/logout", logoutWhatsAppSession);
+router.delete("/sessions/:id", deleteWhatsAppSession);
+router.get("/sessions/:id/qr", getWhatsAppSessionQr);
+router.post("/sessions/:id/pairing-code", requestWhatsAppPairingCode);
+
+router.get("/templates/tags", listWhatsAppTemplateTags);
+router.get("/templates", listWhatsAppTemplates);
+router.post("/templates", createWhatsAppTemplate);
+router.get("/templates/:keyOrId", getWhatsAppTemplate);
+router.put("/templates/:keyOrId", updateWhatsAppTemplate);
+router.delete("/templates/:keyOrId", deleteWhatsAppTemplate);
+router.post("/templates/:keyOrId/preview", previewWhatsAppTemplate);
+router.post("/templates/:keyOrId/test", testWhatsAppTemplate);
 
 export default router;
