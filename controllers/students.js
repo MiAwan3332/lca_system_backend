@@ -15,6 +15,7 @@ import {
   isInstitutionAdmin,
   canAccessBatch,
   isFullAccessRole,
+  denyUnlessPlatformSuperAdmin,
 } from "../utils/lmsAccess.js";
 import { addEmailToQueue } from "../utils/emailQueue.js";
 import dotenv, { populate } from "dotenv";
@@ -44,6 +45,8 @@ import {
   getNextStudentRollNumber,
   backfillMissingRollNumbersForBatch,
 } from "../utils/studentRollNumber.js";
+import { sendStudentWelcomeWhatsApp } from "../utils/whatsappMessaging.js";
+import { deleteStudentCascade } from "../utils/deleteStudentCascade.js";
 dotenv.config();
 
 const PENDING_FEE_BLOCK_MESSAGE =
@@ -314,11 +317,20 @@ export const addStudent = async (req, res) => {
       payingNow > 0 &&
       (paymentMethod === "Online" || paymentMethod === "Online Payment")
     ) {
-      const urls = await uploadPaymentEvidenceFiles(
-        req.files?.payment_evidence,
-        newStudent._id
-      );
-      paymentEvidence = normalizePaymentEvidenceForStorage(urls);
+      try {
+        const urls = await uploadPaymentEvidenceFiles(
+          req.files?.payment_evidence,
+          newStudent._id
+        );
+        paymentEvidence = normalizePaymentEvidenceForStorage(urls);
+      } catch (evidenceError) {
+        console.error("Payment evidence upload failed:", evidenceError);
+        return res.status(400).json({
+          message:
+            evidenceError?.message ||
+            "Could not upload online payment evidence. Please try again.",
+        });
+      }
     }
 
     if (batch && grossFee > 0) {
@@ -341,7 +353,30 @@ export const addStudent = async (req, res) => {
     // await addEmailToQueue(email, name, randomPassword);
 
     const savedStudent = await Student.findById(newStudent._id).populate("batch");
-    res.status(200).json(savedStudent);
+
+    let whatsappWelcome = { sent: false, skipped: true };
+    try {
+      whatsappWelcome = await sendStudentWelcomeWhatsApp({
+        student: savedStudent,
+        batch: savedStudent?.batch || batchRecord,
+        password: randomPassword,
+        paymentMethod: payingNow > 0 ? paymentMethod : "Pay Later",
+      });
+    } catch (whatsappError) {
+      console.error("WhatsApp welcome failed after student add:", whatsappError);
+      whatsappWelcome = {
+        sent: false,
+        error: whatsappError?.message || "WhatsApp welcome failed",
+      };
+    }
+
+    const payload =
+      typeof savedStudent.toObject === "function"
+        ? savedStudent.toObject()
+        : { ...savedStudent };
+    payload.whatsapp_welcome = whatsappWelcome;
+
+    res.status(200).json(payload);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -1169,15 +1204,19 @@ export const getStudent = async (req, res) => {
 export const deleteStudent = async (req, res) => {
   const { id } = req.params;
   try {
-    const student = await Student.findById(id);
-    if (!student) {
-      return res.status(404).json({ message: "Student not found" });
-    }
-    await User.findOneAndDelete({ email: student.email });
-    await Student.findByIdAndDelete(id);
-    res.status(200).json("student deleted successfully");
+    if (denyUnlessPlatformSuperAdmin(req, res)) return;
+
+    const summary = await deleteStudentCascade(id);
+    res.status(200).json({
+      message: "Student and all related data deleted successfully",
+      summary,
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const msg = error?.message || "Failed to delete student";
+    if (msg === "Student not found" || msg === "Invalid student id") {
+      return res.status(404).json({ message: msg });
+    }
+    res.status(500).json({ message: msg });
   }
 };
 

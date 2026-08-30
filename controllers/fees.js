@@ -23,6 +23,28 @@ import {
   uploadPaymentEvidenceFiles,
 } from "../utils/paymentEvidence.js";
 import { logActivity } from "../utils/activityLogger.js";
+import { sendFeePaymentWhatsApp } from "../utils/whatsappMessaging.js";
+
+const notifyFeePaymentWhatsApp = async ({
+  studentId,
+  amountReceived,
+  paymentMethod,
+}) => {
+  try {
+    if (!studentId || !(Number(amountReceived) > 0)) return null;
+    const student = await Student.findById(studentId).populate("batch");
+    if (!student?.phone) return null;
+    return await sendFeePaymentWhatsApp({
+      student,
+      batch: student.batch,
+      paymentMethod: paymentMethod || "Cash",
+      amountReceived,
+    });
+  } catch (error) {
+    console.error("Fee payment WhatsApp notify failed:", error.message);
+    return { sent: false, error: error.message };
+  }
+};
 dotenv.config();
 
 const getPeriodRange = (period, date) => {
@@ -502,7 +524,19 @@ export const payFee = async (req, res) => {
             nextInstallmentDate: isPartial ? next_installment_date : undefined,
         });
 
-        res.status(200).json(updatedFee);
+        const whatsappPayment = await notifyFeePaymentWhatsApp({
+            studentId: student_id || fee.student,
+            amountReceived: paymentAmount,
+            paymentMethod: payment_method,
+        });
+
+        const payload =
+            typeof updatedFee?.toObject === "function"
+                ? updatedFee.toObject()
+                : { ...updatedFee };
+        payload.whatsapp_payment = whatsappPayment;
+
+        res.status(200).json(payload);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -669,10 +703,17 @@ export const collectPendingFee = async (req, res) => {
             console.error("Activity log failed for pending fee collection:", logError);
         }
 
+        const whatsappPayment = await notifyFeePaymentWhatsApp({
+            studentId,
+            amountReceived: result.amount_paid || paymentAmount,
+            paymentMethod: result.payment_method || payment_method,
+        });
+
         res.status(200).json({
             message: "Payment recorded successfully",
             ...result,
             payment_evidence: paymentEvidence || "",
+            whatsapp_payment: whatsappPayment,
         });
     } catch (error) {
         console.error("collectPendingFee error:", error);

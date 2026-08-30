@@ -28,6 +28,17 @@ export const normalizePaymentEvidenceForStorage = (urls) => {
   return list;
 };
 
+const resolveStorageConfig = () => {
+  const filesStoragePath =
+    process.env.FILES_STORAGE_PATH ||
+    path.resolve(process.cwd(), "public", "files");
+  const filesStorageUrl =
+    process.env.FILES_STORAGE_URL ||
+    process.env.BACKEND_URL ||
+    "http://localhost:5001/public";
+  return { filesStoragePath, filesStorageUrl };
+};
+
 /**
  * Upload one or more payment evidence files and return public URLs.
  */
@@ -35,12 +46,7 @@ export const uploadPaymentEvidenceFiles = async (fileField, ownerId) => {
   const files = asUploadedFileArray(fileField);
   if (!files.length) return [];
 
-  const filesStorageUrl = process.env.FILES_STORAGE_URL;
-  const filesStoragePath = process.env.FILES_STORAGE_PATH;
-  if (!filesStorageUrl || !filesStoragePath) {
-    throw new Error("File storage is not configured");
-  }
-
+  const { filesStorageUrl, filesStoragePath } = resolveStorageConfig();
   const folderPath = `${filesStoragePath}/students/payment-evidence`;
   const urls = [];
 

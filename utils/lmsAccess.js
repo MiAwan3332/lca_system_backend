@@ -51,6 +51,29 @@ export const isFullAccessRole = (req) => {
   );
 };
 
+/** Strict platform superadmin roles (delete student, system pages). */
+export const isPlatformSuperAdminRole = (req) => {
+  const role = normalizeRole(getRequestRole(req));
+  if (!role) return false;
+  const compact = role.replace(/\s+/g, "");
+  return (
+    compact === "superadmin" ||
+    compact === "superadmindevelopment" ||
+    compact === "secrateadmin" ||
+    role === "super admin" ||
+    role === "super admin development" ||
+    role === "secrate admin"
+  );
+};
+
+export const denyUnlessPlatformSuperAdmin = (req, res) => {
+  if (isPlatformSuperAdminRole(req)) return false;
+  res.status(403).json({
+    message: "Only Super Admin can perform this action",
+  });
+  return true;
+};
+
 export const isInstitutionAdmin = (req) =>
   !isStudentRole(req) && !isTeacherRole(req);
 

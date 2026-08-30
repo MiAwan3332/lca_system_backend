@@ -4,6 +4,9 @@ import {
   isStudentRole,
   resolveStudentId,
   getRequestUserId,
+  isTeacherRole,
+  isInstitutionAdmin,
+  denyUnlessInstitutionAdmin,
 } from "../utils/lmsAccess.js";
 import { markNotificationRead } from "../utils/notificationService.js";
 import { processInstallmentReminders } from "../utils/feeInstallmentReminders.js";
@@ -11,7 +14,21 @@ import {
   buildFeeDueReport,
   processDailyFeeDueReportNotifications,
 } from "../utils/feeDueReport.js";
-import { isInstitutionAdmin, denyUnlessInstitutionAdmin } from "../utils/lmsAccess.js";
+
+/**
+ * Students & teachers: only notifications addressed to them.
+ * All other roles: every notification in the system.
+ */
+const buildRecipientFilter = async (req) => {
+  if (isStudentRole(req)) {
+    return { recipient_student: await resolveStudentId(req) };
+  }
+  if (isTeacherRole(req)) {
+    return { recipient_user: getRequestUserId(req) };
+  }
+  // Staff / admin / principal / finance / etc.
+  return {};
+};
 
 export const getNotifications = async (req, res) => {
   try {
@@ -20,13 +37,7 @@ export const getNotifications = async (req, res) => {
       processDailyFeeDueReportNotifications().catch(() => {});
     }
 
-    const baseFilter = {};
-    if (isStudentRole(req)) {
-      baseFilter.recipient_student = await resolveStudentId(req);
-    } else {
-      baseFilter.recipient_user = getRequestUserId(req);
-    }
-
+    const baseFilter = await buildRecipientFilter(req);
     const filter = { ...baseFilter };
 
     if (req.query.unread_only === "true") {
@@ -60,7 +71,11 @@ export const getNotifications = async (req, res) => {
       sort: { createdAt: -1 },
     });
 
-    res.status(200).json({ ...notifications, unreadCount });
+    res.status(200).json({
+      ...notifications,
+      unreadCount,
+      scope: isStudentRole(req) || isTeacherRole(req) ? "related" : "all",
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -68,9 +83,15 @@ export const getNotifications = async (req, res) => {
 
 export const markAsRead = async (req, res) => {
   try {
+    const isScoped = isStudentRole(req) || isTeacherRole(req);
     const studentId = isStudentRole(req) ? await resolveStudentId(req) : null;
     const userId = isStudentRole(req) ? null : getRequestUserId(req);
-    const notification = await markNotificationRead(req.params.id, studentId, userId);
+    const notification = await markNotificationRead(
+      req.params.id,
+      studentId,
+      userId,
+      { unrestricted: !isScoped }
+    );
     if (!notification) return res.status(404).json({ message: "Notification not found" });
     res.status(200).json(notification);
   } catch (error) {
@@ -92,13 +113,11 @@ export const getFeeDueReport = async (req, res) => {
 
 export const markAllAsRead = async (req, res) => {
   try {
-    const filter = {};
-    if (isStudentRole(req)) {
-      filter.recipient_student = await resolveStudentId(req);
-    } else {
-      filter.recipient_user = getRequestUserId(req);
-    }
-    await Notification.updateMany(filter, { is_read: true, read_at: new Date() });
+    const filter = await buildRecipientFilter(req);
+    await Notification.updateMany(filter, {
+      is_read: true,
+      read_at: new Date(),
+    });
     res.status(200).json({ message: "All notifications marked as read" });
   } catch (error) {
     res.status(500).json({ message: error.message });

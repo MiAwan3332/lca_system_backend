@@ -47,12 +47,19 @@ export const notifyBatchStudents = async ({
   return Notification.insertMany(notifications);
 };
 
-export const markNotificationRead = async (notificationId, studentId, userId) => {
+export const markNotificationRead = async (
+  notificationId,
+  studentId,
+  userId,
+  { unrestricted = false } = {}
+) => {
   const filter = { _id: notificationId };
-  if (studentId) {
-    filter.recipient_student = studentId;
-  } else if (userId) {
-    filter.recipient_user = userId;
+  if (!unrestricted) {
+    if (studentId) {
+      filter.recipient_student = studentId;
+    } else if (userId) {
+      filter.recipient_user = userId;
+    }
   }
   return Notification.findOneAndUpdate(
     filter,
