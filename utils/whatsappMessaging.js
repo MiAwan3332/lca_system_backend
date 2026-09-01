@@ -581,6 +581,42 @@ export const getActiveTemplateForProcess = async (processKey) => {
   return WhatsAppTemplate.findOne({ key: defaultKey }).exec();
 };
 
+const WHATSAPP_CHUNK_SIZE = 4000;
+
+const splitWhatsAppMessage = (text) => {
+  const message = String(text || "");
+  if (message.length <= WHATSAPP_CHUNK_SIZE) return [message];
+
+  const chunks = [];
+  let remaining = message;
+  while (remaining.length > WHATSAPP_CHUNK_SIZE) {
+    let cut = remaining.lastIndexOf("\n", WHATSAPP_CHUNK_SIZE);
+    if (cut < WHATSAPP_CHUNK_SIZE * 0.6) {
+      cut = remaining.lastIndexOf(" ", WHATSAPP_CHUNK_SIZE);
+    }
+    if (cut < WHATSAPP_CHUNK_SIZE * 0.6) {
+      cut = WHATSAPP_CHUNK_SIZE;
+    }
+    chunks.push(remaining.slice(0, cut).trimEnd());
+    remaining = remaining.slice(cut).trimStart();
+  }
+  if (remaining) chunks.push(remaining);
+  return chunks.filter(Boolean);
+};
+
+const isOpenWaPacingLimit = (error) => {
+  const code = error?.data?.code || error?.data?.error?.code;
+  const message = String(error?.message || error?.data?.message || "");
+  return (
+    error?.status === 429 &&
+    (code === "SEND_PACING_LIMITED" ||
+      /daily send allowance|send pacing/i.test(message))
+  );
+};
+
+const openWaPacingMessage =
+  "WhatsApp gateway send pacing is enabled on OpenWA (default 20 messages on day 1). LCA does not set this limit. On the OpenWA server set SEND_PACING_ENABLED=false and restart, or raise SEND_PACING_WARMUP_SCHEDULE.";
+
 const sendTextWithRetry = async (sessionId, chatId, text) => {
   let lastError;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -595,6 +631,7 @@ const sendTextWithRetry = async (sessionId, chatId, text) => {
       );
     } catch (error) {
       lastError = error;
+      if (isOpenWaPacingLimit(error)) throw error;
       const retryable = [409, 429, 504].includes(error.status);
       if (!retryable || attempt === 3) throw error;
       await sleep(1500 * attempt);
@@ -621,13 +658,6 @@ export const sendWhatsAppText = async ({ phone, text, sessionId } = {}) => {
   if (!message) {
     return { sent: false, skipped: true, reason: "Message body is empty" };
   }
-  if (message.length > 4096) {
-    return {
-      sent: false,
-      skipped: true,
-      reason: "Message exceeds WhatsApp 4096 character limit",
-    };
-  }
 
   let session = null;
   if (sessionId) {
@@ -645,15 +675,32 @@ export const sendWhatsAppText = async ({ phone, text, sessionId } = {}) => {
     };
   }
 
-  const result = await sendTextWithRetry(id, chatId, message);
+  const chunks = splitWhatsAppMessage(message);
+  try {
+    const results = [];
+    for (const chunk of chunks) {
+      const result = await sendTextWithRetry(id, chatId, chunk);
+      results.push(result);
+    }
 
-  return {
-    sent: true,
-    chatId,
-    sessionId: id,
-    sessionName: session?.name || "",
-    result,
-  };
+    return {
+      sent: true,
+      chatId,
+      sessionId: id,
+      sessionName: session?.name || "",
+      parts: chunks.length,
+      result: results[results.length - 1],
+    };
+  } catch (error) {
+    if (isOpenWaPacingLimit(error)) {
+      return {
+        sent: false,
+        skipped: true,
+        reason: openWaPacingMessage,
+      };
+    }
+    throw error;
+  }
 };
 
 /** Render + send the active template for a process. Never throws. */

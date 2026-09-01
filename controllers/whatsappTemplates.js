@@ -152,11 +152,6 @@ export const createWhatsAppTemplate = async (req, res) => {
     if (!messageBody) {
       return res.status(400).json({ message: "Message body is required" });
     }
-    if (messageBody.length > 4000) {
-      return res.status(400).json({
-        message: "Message body must be 4000 characters or less",
-      });
-    }
 
     let key = slugifyTemplateKey(body.key || name);
     const existingKey = await WhatsAppTemplate.findOne({ key });
@@ -230,11 +225,6 @@ export const updateWhatsAppTemplate = async (req, res) => {
       const messageBody = String(body.body).trim();
       if (!messageBody) {
         return res.status(400).json({ message: "Message body is required" });
-      }
-      if (messageBody.length > 4000) {
-        return res.status(400).json({
-          message: "Message body must be 4000 characters or less",
-        });
       }
       template.body = messageBody;
     }

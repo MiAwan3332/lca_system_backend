@@ -63,13 +63,25 @@ const interviewEvaluationSchema = mongoose.Schema(
     final_remarks: { type: String, default: "", trim: true },
     started_at: { type: Date, default: Date.now },
     completed_at: { type: Date, default: null },
+    /** Distinguishes each panelist/staff evaluation on the same slot. */
+    evaluator_key: {
+      type: String,
+      default: "",
+      trim: true,
+    },
   },
   { timestamps: true }
 );
 
 interviewEvaluationSchema.index(
-  { panel_id: 1, schedule_index: 1 },
-  { unique: true }
+  { panel_id: 1, schedule_index: 1, evaluator_key: 1 },
+  {
+    unique: true,
+    name: "panel_schedule_evaluator_unique",
+    partialFilterExpression: {
+      evaluator_key: { $exists: true, $gt: "" },
+    },
+  }
 );
 
 export { SCORE_FIELDS };
@@ -78,4 +90,19 @@ const InterviewEvaluation = mongoose.model(
   "InterviewEvaluation",
   interviewEvaluationSchema
 );
+
+const dropLegacySlotUniqueIndex = async () => {
+  try {
+    await InterviewEvaluation.collection.dropIndex("panel_id_1_schedule_index_1");
+  } catch {
+    // Index may already be gone
+  }
+};
+
+if (mongoose.connection.readyState === 1) {
+  dropLegacySlotUniqueIndex();
+} else {
+  mongoose.connection.once("connected", dropLegacySlotUniqueIndex);
+}
+
 export default InterviewEvaluation;

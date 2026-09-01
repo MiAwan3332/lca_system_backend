@@ -48,7 +48,6 @@ const whatsappTemplateSchema = mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      maxlength: 4000,
     },
     is_active: {
       type: Boolean,

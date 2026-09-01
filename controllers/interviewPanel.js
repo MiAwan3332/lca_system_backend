@@ -82,6 +82,50 @@ const normalizeStatus = (status) => {
   return "active";
 };
 
+const isSlotBooked = (slot) =>
+  String(slot?.booking_status || "available").toLowerCase() === "booked";
+
+const idsMatch = (a, b) => Boolean(a && b && String(a) === String(b));
+
+const isOwnQualifierBooking = (slot, qualifier) => {
+  if (!qualifier || !isSlotBooked(slot)) return false;
+  const slotQualifierId =
+    slot.booked_qualifier_id?._id || slot.booked_qualifier_id;
+  if (idsMatch(slotQualifierId, qualifier._id)) return true;
+  if (phonesMatch(slot.booked_phone, qualifier.phone)) return true;
+  const slotName = String(slot.booked_for || "").trim().toLowerCase();
+  const qualifierName = String(qualifier.name || "").trim().toLowerCase();
+  return Boolean(slotName && qualifierName && slotName === qualifierName);
+};
+
+/** Qualifiers see available slots plus their own booked / in-progress / completed ones. */
+const sanitizeSchedulesForQualifier = (schedules, qualifier) =>
+  (Array.isArray(schedules) ? schedules : [])
+    .map((slot, originalIndex) => {
+      const plain = slot?.toObject ? slot.toObject() : { ...slot };
+      const booked = isSlotBooked(plain);
+      if (booked && !isOwnQualifierBooking(plain, qualifier)) {
+        return null;
+      }
+      return {
+        ...plain,
+        booking_status: booked ? "booked" : "available",
+        schedule_array_index: originalIndex,
+      };
+    })
+    .filter(Boolean);
+
+const sanitizePanelForQualifier = (panel, qualifier, { dropEmpty = false } = {}) => {
+  if (!panel) return panel;
+  const plain = panel?.toObject ? panel.toObject() : { ...panel };
+  const schedules = sanitizeSchedulesForQualifier(plain.schedules, qualifier);
+  if (!schedules.length && dropEmpty) return null;
+  return {
+    ...plain,
+    schedules,
+  };
+};
+
 const resolveTimeRange = (body = {}) => {
   const startTime = String(
     body.start_time || body.time || ""
@@ -317,36 +361,14 @@ export const getInterviewPanels = async (req, res) => {
       }
 
       const scopedDocs = (panels.docs || [])
-        .map((panel) => {
-          const plain = panel.toObject ? panel.toObject() : { ...panel };
-          const schedules = (plain.schedules || []).filter((slot) => {
-            const status = String(slot.booking_status || "available");
-            // Qualifiers can see available slots (to book) and their own bookings
-            if (status !== "booked") return true;
-            return (
-              phonesMatch(slot.booked_phone, qualifier.phone) ||
-              String(slot.booked_for || "")
-                .trim()
-                .toLowerCase() ===
-                String(qualifier.name || "").trim().toLowerCase()
-            );
-          });
-          if (!schedules.length) return null;
-          return { ...plain, schedules };
-        })
+        .map((panel) =>
+          sanitizePanelForQualifier(panel, qualifier, { dropEmpty: true })
+        )
         .filter(Boolean);
 
       return res.status(200).json({
         ...panels,
         docs: scopedDocs,
-        totalDocs: scopedDocs.length,
-        totalPages: 1,
-        page: 1,
-        pagingCounter: 1,
-        hasPrevPage: false,
-        hasNextPage: false,
-        prevPage: null,
-        nextPage: null,
       });
     }
 
@@ -364,6 +386,14 @@ export const getInterviewPanel = async (req, res) => {
     );
     if (!panel) {
       return res.status(404).json({ message: "Interview panel not found" });
+    }
+
+    if (isQualifierRole(req)) {
+      const qualifier = await resolveQualifierRecord(req);
+      if (!qualifier) {
+        return res.status(404).json({ message: "Qualifier profile not found" });
+      }
+      return res.status(200).json(sanitizePanelForQualifier(panel, qualifier));
     }
 
     res.status(200).json(panel);
@@ -501,8 +531,24 @@ export const bookInterviewSlot = async (req, res) => {
       return res.status(400).json({ message: "Schedule slot not found" });
     }
 
-    if (String(slot.booking_status || "available") === "booked") {
+    if (isSlotBooked(slot)) {
       return res.status(400).json({ message: "This slot is already booked" });
+    }
+
+    const requestedDate = String(req.body?.date || "").trim();
+    const requestedStart = String(req.body?.start_time || "").trim();
+    if (requestedDate && String(slot.date || "").trim() !== requestedDate) {
+      return res.status(409).json({
+        message: "This slot has changed. Refresh the page and try again.",
+      });
+    }
+    if (
+      requestedStart &&
+      String(slot.start_time || slot.time || "").trim() !== requestedStart
+    ) {
+      return res.status(409).json({
+        message: "This slot has changed. Refresh the page and try again.",
+      });
     }
 
     let bookedFor = "";
@@ -537,16 +583,7 @@ export const bookInterviewSlot = async (req, res) => {
       }).select("schedules title");
 
       const hasExisting = panelsWithBooking.some((p) =>
-        (p.schedules || []).some((s) => {
-          if (String(s.booking_status || "") !== "booked") return false;
-          return (
-            phonesMatch(s.booked_phone, qualifier.phone) ||
-            String(s.booked_for || "")
-              .trim()
-              .toLowerCase() ===
-              String(qualifier.name || "").trim().toLowerCase()
-          );
-        })
+        (p.schedules || []).some((s) => isOwnQualifierBooking(s, qualifier))
       );
 
       if (hasExisting) {
@@ -594,6 +631,14 @@ export const bookInterviewSlot = async (req, res) => {
       "created_by",
       "name email"
     );
+
+    if (isQualifierRole(req)) {
+      const qualifier = await resolveQualifierRecord(req);
+      return res
+        .status(200)
+        .json(sanitizePanelForQualifier(populated, qualifier));
+    }
+
     res.status(200).json(populated);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -624,6 +669,119 @@ const getScheduleSlot = (panel, scheduleIndex) => {
 };
 
 const slotToPlain = (slot) => (slot?.toObject ? slot.toObject() : { ...slot });
+
+const SCORE_MAX_TOTAL = Object.values(SCORE_FIELDS).reduce(
+  (sum, meta) => sum + (meta.max || 0),
+  0
+);
+
+const getEvaluatorKey = (req, panelistId) => {
+  if (panelistId) return `panelist:${panelistId}`;
+  const userId = getRequestUserId(req);
+  return userId ? `user:${userId}` : "";
+};
+
+const evaluationScoreSummary = (evaluation) => {
+  let total = 0;
+  const scores = {};
+  for (const [field, meta] of Object.entries(SCORE_FIELDS)) {
+    const raw = evaluation?.[field];
+    const value =
+      raw === null || raw === undefined || raw === ""
+        ? null
+        : Number(raw);
+    const numeric = Number.isFinite(value) ? value : null;
+    scores[field] = numeric;
+    if (numeric != null) total += numeric;
+  }
+  return {
+    scores,
+    total: Math.round(total * 10) / 10,
+    max_total: SCORE_MAX_TOTAL,
+  };
+};
+
+const averageEvaluations = (evaluations = []) => {
+  const completed = (evaluations || []).filter(
+    (item) => String(item.status || "") === "completed"
+  );
+  const fieldAverages = {};
+  for (const field of Object.keys(SCORE_FIELDS)) {
+    const values = completed
+      .map((item) => Number(item[field]))
+      .filter((value) => Number.isFinite(value));
+    fieldAverages[field] = values.length
+      ? Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) /
+        10
+      : null;
+  }
+  const totals = completed.map((item) => evaluationScoreSummary(item).total);
+  const overallAverage = totals.length
+    ? Math.round((totals.reduce((sum, value) => sum + value, 0) / totals.length) * 10) /
+      10
+    : null;
+  return {
+    field_averages: fieldAverages,
+    overall_average: overallAverage,
+    overall_max: SCORE_MAX_TOTAL,
+    evaluator_count: completed.length,
+  };
+};
+
+const serializeEvaluationForDetails = (evaluation, panel) => {
+  const plain = evaluation?.toObject ? evaluation.toObject() : { ...evaluation };
+  const panelistDoc = plain.panelist_id && typeof plain.panelist_id === "object"
+    ? plain.panelist_id
+    : null;
+  const panelistId = panelistDoc?._id || plain.panelist_id || null;
+  const member = (panel?.members || []).find((item) => {
+    const memberId = item.panelist_id?._id || item.panelist_id;
+    return panelistId && memberId && String(memberId) === String(panelistId);
+  });
+  const summary = evaluationScoreSummary(plain);
+  return {
+    ...plain,
+    panelist_id: panelistId,
+    panelist_name: panelistDoc?.name || member?.name || "Panelist",
+    panelist_role: member?.role || "Panelist",
+    total_score: summary.total,
+    max_total: summary.max_total,
+  };
+};
+
+const findEvaluatorEvaluation = async ({
+  panelId,
+  scheduleIndex,
+  evaluatorKey,
+  panelistId,
+  userId,
+}) => {
+  if (evaluatorKey) {
+    const byKey = await InterviewEvaluation.findOne({
+      panel_id: panelId,
+      schedule_index: scheduleIndex,
+      evaluator_key: evaluatorKey,
+    });
+    if (byKey) return byKey;
+  }
+  if (panelistId) {
+    const byPanelist = await InterviewEvaluation.findOne({
+      panel_id: panelId,
+      schedule_index: scheduleIndex,
+      panelist_id: panelistId,
+    });
+    if (byPanelist) return byPanelist;
+  }
+  if (userId) {
+    const byUser = await InterviewEvaluation.findOne({
+      panel_id: panelId,
+      schedule_index: scheduleIndex,
+      started_by_user_id: userId,
+    });
+    if (byUser) return byUser;
+  }
+  return null;
+};
 
 const validateEvaluationScores = (body) => {
   for (const [field, meta] of Object.entries(SCORE_FIELDS)) {
@@ -709,9 +867,12 @@ export const startInterview = async (req, res) => {
       }
     }
 
-    let evaluation = await InterviewEvaluation.findOne({
-      panel_id: panel._id,
-      schedule_index: scheduleIndex,
+    let evaluation = await findEvaluatorEvaluation({
+      panelId: panel._id,
+      scheduleIndex,
+      evaluatorKey: getEvaluatorKey(req, panelistId),
+      panelistId,
+      userId: getRequestUserId(req),
     });
     if (!evaluation) {
       evaluation = await InterviewEvaluation.create({
@@ -720,6 +881,7 @@ export const startInterview = async (req, res) => {
         qualifier_id: qualifier?._id || null,
         panelist_id: panelistId,
         started_by_user_id: getRequestUserId(req) || null,
+        evaluator_key: getEvaluatorKey(req, panelistId),
         status: "in_progress",
       });
     }
@@ -777,9 +939,18 @@ export const getConductInterview = async (req, res) => {
       booked_user_id: plainSlot.booked_user_id,
     });
 
-    const evaluation = await InterviewEvaluation.findOne({
-      panel_id: panel._id,
-      schedule_index: scheduleIndex,
+    let panelistId = null;
+    if (isPanelistRole(req)) {
+      const panelist = await resolvePanelistRecord(req);
+      panelistId = panelist?._id || null;
+    }
+
+    const evaluation = await findEvaluatorEvaluation({
+      panelId: panel._id,
+      scheduleIndex,
+      evaluatorKey: getEvaluatorKey(req, panelistId),
+      panelistId,
+      userId: getRequestUserId(req),
     });
 
     res.status(200).json({
@@ -866,13 +1037,17 @@ export const submitInterviewEvaluation = async (req, res) => {
       final_remarks: String(req.body?.final_remarks || "").trim(),
       qualifier_id: qualifier?._id || null,
       panelist_id: panelistId,
+      evaluator_key: getEvaluatorKey(req, panelistId),
       status: "completed",
       completed_at: new Date(),
     };
 
-    let evaluation = await InterviewEvaluation.findOne({
-      panel_id: panel._id,
-      schedule_index: scheduleIndex,
+    let evaluation = await findEvaluatorEvaluation({
+      panelId: panel._id,
+      scheduleIndex,
+      evaluatorKey: getEvaluatorKey(req, panelistId),
+      panelistId,
+      userId: getRequestUserId(req),
     });
 
     if (evaluation) {
@@ -901,6 +1076,67 @@ export const submitInterviewEvaluation = async (req, res) => {
     await panel.save();
 
     res.status(200).json({ evaluation, message: "Mock evaluation submitted" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/** GET /interview-panels/evaluation-details/:id/:scheduleIndex */
+export const getInterviewEvaluationDetails = async (req, res) => {
+  try {
+    const { id, scheduleIndex: scheduleIndexRaw } = req.params;
+    const scheduleIndex = Number(scheduleIndexRaw);
+    if (!Number.isInteger(scheduleIndex) || scheduleIndex < 0) {
+      return res.status(400).json({ message: "Invalid schedule slot" });
+    }
+
+    const panel = await InterviewPanel.findById(id).populate(
+      "created_by",
+      "name email"
+    );
+    if (!panel) {
+      return res.status(404).json({ message: "Interview panel not found" });
+    }
+
+    const slot = getScheduleSlot(panel, scheduleIndex);
+    if (!slot) {
+      return res.status(404).json({ message: "Schedule slot not found" });
+    }
+
+    const plainSlot = slotToPlain(slot);
+    if (isQualifierRole(req)) {
+      const qualifier = await resolveQualifierRecord(req);
+      if (!qualifier || !isOwnQualifierBooking(plainSlot, qualifier)) {
+        return res.status(403).json({ message: "Not allowed" });
+      }
+    }
+
+    const qualifier = await resolveQualifierByBooking({
+      booked_qualifier_id: plainSlot.booked_qualifier_id,
+      booked_phone: plainSlot.booked_phone,
+      booked_for: plainSlot.booked_for,
+      booked_user_id: plainSlot.booked_user_id,
+    });
+
+    const evaluations = await InterviewEvaluation.find({
+      panel_id: panel._id,
+      schedule_index: scheduleIndex,
+    })
+      .populate("panelist_id", "name phone")
+      .sort({ completed_at: 1, createdAt: 1 });
+
+    const serialized = evaluations.map((item) =>
+      serializeEvaluationForDetails(item, panel)
+    );
+
+    res.status(200).json({
+      panel,
+      schedule_index: scheduleIndex,
+      slot: plainSlot,
+      qualifier: serializeQualifierForInterview(qualifier),
+      evaluations: serialized,
+      averages: averageEvaluations(serialized),
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
