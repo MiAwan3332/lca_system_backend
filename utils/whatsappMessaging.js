@@ -14,6 +14,22 @@ export const WHATSAPP_PROCESSES = [
     description: "Sent automatically when a new student is added.",
   },
   {
+    key: "user_welcome",
+    label: "User Welcome",
+    description: "Sent automatically when a new staff/admin user is added.",
+  },
+  {
+    key: "panelist_welcome",
+    label: "Panelist Welcome",
+    description: "Sent automatically when a new panelist is added.",
+  },
+  {
+    key: "qualifier_welcome",
+    label: "Qualifier Welcome",
+    description:
+      "Sent automatically when a new qualifier is added (includes payment details).",
+  },
+  {
     key: "fee_payment",
     label: "Fee Payment",
     description: "Sent automatically when a fee payment is recorded.",
@@ -34,14 +50,19 @@ export const WHATSAPP_PROCESS_KEYS = WHATSAPP_PROCESSES.map((p) => p.key);
 
 /** Tags available in LCA WhatsApp message templates. */
 export const WHATSAPP_TEMPLATE_TAGS = [
-  { tag: "{{name}}", label: "Student name", sample: "Ali Khan" },
+  { tag: "{{name}}", label: "Name", sample: "Ali Khan" },
+  { tag: "{{email}}", label: "Email", sample: "ali@example.com" },
+  { tag: "{{role}}", label: "User role", sample: "Principal" },
   { tag: "{{phone}}", label: "Phone", sample: "03001234567" },
+  { tag: "{{description}}", label: "Description / remarks", sample: "Senior interviewer" },
+  { tag: "{{status}}", label: "Active / Inactive", sample: "Active" },
   { tag: "{{cnic}}", label: "CNIC", sample: "35202-1234567-1" },
   { tag: "{{roll_number}}", label: "Roll number", sample: "CSS-001" },
   { tag: "{{batch}}", label: "Batch name", sample: "CSS Morning 2026" },
   { tag: "{{class_time}}", label: "Class time", sample: "9:00 AM – 1:00 PM" },
   { tag: "{{admission_date}}", label: "Admission date", sample: "30 Aug 2026" },
-  { tag: "{{total_fee}}", label: "Total fee", sample: "50,000" },
+  { tag: "{{total_fee}}", label: "Total fee (after discount)", sample: "50,000" },
+  { tag: "{{discount}}", label: "Discount amount", sample: "5,000" },
   { tag: "{{paid_fee}}", label: "Paid fee (total)", sample: "20,000" },
   { tag: "{{pending_fee}}", label: "Remaining fee", sample: "30,000" },
   { tag: "{{amount_received}}", label: "Amount just received", sample: "10,000" },
@@ -52,6 +73,9 @@ export const WHATSAPP_TEMPLATE_TAGS = [
 ];
 
 export const STUDENT_WELCOME_TEMPLATE_KEY = "student_welcome";
+export const USER_WELCOME_TEMPLATE_KEY = "user_welcome";
+export const PANELIST_WELCOME_TEMPLATE_KEY = "panelist_welcome";
+export const QUALIFIER_WELCOME_TEMPLATE_KEY = "qualifier_welcome";
 export const FEE_PAYMENT_TEMPLATE_KEY = "fee_payment_receipt";
 export const FEE_REMINDER_TEMPLATE_KEY = "fee_reminder";
 
@@ -80,6 +104,71 @@ Portal login:
 • Portal: {{portal_url}}
 
 Please change your password after first login.
+If you have any questions, reply to this WhatsApp message.
+
+— {{academy_name}}`;
+
+export const DEFAULT_USER_WELCOME_BODY = `Assalam o Alaikum {{name}}!
+
+Welcome to {{academy_name}} Portal.
+
+Your staff account has been created:
+
+• Name: {{name}}
+• Email: {{email}}
+• Role: {{role}}
+• Phone: {{phone}}
+
+Portal login:
+• Login: {{email}}
+• Temporary Password: {{password}}
+• Portal: {{portal_url}}
+
+Please change your password after first login.
+If you need help, reply to this WhatsApp message.
+
+— {{academy_name}}`;
+
+export const DEFAULT_PANELIST_WELCOME_BODY = `Assalam o Alaikum {{name}}!
+
+Welcome to {{academy_name}}.
+
+You have been added as an interview panelist.
+
+Your details:
+• Name: {{name}}
+• Phone: {{phone}}
+• Status: {{status}}
+• About: {{description}}
+
+We look forward to working with you.
+If you have any questions, reply to this WhatsApp message.
+
+— {{academy_name}}`;
+
+export const DEFAULT_QUALIFIER_WELCOME_BODY = `Assalam o Alaikum {{name}}!
+
+Welcome to {{academy_name}}.
+
+You have been registered as a qualifier for interview.
+
+Your details:
+• Name: {{name}}
+• Phone: {{phone}}
+• CNIC: {{cnic}}
+• Interview Batch: {{batch}}
+• Remarks: {{description}}
+
+Payment details:
+• Amount Received: Rs. {{amount_received}}
+• Payment Method: {{payment_method}}
+• Batch Fee: Rs. {{batch_fee}}
+• Discount: Rs. {{discount}}
+• Payable Fee: Rs. {{total_fee}}
+• Total Paid: Rs. {{paid_fee}}
+• Remaining: Rs. {{pending_fee}}
+
+We will contact you with further instructions.
 If you have any questions, reply to this WhatsApp message.
 
 — {{academy_name}}`;
@@ -244,6 +333,100 @@ export const buildStudentTemplateVars = ({
 /** @deprecated use buildStudentTemplateVars */
 export const buildStudentWelcomeVars = buildStudentTemplateVars;
 
+export const buildUserTemplateVars = ({ user, password = "lcaadmin@123456" } = {}) => {
+  const portalUrl = (
+    process.env.FRONTEND_URL ||
+    process.env.CLIENT_URL ||
+    "https://lca-portal.com"
+  ).replace(/\/$/, "");
+
+  return {
+    name: user?.name || "",
+    email: user?.email || "",
+    phone: user?.phone || "",
+    role: user?.role || "",
+    password,
+    portal_url: portalUrl,
+    academy_name: "Lahore CSS Academy",
+  };
+};
+
+export const buildPanelistTemplateVars = ({ panelist } = {}) => {
+  const portalUrl = (
+    process.env.FRONTEND_URL ||
+    process.env.CLIENT_URL ||
+    "https://lca-portal.com"
+  ).replace(/\/$/, "");
+
+  const isActive = panelist?.is_active !== false;
+
+  return {
+    name: panelist?.name || "",
+    phone: panelist?.phone || "",
+    description: panelist?.description || "",
+    status: isActive ? "Active" : "Inactive",
+    role: "Panelist",
+    portal_url: portalUrl,
+    academy_name: "Lahore CSS Academy",
+  };
+};
+
+export const buildQualifierTemplateVars = ({
+  qualifier,
+  batch,
+  paymentMethod = "",
+  amountReceived = null,
+} = {}) => {
+  const portalUrl = (
+    process.env.FRONTEND_URL ||
+    process.env.CLIENT_URL ||
+    "https://lca-portal.com"
+  ).replace(/\/$/, "");
+
+  const isActive = qualifier?.is_active !== false;
+  const batchName =
+    batch?.name ||
+    (typeof qualifier?.batch === "object" && qualifier?.batch?.name) ||
+    "";
+
+  const paid = Number(qualifier?.paid_fee) || 0;
+  const discount = Number(qualifier?.discount_amount) || 0;
+  const netFee = Number(qualifier?.total_fee) || 0;
+  const batchFeeValue =
+    Number(batch?.batch_fee) ||
+    (typeof qualifier?.batch === "object" &&
+      Number(qualifier?.batch?.batch_fee)) ||
+    netFee + discount;
+  const received =
+    amountReceived != null
+      ? formatCurrencyPlain(amountReceived)
+      : formatCurrencyPlain(paid);
+
+  return {
+    name: qualifier?.name || "",
+    phone: qualifier?.phone || "",
+    cnic: qualifier?.cnic || "",
+    email: qualifier?.email || "",
+    city: qualifier?.city || "",
+    description: qualifier?.description || "",
+    batch: batchName,
+    status: isActive ? "Active" : "Inactive",
+    role: "Qualifier",
+    batch_fee: formatCurrencyPlain(batchFeeValue),
+    discount: formatCurrencyPlain(discount),
+    total_fee: formatCurrencyPlain(netFee),
+    paid_fee: formatCurrencyPlain(paid),
+    pending_fee: formatCurrencyPlain(qualifier?.pending_fee),
+    amount_received: received,
+    payment_method:
+      paymentMethod ||
+      qualifier?.payment_method ||
+      (paid > 0 ? "Paid" : "Pay Later"),
+    portal_url: portalUrl,
+    academy_name: "Lahore CSS Academy",
+  };
+};
+
 const normalizeSessions = (payload) => {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.data)) return payload.data;
@@ -276,6 +459,28 @@ const DEFAULT_TEMPLATES = [
     body: DEFAULT_STUDENT_WELCOME_BODY,
   },
   {
+    key: USER_WELCOME_TEMPLATE_KEY,
+    name: "User Welcome",
+    process: "user_welcome",
+    description: "Sent automatically when a new staff/admin user is added.",
+    body: DEFAULT_USER_WELCOME_BODY,
+  },
+  {
+    key: PANELIST_WELCOME_TEMPLATE_KEY,
+    name: "Panelist Welcome",
+    process: "panelist_welcome",
+    description: "Sent automatically when a new panelist is added.",
+    body: DEFAULT_PANELIST_WELCOME_BODY,
+  },
+  {
+    key: QUALIFIER_WELCOME_TEMPLATE_KEY,
+    name: "Qualifier Welcome",
+    process: "qualifier_welcome",
+    description:
+      "Sent automatically when a new qualifier is added (includes payment details).",
+    body: DEFAULT_QUALIFIER_WELCOME_BODY,
+  },
+  {
     key: FEE_PAYMENT_TEMPLATE_KEY,
     name: "Fee Payment Receipt",
     process: "fee_payment",
@@ -300,9 +505,23 @@ export const ensureDefaultWhatsAppTemplates = async () => {
         ...def,
         is_active: true,
       });
-    } else if (!existing.process) {
-      existing.process = def.process;
-      await existing.save();
+    } else {
+      let dirty = false;
+      if (!existing.process) {
+        existing.process = def.process;
+        dirty = true;
+      }
+      // Refresh Qualifier Welcome so payment/discount tags are included
+      if (
+        def.key === QUALIFIER_WELCOME_TEMPLATE_KEY &&
+        (!String(existing.body || "").includes("{{total_fee}}") ||
+          !String(existing.body || "").includes("{{discount}}"))
+      ) {
+        existing.body = def.body;
+        existing.description = def.description;
+        dirty = true;
+      }
+      if (dirty) await existing.save();
     }
     results.push(existing);
   }
@@ -454,6 +673,43 @@ export const sendStudentWelcomeWhatsApp = async ({
   });
 };
 
+export const sendUserWelcomeWhatsApp = async ({ user, password } = {}) => {
+  const vars = buildUserTemplateVars({ user, password });
+  return sendWhatsAppForProcess({
+    process: "user_welcome",
+    phone: user?.phone,
+    vars,
+  });
+};
+
+export const sendPanelistWelcomeWhatsApp = async ({ panelist } = {}) => {
+  const vars = buildPanelistTemplateVars({ panelist });
+  return sendWhatsAppForProcess({
+    process: "panelist_welcome",
+    phone: panelist?.phone,
+    vars,
+  });
+};
+
+export const sendQualifierWelcomeWhatsApp = async ({
+  qualifier,
+  batch,
+  paymentMethod,
+  amountReceived,
+} = {}) => {
+  const vars = buildQualifierTemplateVars({
+    qualifier,
+    batch,
+    paymentMethod,
+    amountReceived,
+  });
+  return sendWhatsAppForProcess({
+    process: "qualifier_welcome",
+    phone: qualifier?.phone,
+    vars,
+  });
+};
+
 export const sendFeePaymentWhatsApp = async ({
   student,
   batch,
@@ -477,12 +733,21 @@ export default {
   WHATSAPP_PROCESSES,
   WHATSAPP_TEMPLATE_TAGS,
   STUDENT_WELCOME_TEMPLATE_KEY,
+  USER_WELCOME_TEMPLATE_KEY,
+  PANELIST_WELCOME_TEMPLATE_KEY,
+  QUALIFIER_WELCOME_TEMPLATE_KEY,
   ensureDefaultWhatsAppTemplates,
   getActiveTemplateForProcess,
   renderWhatsAppTemplate,
   buildStudentTemplateVars,
+  buildUserTemplateVars,
+  buildPanelistTemplateVars,
+  buildQualifierTemplateVars,
   sendWhatsAppForProcess,
   sendStudentWelcomeWhatsApp,
+  sendUserWelcomeWhatsApp,
+  sendPanelistWelcomeWhatsApp,
+  sendQualifierWelcomeWhatsApp,
   sendFeePaymentWhatsApp,
   sendWhatsAppText,
   slugifyTemplateKey,

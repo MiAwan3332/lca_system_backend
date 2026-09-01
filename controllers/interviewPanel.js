@@ -1,5 +1,24 @@
 import InterviewPanel from "../models/interviewPanel.js";
 import { getRequestUserId } from "../utils/lmsAccess.js";
+import {
+  isQualifierRole,
+  resolveQualifierRecord,
+  resolveQualifierByBooking,
+  phonesMatch,
+} from "../utils/qualifierScope.js";
+import {
+  isPanelistRole,
+  resolvePanelistRecord,
+} from "../utils/panelistScope.js";
+import InterviewEvaluation, {
+  SCORE_FIELDS,
+} from "../models/interviewEvaluation.js";
+import { serializeQualifierForInterview } from "../utils/qualifierEducation.js";
+import {
+  isQualifierProfileComplete,
+  QUALIFIER_PROFILE_INCOMPLETE_MESSAGE,
+  getQualifierProfileIncompleteFields,
+} from "../utils/qualifierProfile.js";
 
 const STATUS_VALUES = ["active", "inactive"];
 
@@ -37,6 +56,7 @@ const normalizeMembers = (members) => {
       };
     }
     normalized.push({
+      panelist_id: item.panelist_id || null,
       name,
       role: String(item.role || "").trim() || DEFAULT_MEMBER_ROLE,
       description,
@@ -170,6 +190,9 @@ const syncPrimaryFromSchedules = (schedules = []) => {
 };
 
 export const addInterviewPanel = async (req, res) => {
+  if (isQualifierRole(req) || isPanelistRole(req)) {
+    return res.status(403).json({ message: "Not allowed" });
+  }
   try {
     const { title, description, date, venue, status, members, schedules } =
       req.body;
@@ -262,9 +285,22 @@ export const getInterviewPanels = async (req, res) => {
     }
 
     if (start_date || end_date) {
-      filter.date = {};
-      if (start_date) filter.date.$gte = start_date;
-      if (end_date) filter.date.$lte = end_date;
+      const dateClause = {};
+      if (start_date) dateClause.$gte = start_date;
+      if (end_date) dateClause.$lte = end_date;
+      // Match primary panel date OR any schedule slot date
+      const dateMatch = {
+        $or: [
+          { date: dateClause },
+          { "schedules.date": dateClause },
+        ],
+      };
+      if (filter.$or) {
+        filter.$and = [{ $or: filter.$or }, dateMatch];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, dateMatch);
+      }
     }
 
     const panels = await InterviewPanel.paginate(filter, {
@@ -273,6 +309,46 @@ export const getInterviewPanels = async (req, res) => {
       sort: { date: -1, createdAt: -1 },
       populate: { path: "created_by", select: "name email" },
     });
+
+    if (isQualifierRole(req)) {
+      const qualifier = await resolveQualifierRecord(req);
+      if (!qualifier) {
+        return res.status(404).json({ message: "Qualifier profile not found" });
+      }
+
+      const scopedDocs = (panels.docs || [])
+        .map((panel) => {
+          const plain = panel.toObject ? panel.toObject() : { ...panel };
+          const schedules = (plain.schedules || []).filter((slot) => {
+            const status = String(slot.booking_status || "available");
+            // Qualifiers can see available slots (to book) and their own bookings
+            if (status !== "booked") return true;
+            return (
+              phonesMatch(slot.booked_phone, qualifier.phone) ||
+              String(slot.booked_for || "")
+                .trim()
+                .toLowerCase() ===
+                String(qualifier.name || "").trim().toLowerCase()
+            );
+          });
+          if (!schedules.length) return null;
+          return { ...plain, schedules };
+        })
+        .filter(Boolean);
+
+      return res.status(200).json({
+        ...panels,
+        docs: scopedDocs,
+        totalDocs: scopedDocs.length,
+        totalPages: 1,
+        page: 1,
+        pagingCounter: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
+        prevPage: null,
+        nextPage: null,
+      });
+    }
 
     res.status(200).json(panels);
   } catch (error) {
@@ -289,6 +365,7 @@ export const getInterviewPanel = async (req, res) => {
     if (!panel) {
       return res.status(404).json({ message: "Interview panel not found" });
     }
+
     res.status(200).json(panel);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -296,6 +373,9 @@ export const getInterviewPanel = async (req, res) => {
 };
 
 export const updateInterviewPanel = async (req, res) => {
+  if (isQualifierRole(req) || isPanelistRole(req)) {
+    return res.status(403).json({ message: "Not allowed" });
+  }
   try {
     const { id } = req.params;
     const existing = await InterviewPanel.findById(id);
@@ -334,16 +414,30 @@ export const updateInterviewPanel = async (req, res) => {
       if (schedulesResult.error) {
         return res.status(400).json({ message: schedulesResult.error });
       }
-      if (schedulesResult.schedules.length === 0) {
+
+      const shouldAppend =
+        req.body.append_schedules === true ||
+        req.body.append_schedules === "true" ||
+        req.body.append_schedules === 1 ||
+        req.body.append_schedules === "1";
+
+      let nextSchedules = schedulesResult.schedules;
+      if (shouldAppend) {
+        if (schedulesResult.schedules.length === 0) {
+          return res
+            .status(400)
+            .json({ message: "Add at least one schedule for the panel" });
+        }
+        const current = normalizeSchedules(existing.schedules || []).schedules;
+        nextSchedules = [...current, ...schedulesResult.schedules];
+      } else if (schedulesResult.schedules.length === 0) {
         return res
           .status(400)
           .json({ message: "Add at least one schedule for the panel" });
       }
-      updatePayload.schedules = schedulesResult.schedules;
-      Object.assign(
-        updatePayload,
-        syncPrimaryFromSchedules(schedulesResult.schedules)
-      );
+
+      updatePayload.schedules = nextSchedules;
+      Object.assign(updatePayload, syncPrimaryFromSchedules(nextSchedules));
     } else if (
       req.body.start_time !== undefined ||
       req.body.end_time !== undefined ||
@@ -379,13 +473,434 @@ export const updateInterviewPanel = async (req, res) => {
   }
 };
 
+export const bookInterviewSlot = async (req, res) => {
+  if (isPanelistRole(req)) {
+    return res.status(403).json({ message: "Not allowed" });
+  }
+  try {
+    const { id } = req.params;
+    const scheduleIndex = Number(req.body?.schedule_index);
+    const bookedNotes = String(req.body?.booked_notes || "").trim();
+
+    if (!Number.isInteger(scheduleIndex) || scheduleIndex < 0) {
+      return res.status(400).json({ message: "Invalid schedule slot" });
+    }
+
+    const panel = await InterviewPanel.findById(id);
+    if (!panel) {
+      return res.status(404).json({ message: "Interview panel not found" });
+    }
+
+    const schedules = Array.isArray(panel.schedules) ? [...panel.schedules] : [];
+    if (scheduleIndex >= schedules.length) {
+      return res.status(400).json({ message: "Schedule slot not found" });
+    }
+
+    const slot = schedules[scheduleIndex];
+    if (!slot) {
+      return res.status(400).json({ message: "Schedule slot not found" });
+    }
+
+    if (String(slot.booking_status || "available") === "booked") {
+      return res.status(400).json({ message: "This slot is already booked" });
+    }
+
+    let bookedFor = "";
+    let bookedPhone = "";
+    let bookedQualifierId = null;
+    let bookedUserId = getRequestUserId(req) || null;
+
+    if (isQualifierRole(req)) {
+      const qualifier = await resolveQualifierRecord(req);
+      if (!qualifier) {
+        return res.status(404).json({ message: "Qualifier profile not found" });
+      }
+      if (!isQualifierProfileComplete(qualifier)) {
+        const missing = getQualifierProfileIncompleteFields(qualifier);
+        return res.status(400).json({
+          message: QUALIFIER_PROFILE_INCOMPLETE_MESSAGE,
+          missing_fields: missing,
+        });
+      }
+
+      bookedFor = String(qualifier.name || "").trim();
+      bookedPhone = String(qualifier.phone || "").trim();
+      bookedQualifierId = qualifier._id;
+
+      // One active booking per qualifier
+      const panelsWithBooking = await InterviewPanel.find({
+        schedules: {
+          $elemMatch: {
+            booking_status: "booked",
+          },
+        },
+      }).select("schedules title");
+
+      const hasExisting = panelsWithBooking.some((p) =>
+        (p.schedules || []).some((s) => {
+          if (String(s.booking_status || "") !== "booked") return false;
+          return (
+            phonesMatch(s.booked_phone, qualifier.phone) ||
+            String(s.booked_for || "")
+              .trim()
+              .toLowerCase() ===
+              String(qualifier.name || "").trim().toLowerCase()
+          );
+        })
+      );
+
+      if (hasExisting) {
+        return res.status(400).json({
+          message: "You already have an interview booked",
+        });
+      }
+    } else {
+      bookedFor = String(req.body?.booked_for || "").trim();
+      bookedPhone = String(req.body?.booked_phone || "").trim();
+      if (req.body?.booked_user_id) {
+        bookedUserId = String(req.body.booked_user_id).trim();
+      }
+      if (!bookedFor) {
+        return res.status(400).json({ message: "Candidate name is required" });
+      }
+      const resolvedQualifier = await resolveQualifierByBooking({
+        booked_phone: bookedPhone,
+        booked_for: bookedFor,
+        booked_user_id: bookedUserId,
+      });
+      if (resolvedQualifier?._id) {
+        bookedQualifierId = resolvedQualifier._id;
+      }
+    }
+
+    schedules[scheduleIndex] = {
+      ...(slot.toObject ? slot.toObject() : slot),
+      booking_status: "booked",
+      booked_for: bookedFor,
+      booked_phone: bookedPhone,
+      booked_notes: bookedNotes,
+      booked_user_id: bookedUserId || null,
+      booked_qualifier_id: bookedQualifierId || null,
+      booked_at: new Date(),
+      interview_status: "not_started",
+      interview_started_at: null,
+      interview_started_by: null,
+    };
+
+    panel.schedules = schedules;
+    await panel.save();
+
+    const populated = await InterviewPanel.findById(panel._id).populate(
+      "created_by",
+      "name email"
+    );
+    res.status(200).json(populated);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 export const deleteInterviewPanel = async (req, res) => {
+  if (isQualifierRole(req) || isPanelistRole(req)) {
+    return res.status(403).json({ message: "Not allowed" });
+  }
   try {
     const deleted = await InterviewPanel.findByIdAndDelete(req.params.id);
     if (!deleted) {
       return res.status(404).json({ message: "Interview panel not found" });
     }
     res.status(200).json({ message: "Interview panel deleted successfully", id: req.params.id });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const canConductInterview = (req) => !isQualifierRole(req);
+
+const getScheduleSlot = (panel, scheduleIndex) => {
+  const schedules = Array.isArray(panel?.schedules) ? panel.schedules : [];
+  if (!Number.isInteger(scheduleIndex) || scheduleIndex < 0) return null;
+  return schedules[scheduleIndex] || null;
+};
+
+const slotToPlain = (slot) => (slot?.toObject ? slot.toObject() : { ...slot });
+
+const validateEvaluationScores = (body) => {
+  for (const [field, meta] of Object.entries(SCORE_FIELDS)) {
+    const raw = body[field];
+    if (raw === null || raw === undefined || raw === "") continue;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0 || value > meta.max) {
+      return `${field.replace(/_/g, " ")} must be between 0 and ${meta.max}`;
+    }
+  }
+  return null;
+};
+
+/** POST /interview-panels/start-interview/:id */
+export const startInterview = async (req, res) => {
+  if (!canConductInterview(req)) {
+    return res.status(403).json({ message: "Not allowed" });
+  }
+  try {
+    const { id } = req.params;
+    const scheduleIndex = Number(req.body?.schedule_index);
+    if (!Number.isInteger(scheduleIndex) || scheduleIndex < 0) {
+      return res.status(400).json({ message: "Invalid schedule slot" });
+    }
+
+    const panel = await InterviewPanel.findById(id);
+    if (!panel) {
+      return res.status(404).json({ message: "Interview panel not found" });
+    }
+
+    const slot = getScheduleSlot(panel, scheduleIndex);
+    if (!slot) {
+      return res.status(400).json({ message: "Schedule slot not found" });
+    }
+    if (String(slot.booking_status || "") !== "booked") {
+      return res.status(400).json({ message: "This slot is not booked" });
+    }
+
+    const plainSlot = slotToPlain(slot);
+    let panelistId = null;
+    if (isPanelistRole(req)) {
+      const panelist = await resolvePanelistRecord(req);
+      if (!panelist) {
+        return res.status(404).json({ message: "Panelist profile not found" });
+      }
+      panelistId = panelist._id;
+    }
+
+    const schedules = [...panel.schedules];
+    const currentStatus = String(plainSlot.interview_status || "not_started");
+    if (currentStatus === "not_started") {
+      schedules[scheduleIndex] = {
+        ...plainSlot,
+        interview_status: "in_progress",
+        interview_started_at: new Date(),
+        interview_started_by: panelistId || plainSlot.interview_started_by || null,
+      };
+      panel.schedules = schedules;
+      await panel.save();
+    }
+
+    let qualifier = null;
+    if (plainSlot.booked_qualifier_id) {
+      qualifier = await resolveQualifierByBooking({
+        booked_qualifier_id: plainSlot.booked_qualifier_id,
+      });
+    }
+    if (!qualifier) {
+      qualifier = await resolveQualifierByBooking({
+        booked_phone: plainSlot.booked_phone,
+        booked_for: plainSlot.booked_for,
+        booked_user_id: plainSlot.booked_user_id,
+      });
+      if (qualifier?._id && !plainSlot.booked_qualifier_id) {
+        schedules[scheduleIndex] = {
+          ...(schedules[scheduleIndex]?.toObject
+            ? schedules[scheduleIndex].toObject()
+            : schedules[scheduleIndex]),
+          booked_qualifier_id: qualifier._id,
+        };
+        panel.schedules = schedules;
+        await panel.save();
+      }
+    }
+
+    let evaluation = await InterviewEvaluation.findOne({
+      panel_id: panel._id,
+      schedule_index: scheduleIndex,
+    });
+    if (!evaluation) {
+      evaluation = await InterviewEvaluation.create({
+        panel_id: panel._id,
+        schedule_index: scheduleIndex,
+        qualifier_id: qualifier?._id || null,
+        panelist_id: panelistId,
+        started_by_user_id: getRequestUserId(req) || null,
+        status: "in_progress",
+      });
+    }
+
+    const updatedPanel = await InterviewPanel.findById(id).populate(
+      "created_by",
+      "name email"
+    );
+
+    res.status(200).json({
+      panel: updatedPanel,
+      schedule_index: scheduleIndex,
+      slot: slotToPlain(updatedPanel.schedules[scheduleIndex]),
+      qualifier: serializeQualifierForInterview(qualifier),
+      evaluation,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/** GET /interview-panels/conduct/:id/:scheduleIndex */
+export const getConductInterview = async (req, res) => {
+  if (!canConductInterview(req)) {
+    return res.status(403).json({ message: "Not allowed" });
+  }
+  try {
+    const { id, scheduleIndex: scheduleIndexRaw } = req.params;
+    const scheduleIndex = Number(scheduleIndexRaw);
+    if (!Number.isInteger(scheduleIndex) || scheduleIndex < 0) {
+      return res.status(400).json({ message: "Invalid schedule slot" });
+    }
+
+    const panel = await InterviewPanel.findById(id).populate(
+      "created_by",
+      "name email"
+    );
+    if (!panel) {
+      return res.status(404).json({ message: "Interview panel not found" });
+    }
+
+    const slot = getScheduleSlot(panel, scheduleIndex);
+    if (!slot) {
+      return res.status(404).json({ message: "Schedule slot not found" });
+    }
+    if (String(slot.booking_status || "") !== "booked") {
+      return res.status(400).json({ message: "This slot is not booked" });
+    }
+
+    const plainSlot = slotToPlain(slot);
+    const qualifier = await resolveQualifierByBooking({
+      booked_qualifier_id: plainSlot.booked_qualifier_id,
+      booked_phone: plainSlot.booked_phone,
+      booked_for: plainSlot.booked_for,
+      booked_user_id: plainSlot.booked_user_id,
+    });
+
+    const evaluation = await InterviewEvaluation.findOne({
+      panel_id: panel._id,
+      schedule_index: scheduleIndex,
+    });
+
+    res.status(200).json({
+      panel,
+      schedule_index: scheduleIndex,
+      slot: plainSlot,
+      qualifier: serializeQualifierForInterview(qualifier),
+      evaluation,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/** POST /interview-panels/submit-evaluation/:id */
+export const submitInterviewEvaluation = async (req, res) => {
+  if (!canConductInterview(req)) {
+    return res.status(403).json({ message: "Not allowed" });
+  }
+  try {
+    const { id } = req.params;
+    const scheduleIndex = Number(req.body?.schedule_index);
+    if (!Number.isInteger(scheduleIndex) || scheduleIndex < 0) {
+      return res.status(400).json({ message: "Invalid schedule slot" });
+    }
+
+    const scoreError = validateEvaluationScores(req.body);
+    if (scoreError) {
+      return res.status(400).json({ message: scoreError });
+    }
+
+    const verdict = String(req.body?.verdict || "").trim();
+    const allowedVerdicts = [
+      "ready_final_css",
+      "needs_more_mock",
+      "intensive_coaching",
+    ];
+    if (!allowedVerdicts.includes(verdict)) {
+      return res.status(400).json({ message: "Lead panelist verdict is required" });
+    }
+
+    const panel = await InterviewPanel.findById(id);
+    if (!panel) {
+      return res.status(404).json({ message: "Interview panel not found" });
+    }
+
+    const slot = getScheduleSlot(panel, scheduleIndex);
+    if (!slot) {
+      return res.status(400).json({ message: "Schedule slot not found" });
+    }
+    if (String(slot.booking_status || "") !== "booked") {
+      return res.status(400).json({ message: "This slot is not booked" });
+    }
+
+    let panelistId = null;
+    if (isPanelistRole(req)) {
+      const panelist = await resolvePanelistRecord(req);
+      panelistId = panelist?._id || null;
+    }
+
+    const plainSlot = slotToPlain(slot);
+    const qualifier = await resolveQualifierByBooking({
+      booked_qualifier_id: plainSlot.booked_qualifier_id,
+      booked_phone: plainSlot.booked_phone,
+      booked_for: plainSlot.booked_for,
+      booked_user_id: plainSlot.booked_user_id,
+    });
+
+    const scorePayload = {};
+    for (const field of Object.keys(SCORE_FIELDS)) {
+      const raw = req.body[field];
+      scorePayload[field] =
+        raw === null || raw === undefined || raw === "" ? null : Number(raw);
+    }
+
+    const evaluationPayload = {
+      ...scorePayload,
+      key_strength: String(req.body?.key_strength || "").trim(),
+      major_weakness: String(req.body?.major_weakness || "").trim(),
+      improvement_since_last_mock: String(
+        req.body?.improvement_since_last_mock || ""
+      ).trim(),
+      verdict,
+      final_remarks: String(req.body?.final_remarks || "").trim(),
+      qualifier_id: qualifier?._id || null,
+      panelist_id: panelistId,
+      status: "completed",
+      completed_at: new Date(),
+    };
+
+    let evaluation = await InterviewEvaluation.findOne({
+      panel_id: panel._id,
+      schedule_index: scheduleIndex,
+    });
+
+    if (evaluation) {
+      Object.assign(evaluation, evaluationPayload);
+      await evaluation.save();
+    } else {
+      evaluation = await InterviewEvaluation.create({
+        panel_id: panel._id,
+        schedule_index: scheduleIndex,
+        started_by_user_id: getRequestUserId(req) || null,
+        started_at: new Date(),
+        ...evaluationPayload,
+      });
+    }
+
+    const schedules = [...panel.schedules];
+    schedules[scheduleIndex] = {
+      ...plainSlot,
+      interview_status: "completed",
+      interview_started_at:
+        plainSlot.interview_started_at || evaluation.started_at || new Date(),
+      interview_started_by:
+        plainSlot.interview_started_by || panelistId || null,
+    };
+    panel.schedules = schedules;
+    await panel.save();
+
+    res.status(200).json({ evaluation, message: "Mock evaluation submitted" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

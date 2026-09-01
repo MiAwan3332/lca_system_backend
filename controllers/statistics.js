@@ -15,10 +15,16 @@ import {
   getTeacherScope,
   resolveTeacherRecord,
 } from "../utils/lmsAccess.js";
+import {
+  isQualifierRole,
+  resolveQualifierRecord,
+  phonesMatch,
+} from "../utils/qualifierScope.js";
 import Assignment from "../models/assignments.js";
 import AssignmentSubmission from "../models/assignmentSubmissions.js";
 import CourseQuiz from "../models/courseQuizzes.js";
 import TimeTable from "../models/timeTables.js";
+import InterviewPanel from "../models/interviewPanel.js";
 
 dotenv.config();
 
@@ -203,6 +209,88 @@ export const getStatistics = async (req, res) => {
             { label: "Pending", value: pendingAmount },
           ],
         },
+      });
+    }
+
+    if (isQualifierRole(req)) {
+      const qualifier = await resolveQualifierRecord(req);
+      if (!qualifier) {
+        return res.status(404).json({ message: "Qualifier profile not found" });
+      }
+
+      const totalFee = Number(qualifier.total_fee) || 0;
+      const paidAmount = Number(qualifier.paid_fee) || 0;
+      const pendingAmount = Number(qualifier.pending_fee) || 0;
+      const discountAmount = Number(qualifier.discount_amount) || 0;
+
+      const panels = await InterviewPanel.find({
+        "schedules.booking_status": "booked",
+      })
+        .select("title venue status date schedules")
+        .lean();
+
+      const myBookings = [];
+      panels.forEach((panel) => {
+        (panel.schedules || []).forEach((slot) => {
+          if (String(slot.booking_status || "") !== "booked") return;
+          const phoneHit = phonesMatch(slot.booked_phone, qualifier.phone);
+          const nameHit =
+            String(slot.booked_for || "")
+              .trim()
+              .toLowerCase() === String(qualifier.name || "").trim().toLowerCase();
+          if (!phoneHit && !nameHit) return;
+          myBookings.push({
+            panel_title: panel.title,
+            venue: slot.venue || panel.venue,
+            date: slot.date || panel.date,
+            start_time: slot.start_time,
+            end_time: slot.end_time,
+            notes: slot.notes || slot.booked_notes || "",
+            panel_status: panel.status,
+          });
+        });
+      });
+
+      myBookings.sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+
+      const today = moment().format("YYYY-MM-DD");
+      const upcomingBookings = myBookings.filter(
+        (item) => !item.date || item.date >= today
+      );
+      const pastBookings = myBookings.filter(
+        (item) => item.date && item.date < today
+      );
+
+      return res.status(200).json({
+        is_qualifier_dashboard: true,
+        qualifier_name: qualifier.name,
+        batch_name: qualifier.batch?.name || "Not assigned",
+        total_fee_record: totalFee + discountAmount,
+        discount_amount: discountAmount,
+        total_fee_recovered: paidAmount,
+        total_fee_pending: pendingAmount,
+        payment_method: qualifier.payment_method || "N/A",
+        interview_bookings_count: myBookings.length,
+        upcoming_interviews_count: upcomingBookings.length,
+        past_interviews_count: pastBookings.length,
+        chart_data: {
+          fee_overview: [
+            { label: "Paid", value: paidAmount },
+            { label: "Pending", value: pendingAmount },
+          ],
+        },
+        upcoming_events: upcomingBookings.slice(0, 6).map((item) => ({
+          title: item.panel_title || "Interview",
+          subtitle: [item.venue, item.date].filter(Boolean).join(" · "),
+          time: item.date,
+          type: "interview",
+        })),
+        recent_activity: myBookings.slice(0, 5).map((item) => ({
+          type: "interview",
+          title: `Interview: ${item.panel_title || "Panel"}`,
+          subtitle: item.venue || item.notes || "",
+          time: item.date,
+        })),
       });
     }
 

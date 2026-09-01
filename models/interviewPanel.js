@@ -42,6 +42,11 @@ const interviewPanelSchema = mongoose.Schema(
     },
     members: [
       {
+        panelist_id: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Panelist",
+          default: null,
+        },
         name: { type: String, trim: true, required: true },
         role: { type: String, trim: true, default: "Panelist" },
         description: { type: String, trim: true, required: true },
@@ -69,6 +74,22 @@ const interviewPanelSchema = mongoose.Schema(
           default: null,
         },
         booked_at: { type: Date, default: null },
+        booked_qualifier_id: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Qualifier",
+          default: null,
+        },
+        interview_status: {
+          type: String,
+          enum: ["not_started", "in_progress", "completed"],
+          default: "not_started",
+        },
+        interview_started_at: { type: Date, default: null },
+        interview_started_by: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Panelist",
+          default: null,
+        },
       },
     ],
     created_by: {

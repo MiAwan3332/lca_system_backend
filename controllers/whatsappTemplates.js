@@ -6,6 +6,9 @@ import {
   ensureDefaultWhatsAppTemplates,
   renderWhatsAppTemplate,
   buildStudentTemplateVars,
+  buildUserTemplateVars,
+  buildPanelistTemplateVars,
+  buildQualifierTemplateVars,
   sendWhatsAppText,
   slugifyTemplateKey,
 } from "../utils/whatsappMessaging.js";
@@ -23,8 +26,8 @@ const findTemplate = async (keyOrId) => {
   return template;
 };
 
-const sampleVars = () =>
-  buildStudentTemplateVars({
+const sampleVars = () => ({
+  ...buildStudentTemplateVars({
     student: {
       name: "Ali Khan",
       phone: "03001234567",
@@ -43,7 +46,42 @@ const sampleVars = () =>
     password: "lca@123456",
     paymentMethod: "Cash",
     amountReceived: 10000,
-  });
+  }),
+  ...buildUserTemplateVars({
+    user: {
+      name: "Ali Khan",
+      email: "ali@example.com",
+      phone: "03001234567",
+      role: "Principal",
+    },
+    password: "lcaadmin@123456",
+  }),
+  ...buildPanelistTemplateVars({
+    panelist: {
+      name: "Ali Khan",
+      phone: "03001234567",
+      description: "Senior interviewer for CSS panel",
+      is_active: true,
+    },
+  }),
+  ...buildQualifierTemplateVars({
+    qualifier: {
+      name: "Ali Khan",
+      phone: "03001234567",
+      cnic: "35202-1234567-1",
+      description: "Interview candidate — CSS batch",
+      is_active: true,
+      total_fee: 4000,
+      discount_amount: 1000,
+      paid_fee: 2000,
+      pending_fee: 2000,
+      payment_method: "Cash",
+    },
+    batch: { name: "Interview Panel Aug 2026", batch_fee: 5000 },
+    paymentMethod: "Cash",
+    amountReceived: 2000,
+  }),
+});
 
 /** Available merge tags + process catalog for the editor. */
 export const listWhatsAppTemplateTags = async (_req, res) => {

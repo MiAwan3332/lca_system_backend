@@ -15,6 +15,7 @@ import {
   denyUnlessTeacherCourseAccess,
   buildEmptyPaginatedResponse,
 } from "./teacherScope.js";
+import { isQualifierRole } from "./qualifierScope.js";
 
 const FULL_ACCESS_ROLES = [
   "admin",
@@ -75,7 +76,12 @@ export const denyUnlessPlatformSuperAdmin = (req, res) => {
 };
 
 export const isInstitutionAdmin = (req) =>
-  !isStudentRole(req) && !isTeacherRole(req);
+  !isStudentRole(req) &&
+  !isTeacherRole(req) &&
+  !isQualifierRole(req) &&
+  String(req.user?.user?.role || "")
+    .trim()
+    .toLowerCase() !== "panelist";
 
 export const canManageLmsContent = (req) => {
   if (isStudentRole(req)) return false;

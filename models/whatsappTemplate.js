@@ -3,6 +3,9 @@ import mongoose from "mongoose";
 /**
  * process values:
  * - student_admission: when a student is added
+ * - user_welcome: when a staff/admin user is added
+ * - panelist_welcome: when a panelist is added
+ * - qualifier_welcome: when a qualifier is added
  * - fee_payment: when a fee payment is recorded
  * - fee_reminder: pending fee reminders (manual / future automation)
  * - custom: not auto-sent by the system
@@ -31,6 +34,9 @@ const whatsappTemplateSchema = mongoose.Schema(
       required: true,
       enum: [
         "student_admission",
+        "user_welcome",
+        "panelist_welcome",
+        "qualifier_welcome",
         "fee_payment",
         "fee_reminder",
         "custom",
