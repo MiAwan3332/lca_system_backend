@@ -738,7 +738,7 @@ export const addUser = async (req, res) => {
     }
     if (!trimmedPhone) {
       return res.status(400).json({
-        message: "Phone number is required to send the welcome WhatsApp message",
+        message: "Contact number is required",
       });
     }
 
@@ -794,7 +794,13 @@ export const updateUser = async (req, res) => {
     if (name !== undefined) user.name = String(name || "").trim();
     if (email !== undefined) user.email = String(email || "").trim().toLowerCase();
     if (role !== undefined) user.role = String(role || "").trim();
-    if (phone !== undefined) user.phone = String(phone || "").trim();
+    if (phone !== undefined) {
+      const trimmedPhone = String(phone || "").trim();
+      if (!trimmedPhone) {
+        return res.status(400).json({ message: "Contact number is required" });
+      }
+      user.phone = trimmedPhone;
+    }
 
     if (password && String(password).trim()) {
       user.password = await bcrypt.hash(String(password).trim(), 12);

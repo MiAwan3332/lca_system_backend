@@ -23,11 +23,18 @@ export const addTeacher = async (req, res) => {
   const resume = files.resume;
 
   try {
-    if (!name?.trim() || !email?.trim()) {
+    const trimmedName = String(name || "").trim();
+    const trimmedEmail = String(email || "").trim();
+    const trimmedPhone = String(phone || "").trim();
+
+    if (!trimmedName || !trimmedEmail) {
       return res.status(400).json({ message: "Name and email are required" });
     }
+    if (!trimmedPhone) {
+      return res.status(400).json({ message: "Contact number is required" });
+    }
 
-    const existingTeacher = await Teacher.findOne({ email: email.trim() });
+    const existingTeacher = await Teacher.findOne({ email: trimmedEmail });
     if (existingTeacher) {
       return res.status(400).json({ message: "Email already exists" });
     }
@@ -35,7 +42,7 @@ export const addTeacher = async (req, res) => {
     const filesStorageUrl = process.env.FILES_STORAGE_URL;
     const filesStoragePath = process.env.FILES_STORAGE_PATH;
 
-    const emailStr = email.trim().split("@")[0];
+    const emailStr = trimmedEmail.split("@")[0];
     let imageUrl = "";
     let imageWebpFileName = "";
     let resumeUrl = "";
@@ -64,26 +71,30 @@ export const addTeacher = async (req, res) => {
     }
 
     const newTeacher = new Teacher({
-      name: name.trim(),
-      email: email.trim(),
-      phone: phone?.trim() || "",
+      name: trimmedName,
+      email: trimmedEmail,
+      phone: trimmedPhone,
       resume: resumeUrl,
       image: imageUrl,
     });
     await newTeacher.save();
 
-    const existingUser = await User.findOne({ email: email.trim() });
+    const existingUser = await User.findOne({ email: trimmedEmail });
     if (!existingUser) {
       const hashedPassword = await bcrypt.hash("lca@123456", 12);
       await User.create({
-        name: name.trim(),
-        email: email.trim(),
+        name: trimmedName,
+        email: trimmedEmail,
+        phone: trimmedPhone,
         password: hashedPassword,
         role: "teacher",
       });
+    } else if (!String(existingUser.phone || "").trim()) {
+      existingUser.phone = trimmedPhone;
+      await existingUser.save();
     }
 
-    const linkedUser = await User.findOne({ email: email.trim() });
+    const linkedUser = await User.findOne({ email: trimmedEmail });
     if (linkedUser) {
       newTeacher.user = linkedUser._id;
     }
@@ -270,11 +281,32 @@ export const updateTeacher = async (req, res) => {
       teacher.resume = newResumePath;
     }
 
-    teacher.name = name;
-    teacher.email = email;
-    teacher.phone = phone;
+    const trimmedName = String(name || "").trim();
+    const trimmedEmail = String(email || "").trim();
+    const trimmedPhone = String(phone || "").trim();
+
+    if (!trimmedName || !trimmedEmail) {
+      return res.status(400).json({ message: "Name and email are required" });
+    }
+    if (!trimmedPhone) {
+      return res.status(400).json({ message: "Contact number is required" });
+    }
+
+    teacher.name = trimmedName;
+    teacher.email = trimmedEmail;
+    teacher.phone = trimmedPhone;
 
     await teacher.save();
+
+    if (teacher.user) {
+      const linkedUser = await User.findById(teacher.user);
+      if (linkedUser) {
+        linkedUser.name = trimmedName;
+        linkedUser.email = trimmedEmail;
+        linkedUser.phone = trimmedPhone;
+        await linkedUser.save();
+      }
+    }
 
     res.status(200).json("Teacher updated successfully");
   } catch (error) {
