@@ -19,6 +19,11 @@ const admissionSlipVerificationSchema = mongoose.Schema(
     payment_method: { type: String, default: "" },
     class_time: { type: String, default: "" },
     authorized_by: { type: String, default: "" },
+    slip_type: {
+      type: String,
+      enum: ["admission", "fee"],
+      default: "admission",
+    },
     issued_at: { type: Date, default: Date.now },
     created_by: {
       type: mongoose.Schema.Types.ObjectId,

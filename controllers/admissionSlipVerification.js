@@ -45,6 +45,10 @@ export const issueAdmissionSlipVerification = async (req, res) => {
       payment_method: String(body.payment_method || body.paymentMethod || "").trim(),
       class_time: String(body.class_time || body.classTime || "").trim(),
       authorized_by: String(body.authorized_by || body.authorizedBy || "").trim(),
+      slip_type:
+        String(body.slip_type || "").toLowerCase() === "fee"
+          ? "fee"
+          : "admission",
       issued_at: new Date(),
       created_by: getRequestUserId(req) || undefined,
     });
@@ -85,14 +89,18 @@ export const verifyAdmissionSlip = async (req, res) => {
       return res.status(200).json({
         authentic: false,
         status: "fake",
-        message: "No matching admission slip found. This slip appears to be fake or forged.",
+        message: "No matching slip found. This slip appears to be fake or forged.",
       });
     }
 
+    const isFeeSlip = record.slip_type === "fee";
     res.status(200).json({
       authentic: true,
       status: "real",
-      message: "This admission slip is authentic and issued by Lahore CSS Academy.",
+      slip_type: isFeeSlip ? "fee" : "admission",
+      message: isFeeSlip
+        ? "This fee slip is verified and issued by Lahore CSS Academy."
+        : "This admission slip is authentic and issued by Lahore CSS Academy.",
       slip: {
         student_name: record.student_name,
         cnic: record.cnic,
@@ -106,6 +114,7 @@ export const verifyAdmissionSlip = async (req, res) => {
         class_time: record.class_time,
         authorized_by: record.authorized_by,
         issued_at: record.issued_at,
+        slip_type: isFeeSlip ? "fee" : "admission",
       },
     });
   } catch (error) {
