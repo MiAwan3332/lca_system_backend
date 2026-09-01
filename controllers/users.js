@@ -759,12 +759,18 @@ export const addUser = async (req, res) => {
     });
     await newUser.save();
 
+    const userPayload =
+      typeof newUser.toObject === "function" ? newUser.toObject() : newUser;
+
     let whatsappWelcome = { sent: false, skipped: true };
     try {
       whatsappWelcome = await sendUserWelcomeWhatsApp({
-        user: newUser,
+        user: userPayload,
         password: randomPassword,
       });
+      if (!whatsappWelcome?.sent) {
+        console.error("WhatsApp welcome not sent after user add:", whatsappWelcome);
+      }
     } catch (whatsappError) {
       console.error("WhatsApp welcome failed after user add:", whatsappError);
       whatsappWelcome = {

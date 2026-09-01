@@ -248,6 +248,11 @@ export const toWhatsAppNumber = (phone) => {
 
   if (digits.startsWith("00")) digits = digits.slice(2);
 
+  // 92 0 3XXXXXXXXX — country code kept with the local leading 0
+  if (digits.startsWith("920") && digits.length === 13) {
+    digits = `92${digits.slice(3)}`;
+  }
+
   if (digits.length === 11 && digits.startsWith("0")) {
     digits = `92${digits.slice(1)}`;
   }
@@ -427,12 +432,32 @@ export const buildQualifierTemplateVars = ({
   };
 };
 
+const SESSION_READY_STATUSES = new Set([
+  "ready",
+  "connected",
+  "authenticated",
+]);
+
 const normalizeSessions = (payload) => {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.data)) return payload.data;
   if (Array.isArray(payload?.sessions)) return payload.sessions;
+  if (Array.isArray(payload?.data?.sessions)) return payload.data.sessions;
+  if (Array.isArray(payload?.result)) return payload.result;
+  if (payload && typeof payload === "object" && (payload.id || payload._id)) {
+    return [payload];
+  }
   return [];
 };
+
+const isSessionReady = (session) => {
+  const status = String(session?.status || "").toLowerCase();
+  if (!SESSION_READY_STATUSES.has(status)) return false;
+  if (session?.engineLoaded === false) return false;
+  return true;
+};
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const findReadyWhatsAppSession = async () => {
   if (!isOpenWaConfigured()) return null;
@@ -440,9 +465,7 @@ export const findReadyWhatsAppSession = async () => {
   const { defaultSessionName } = getOpenWaConfig();
   const payload = await openWaRequest("GET", "/api/sessions");
   const sessions = normalizeSessions(payload);
-  const ready = sessions.filter(
-    (s) => String(s?.status || "").toLowerCase() === "ready"
-  );
+  const ready = sessions.filter(isSessionReady);
   if (!ready.length) return null;
 
   const preferred =
@@ -496,6 +519,15 @@ const DEFAULT_TEMPLATES = [
   },
 ];
 
+const PROCESS_DEFAULT_KEYS = {
+  student_admission: STUDENT_WELCOME_TEMPLATE_KEY,
+  user_welcome: USER_WELCOME_TEMPLATE_KEY,
+  panelist_welcome: PANELIST_WELCOME_TEMPLATE_KEY,
+  qualifier_welcome: QUALIFIER_WELCOME_TEMPLATE_KEY,
+  fee_payment: FEE_PAYMENT_TEMPLATE_KEY,
+  fee_reminder: FEE_REMINDER_TEMPLATE_KEY,
+};
+
 export const ensureDefaultWhatsAppTemplates = async () => {
   const results = [];
   for (const def of DEFAULT_TEMPLATES) {
@@ -507,7 +539,7 @@ export const ensureDefaultWhatsAppTemplates = async () => {
       });
     } else {
       let dirty = false;
-      if (!existing.process) {
+      if (existing.process !== def.process) {
         existing.process = def.process;
         dirty = true;
       }
@@ -526,15 +558,6 @@ export const ensureDefaultWhatsAppTemplates = async () => {
     results.push(existing);
   }
 
-  // Migrate older welcome templates that have no process set
-  await WhatsAppTemplate.updateMany(
-    {
-      key: STUDENT_WELCOME_TEMPLATE_KEY,
-      $or: [{ process: { $exists: false } }, { process: null }, { process: "" }],
-    },
-    { $set: { process: "student_admission" } }
-  );
-
   return results;
 };
 
@@ -544,12 +567,40 @@ export const getActiveTemplateForProcess = async (processKey) => {
   const process = String(processKey || "").trim();
   if (!process || process === "custom") return null;
 
-  return WhatsAppTemplate.findOne({
+  const active = await WhatsAppTemplate.findOne({
     process,
     is_active: true,
   })
     .sort({ updatedAt: -1 })
     .exec();
+  if (active) return active;
+
+  const defaultKey = PROCESS_DEFAULT_KEYS[process];
+  if (!defaultKey) return null;
+
+  return WhatsAppTemplate.findOne({ key: defaultKey }).exec();
+};
+
+const sendTextWithRetry = async (sessionId, chatId, text) => {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await openWaRequest(
+        "POST",
+        `/api/sessions/${sessionId}/messages/send-text`,
+        {
+          body: { chatId, text },
+          timeoutMs: 45000,
+        }
+      );
+    } catch (error) {
+      lastError = error;
+      const retryable = [409, 429, 504].includes(error.status);
+      if (!retryable || attempt === 3) throw error;
+      await sleep(1500 * attempt);
+    }
+  }
+  throw lastError;
 };
 
 export const sendWhatsAppText = async ({ phone, text, sessionId } = {}) => {
@@ -559,7 +610,11 @@ export const sendWhatsAppText = async ({ phone, text, sessionId } = {}) => {
 
   const chatId = toWhatsAppChatId(phone);
   if (!chatId) {
-    return { sent: false, skipped: true, reason: "Invalid student phone number" };
+    return {
+      sent: false,
+      skipped: true,
+      reason: "Invalid contact number for WhatsApp",
+    };
   }
 
   const message = String(text || "").trim();
@@ -582,7 +637,7 @@ export const sendWhatsAppText = async ({ phone, text, sessionId } = {}) => {
   }
 
   const id = session?.id || session?._id;
-  if (!id || String(session?.status || "").toLowerCase() !== "ready") {
+  if (!id || !isSessionReady(session)) {
     return {
       sent: false,
       skipped: true,
@@ -590,14 +645,7 @@ export const sendWhatsAppText = async ({ phone, text, sessionId } = {}) => {
     };
   }
 
-  const result = await openWaRequest(
-    "POST",
-    `/api/sessions/${id}/messages/send-text`,
-    {
-      body: { chatId, text: message },
-      timeoutMs: 45000,
-    }
-  );
+  const result = await sendTextWithRetry(id, chatId, message);
 
   return {
     sent: true,
@@ -625,7 +673,9 @@ export const sendWhatsAppForProcess = async ({
     }
 
     const template = await getActiveTemplateForProcess(processKey);
-    if (!template) {
+    const fallback = DEFAULT_TEMPLATES.find((item) => item.process === processKey);
+    const body = template?.body || fallback?.body;
+    if (!body) {
       return {
         sent: false,
         skipped: true,
@@ -633,14 +683,14 @@ export const sendWhatsAppForProcess = async ({
       };
     }
 
-    const text = renderWhatsAppTemplate(template.body, vars);
+    const text = renderWhatsAppTemplate(body, vars);
     const outcome = await sendWhatsAppText({ phone, text });
 
     return {
       ...outcome,
       process: processKey,
-      template_key: template.key,
-      template_name: template.name,
+      template_key: template?.key || fallback?.key,
+      template_name: template?.name || fallback?.name,
       preview: text.slice(0, 180),
     };
   } catch (error) {
