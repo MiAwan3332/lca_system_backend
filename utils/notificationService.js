@@ -55,10 +55,15 @@ export const markNotificationRead = async (
 ) => {
   const filter = { _id: notificationId };
   if (!unrestricted) {
-    if (studentId) {
-      filter.recipient_student = studentId;
-    } else if (userId) {
-      filter.recipient_user = userId;
+    const or = [];
+    if (studentId) or.push({ recipient_student: studentId });
+    if (userId) or.push({ recipient_user: userId });
+    if (or.length === 1) {
+      Object.assign(filter, or[0]);
+    } else if (or.length > 1) {
+      filter.$or = or;
+    } else {
+      return null;
     }
   }
   return Notification.findOneAndUpdate(

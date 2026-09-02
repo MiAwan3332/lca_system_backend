@@ -4,7 +4,6 @@ import {
   isStudentRole,
   resolveStudentId,
   getRequestUserId,
-  isTeacherRole,
   isInstitutionAdmin,
   denyUnlessInstitutionAdmin,
 } from "../utils/lmsAccess.js";
@@ -16,18 +15,26 @@ import {
 } from "../utils/feeDueReport.js";
 
 /**
- * Students & teachers: only notifications addressed to them.
- * All other roles: every notification in the system.
+ * Every role only sees notifications addressed to them.
+ * Students: recipient_student or recipient_user.
+ * Staff / teachers / others: recipient_user.
  */
+const noNotificationsFilter = { _id: null };
+
 const buildRecipientFilter = async (req) => {
+  const userId = getRequestUserId(req);
+
   if (isStudentRole(req)) {
-    return { recipient_student: await resolveStudentId(req) };
+    const studentId = await resolveStudentId(req);
+    const or = [];
+    if (studentId) or.push({ recipient_student: studentId });
+    if (userId) or.push({ recipient_user: userId });
+    if (!or.length) return noNotificationsFilter;
+    return or.length === 1 ? or[0] : { $or: or };
   }
-  if (isTeacherRole(req)) {
-    return { recipient_user: getRequestUserId(req) };
-  }
-  // Staff / admin / principal / finance / etc.
-  return {};
+
+  if (!userId) return noNotificationsFilter;
+  return { recipient_user: userId };
 };
 
 export const getNotifications = async (req, res) => {
@@ -74,7 +81,7 @@ export const getNotifications = async (req, res) => {
     res.status(200).json({
       ...notifications,
       unreadCount,
-      scope: isStudentRole(req) || isTeacherRole(req) ? "related" : "all",
+      scope: "related",
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -83,14 +90,13 @@ export const getNotifications = async (req, res) => {
 
 export const markAsRead = async (req, res) => {
   try {
-    const isScoped = isStudentRole(req) || isTeacherRole(req);
     const studentId = isStudentRole(req) ? await resolveStudentId(req) : null;
-    const userId = isStudentRole(req) ? null : getRequestUserId(req);
+    const userId = getRequestUserId(req);
     const notification = await markNotificationRead(
       req.params.id,
       studentId,
       userId,
-      { unrestricted: !isScoped }
+      { unrestricted: false }
     );
     if (!notification) return res.status(404).json({ message: "Notification not found" });
     res.status(200).json(notification);
