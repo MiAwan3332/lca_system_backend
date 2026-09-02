@@ -12,6 +12,7 @@ export const getQualifierProfileIncompleteFields = (qualifier) => {
   if (!trim(qualifier.phone)) missing.push("Phone");
   if (!trim(qualifier.cnic)) missing.push("CNIC");
   if (!trim(qualifier.city)) missing.push("City");
+  if (!trim(qualifier.province)) missing.push("Province");
   if (!trim(qualifier.father_name)) missing.push("Father Name");
   if (!trim(qualifier.father_phone)) missing.push("Father Phone");
   if (!trim(qualifier.description)) missing.push("Remarks");

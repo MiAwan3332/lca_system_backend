@@ -519,15 +519,6 @@ const DEFAULT_TEMPLATES = [
   },
 ];
 
-const PROCESS_DEFAULT_KEYS = {
-  student_admission: STUDENT_WELCOME_TEMPLATE_KEY,
-  user_welcome: USER_WELCOME_TEMPLATE_KEY,
-  panelist_welcome: PANELIST_WELCOME_TEMPLATE_KEY,
-  qualifier_welcome: QUALIFIER_WELCOME_TEMPLATE_KEY,
-  fee_payment: FEE_PAYMENT_TEMPLATE_KEY,
-  fee_reminder: FEE_REMINDER_TEMPLATE_KEY,
-};
-
 export const ensureDefaultWhatsAppTemplates = async () => {
   const results = [];
   for (const def of DEFAULT_TEMPLATES) {
@@ -573,12 +564,8 @@ export const getActiveTemplateForProcess = async (processKey) => {
   })
     .sort({ updatedAt: -1 })
     .exec();
-  if (active) return active;
 
-  const defaultKey = PROCESS_DEFAULT_KEYS[process];
-  if (!defaultKey) return null;
-
-  return WhatsAppTemplate.findOne({ key: defaultKey }).exec();
+  return active || null;
 };
 
 const WHATSAPP_CHUNK_SIZE = 4000;
@@ -720,9 +707,7 @@ export const sendWhatsAppForProcess = async ({
     }
 
     const template = await getActiveTemplateForProcess(processKey);
-    const fallback = DEFAULT_TEMPLATES.find((item) => item.process === processKey);
-    const body = template?.body || fallback?.body;
-    if (!body) {
+    if (!template?.body) {
       return {
         sent: false,
         skipped: true,
@@ -730,14 +715,14 @@ export const sendWhatsAppForProcess = async ({
       };
     }
 
-    const text = renderWhatsAppTemplate(body, vars);
+    const text = renderWhatsAppTemplate(template.body, vars);
     const outcome = await sendWhatsAppText({ phone, text });
 
     return {
       ...outcome,
       process: processKey,
-      template_key: template?.key || fallback?.key,
-      template_name: template?.name || fallback?.name,
+      template_key: template.key,
+      template_name: template.name,
       preview: text.slice(0, 180),
     };
   } catch (error) {

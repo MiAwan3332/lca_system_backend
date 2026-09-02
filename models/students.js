@@ -18,6 +18,10 @@ const studentSchema = mongoose.Schema({
   latest_degree: String,
   university: String,
   city: String,
+  province: {
+    type: String,
+    default: "",
+  },
   completion_year: String,
   marks_cgpa: String,
   cnic_image: String,
