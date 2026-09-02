@@ -312,6 +312,7 @@ export const addQualifier = async (req, res) => {
       whatsappWelcome = await sendQualifierWelcomeWhatsApp({
         qualifier: populated,
         batch: populated?.batch || batchResult.batch,
+        password: DEFAULT_QUALIFIER_PASSWORD,
         paymentMethod,
         amountReceived: paidFee,
       });
