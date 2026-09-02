@@ -17,8 +17,13 @@ const getRequestUserId = (req) =>
   req.user?.user?.id || req.user?.user?._id || req.user?.id || null;
 
 const findTemplate = async (keyOrId) => {
-  const value = String(keyOrId || "").trim();
+  let value = String(keyOrId || "").trim();
   if (!value) return null;
+  try {
+    value = decodeURIComponent(value);
+  } catch {
+    // keep the raw value if it is not URI-encoded
+  }
   let template = await WhatsAppTemplate.findOne({ key: value });
   if (!template && value.match(/^[a-f\d]{24}$/i)) {
     template = await WhatsAppTemplate.findById(value);
@@ -247,9 +252,11 @@ export const updateWhatsAppTemplate = async (req, res) => {
     template.updated_by = getRequestUserId(req) || undefined;
     await template.save();
 
+    const saved = await WhatsAppTemplate.findById(template._id).lean();
+
     res.status(200).json({
       message: "Template updated",
-      template,
+      template: saved,
       tags: WHATSAPP_TEMPLATE_TAGS,
       processes: WHATSAPP_PROCESSES,
     });
