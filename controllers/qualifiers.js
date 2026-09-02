@@ -19,6 +19,7 @@ import {
   getEducationBackgroundValidationError,
   isEducationBackgroundComplete,
 } from "../utils/qualifierEducation.js";
+import { isPakistanProvince } from "../utils/pakistanProvinces.js";
 
 const DEFAULT_QUALIFIER_PASSWORD = "lca@123456";
 const QUALIFIER_ROLE = "qualifier";
@@ -194,6 +195,7 @@ export const addQualifier = async (req, res) => {
     email,
     cnic,
     city,
+    province,
     father_name,
     father_phone,
     description,
@@ -261,6 +263,7 @@ export const addQualifier = async (req, res) => {
       email: loginEmail,
       cnic: trimOrEmpty(cnic),
       city: trimOrEmpty(city),
+      province: trimOrEmpty(province),
       father_name: trimOrEmpty(father_name),
       father_phone: trimOrEmpty(father_phone),
       description: trimOrEmpty(description),
@@ -424,6 +427,7 @@ export const updateQualifier = async (req, res) => {
     email,
     cnic,
     city,
+    province,
     father_name,
     father_phone,
     description,
@@ -487,6 +491,16 @@ export const updateQualifier = async (req, res) => {
         return res.status(400).json({ message: "City is required" });
       }
       qualifier.city = trimmedCity;
+    }
+    if (province !== undefined) {
+      const trimmedProvince = trimOrEmpty(province);
+      if (isSelfQualifier && !trimmedProvince) {
+        return res.status(400).json({ message: "Province is required" });
+      }
+      if (trimmedProvince && !isPakistanProvince(trimmedProvince)) {
+        return res.status(400).json({ message: "Select a valid Pakistan province" });
+      }
+      qualifier.province = trimmedProvince;
     }
     if (father_name !== undefined) {
       const trimmedFatherName = trimOrEmpty(father_name);

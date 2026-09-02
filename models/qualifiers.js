@@ -29,6 +29,11 @@ const qualifierSchema = mongoose.Schema(
       default: "",
       trim: true,
     },
+    province: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     father_name: {
       type: String,
       default: "",

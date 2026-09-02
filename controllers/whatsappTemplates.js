@@ -303,6 +303,12 @@ export const testWhatsAppTemplate = async (req, res) => {
     if (!template) {
       return res.status(404).json({ message: "Template not found" });
     }
+    if (template.is_active !== true) {
+      return res.status(400).json({
+        message:
+          "This template is inactive. Turn Active on and save before sending.",
+      });
+    }
 
     const phone = String(req.body?.phone || "").trim();
     if (!phone) {

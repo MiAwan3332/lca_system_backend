@@ -1260,6 +1260,7 @@ export const updateStudent = async (req, res) => {
     cnic,
     admission_date,
     city,
+    province,
     date_of_birth,
     father_name,
     father_phone,
@@ -1336,6 +1337,7 @@ export const updateStudent = async (req, res) => {
       cnic,
       admission_date,
       city,
+      province,
       date_of_birth,
       father_name,
       father_phone,
@@ -1402,6 +1404,7 @@ export const updateStudentinfo = async (req, res) => {
   const {
     cnic,
     city,
+    province,
     date_of_birth,
     father_name,
     father_phone,
@@ -1449,6 +1452,7 @@ export const updateStudentinfo = async (req, res) => {
     const updateData = {
       cnic,
       city,
+      province,
       date_of_birth,
       father_name,
       father_phone,
@@ -1522,6 +1526,7 @@ export const checkStudentFields = async (req, res) => {
     const fieldsToCheck = {
       cnic: student.cnic,
       city: student.city,
+      province: student.province,
       date_of_birth: student.date_of_birth,
       father_name: student.father_name,
       father_phone: student.father_phone,
