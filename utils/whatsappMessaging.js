@@ -157,17 +157,14 @@ Your details:
 • Phone: {{phone}}
 • CNIC: {{cnic}}
 • Interview Batch: {{batch}}
-• Remarks: {{description}}
 
-Payment details:
-• Amount Received: Rs. {{amount_received}}
-• Payment Method: {{payment_method}}
-• Batch Fee: Rs. {{batch_fee}}
-• Discount: Rs. {{discount}}
-• Payable Fee: Rs. {{total_fee}}
-• Total Paid: Rs. {{paid_fee}}
-• Remaining: Rs. {{pending_fee}}
 
+Portal login:
+• Login: your phone number ({{phone}})
+• Temporary Password: {{password}}
+• Portal: {{portal_url}}
+
+Please change your password after first login.
 We will contact you with further instructions.
 If you have any questions, reply to this WhatsApp message.
 
@@ -379,6 +376,7 @@ export const buildPanelistTemplateVars = ({ panelist } = {}) => {
 export const buildQualifierTemplateVars = ({
   qualifier,
   batch,
+  password = "lca@123456",
   paymentMethod = "",
   amountReceived = null,
 } = {}) => {
@@ -427,6 +425,7 @@ export const buildQualifierTemplateVars = ({
       paymentMethod ||
       qualifier?.payment_method ||
       (paid > 0 ? "Paid" : "Pay Later"),
+    password,
     portal_url: portalUrl,
     academy_name: "Lahore CSS Academy",
   };
@@ -762,12 +761,14 @@ export const sendPanelistWelcomeWhatsApp = async ({ panelist } = {}) => {
 export const sendQualifierWelcomeWhatsApp = async ({
   qualifier,
   batch,
+  password,
   paymentMethod,
   amountReceived,
 } = {}) => {
   const vars = buildQualifierTemplateVars({
     qualifier,
     batch,
+    password,
     paymentMethod,
     amountReceived,
   });
