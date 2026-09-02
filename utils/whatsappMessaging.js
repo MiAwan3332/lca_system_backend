@@ -528,23 +528,9 @@ export const ensureDefaultWhatsAppTemplates = async () => {
         ...def,
         is_active: true,
       });
-    } else {
-      let dirty = false;
-      if (existing.process !== def.process) {
-        existing.process = def.process;
-        dirty = true;
-      }
-      // Refresh Qualifier Welcome so payment/discount tags are included
-      if (
-        def.key === QUALIFIER_WELCOME_TEMPLATE_KEY &&
-        (!String(existing.body || "").includes("{{total_fee}}") ||
-          !String(existing.body || "").includes("{{discount}}"))
-      ) {
-        existing.body = def.body;
-        existing.description = def.description;
-        dirty = true;
-      }
-      if (dirty) await existing.save();
+    } else if (existing.process !== def.process) {
+      existing.process = def.process;
+      await existing.save();
     }
     results.push(existing);
   }
