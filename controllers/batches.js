@@ -153,7 +153,13 @@ export const getBatch = async (req, res) => {
   }
 };
 
-const coerceBoolean = (value) => value === true || value === "true";
+const coerceBoolean = (value, defaultValue = false) => {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  if (value === false || value === "false" || value === 0 || value === "0") {
+    return false;
+  }
+  return value === true || value === "true" || value === 1 || value === "1";
+};
 
 export const addBatch = async (req, res) => {
   if (denyUnlessInstitutionAdmin(req, res)) return;
@@ -169,16 +175,25 @@ export const addBatch = async (req, res) => {
     class_end_time,
     is_special_batch,
     is_interview_batch,
+    is_paid_batch,
   } = req.body;
   try {
     const isSpecialBatch = coerceBoolean(is_special_batch);
     const isInterviewBatch = coerceBoolean(is_interview_batch);
+    const isPaidBatch =
+      is_paid_batch === undefined || is_paid_batch === null || is_paid_batch === ""
+        ? true
+        : coerceBoolean(is_paid_batch, true);
     if (isSpecialBatch && isInterviewBatch) {
       return res.status(400).json({
         message: "A batch cannot be both Special and Interview. Choose one.",
       });
     }
-    const parsedFees = parseBatchSpecialFees(req.body, isSpecialBatch);
+    const parsedFees = parseBatchSpecialFees(
+      req.body,
+      isSpecialBatch,
+      isPaidBatch
+    );
     if (parsedFees.error) {
       return res.status(400).json({ message: parsedFees.error });
     }
@@ -200,7 +215,7 @@ export const addBatch = async (req, res) => {
     const newBatch = new Batch({
       name,
       description,
-      batch_fee: isSpecialBatch ? batch_fee || "0" : batch_fee,
+      batch_fee: !isPaidBatch || isSpecialBatch ? batch_fee || "0" : batch_fee,
       batch_type,
       startdate,
       enddate,
@@ -208,6 +223,7 @@ export const addBatch = async (req, res) => {
       class_end_time: isInterviewBatch ? "" : class_end_time,
       is_special_batch: isSpecialBatch,
       is_interview_batch: isInterviewBatch,
+      is_paid_batch: isPaidBatch,
       special_fee_options: parsedFees.fees,
       is_active: true,
     });
@@ -234,6 +250,7 @@ export const updateBatch = async (req, res) => {
     is_active,
     is_special_batch,
     is_interview_batch,
+    is_paid_batch,
   } = req.body;
   try {
     const existingBatch = await Batch.findById(id);
@@ -251,40 +268,52 @@ export const updateBatch = async (req, res) => {
         ? coerceBoolean(is_interview_batch)
         : existingBatch.is_interview_batch === true;
 
+    const isPaidBatch =
+      is_paid_batch !== undefined &&
+      is_paid_batch !== null &&
+      is_paid_batch !== ""
+        ? coerceBoolean(is_paid_batch, existingBatch.is_paid_batch !== false)
+        : existingBatch.is_paid_batch !== false;
+
     if (isSpecialBatch && isInterviewBatch) {
       return res.status(400).json({
         message: "A batch cannot be both Special and Interview. Choose one.",
       });
     }
 
-    const parsedFees = parseBatchSpecialFees(req.body, isSpecialBatch);
+    const parsedFees = parseBatchSpecialFees(
+      req.body,
+      isSpecialBatch,
+      isPaidBatch
+    );
     if (parsedFees.error) {
       return res.status(400).json({ message: parsedFees.error });
     }
 
-    const nextStartTime = isInterviewBatch
-      ? ""
-      : class_start_time !== undefined
+    const nextStartTime =
+      class_start_time !== undefined
         ? class_start_time
         : existingBatch.class_start_time;
-    const nextEndTime = isInterviewBatch
-      ? ""
-      : class_end_time !== undefined
+    const nextEndTime =
+      class_end_time !== undefined
         ? class_end_time
         : existingBatch.class_end_time;
 
-    if (!isInterviewBatch) {
-      if (!nextStartTime || !nextEndTime) {
-        return res.status(400).json({
-          message: "Daily class start time and end time are required",
-        });
-      }
-
+    if (!isInterviewBatch && nextStartTime && nextEndTime) {
       if (String(nextEndTime) <= String(nextStartTime)) {
         return res.status(400).json({
           message: "Class end time must be after start time",
         });
       }
+    } else if (
+      isInterviewBatch &&
+      nextStartTime &&
+      nextEndTime &&
+      String(nextEndTime) <= String(nextStartTime)
+    ) {
+      return res.status(400).json({
+        message: "Class end time must be after start time",
+      });
     }
 
     const updatePayload = {
@@ -298,6 +327,7 @@ export const updateBatch = async (req, res) => {
       class_end_time: nextEndTime || "",
       is_special_batch: isSpecialBatch,
       is_interview_batch: isInterviewBatch,
+      is_paid_batch: isPaidBatch,
       special_fee_options: parsedFees.fees,
     };
     let studentsDeactivated = 0;

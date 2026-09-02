@@ -7,6 +7,9 @@ export const LEGACY_SPECIAL_FEE_LABELS = {
 
 export const LEGACY_SPECIAL_FEE_KEYS = Object.keys(LEGACY_SPECIAL_FEE_LABELS);
 
+/** Existing batches without this field are treated as paid. */
+export const batchIsPaid = (batch) => batch?.is_paid_batch !== false;
+
 const humanizeKey = (key) =>
   String(key || "")
     .replace(/[_-]+/g, " ")
@@ -82,7 +85,7 @@ export const getBatchSpecialFeeByKey = (raw, key) => {
  * - body.special_fee_options as array or JSON string
  * - legacy body.test_session_fee / optional_revision_fee / compulsory_revision_fee
  */
-export const parseBatchSpecialFees = (body, isSpecialBatch) => {
+export const parseBatchSpecialFees = (body, isSpecialBatch, isPaidBatch = true) => {
   if (!isSpecialBatch) {
     return { fees: [] };
   }
@@ -129,6 +132,11 @@ export const parseBatchSpecialFees = (body, isSpecialBatch) => {
       fee: Number(item.fee) || 0,
     };
   });
+
+  const labeledOptions = options.filter((item) => String(item.label || "").trim());
+  if (isPaidBatch === false) {
+    return { fees: labeledOptions };
+  }
 
   const positiveOptions = options.filter((item) => item.fee > 0);
   if (!positiveOptions.length) {

@@ -29,7 +29,7 @@ import {
   normalizePaymentEvidenceForStorage,
   uploadPaymentEvidenceFiles,
 } from "../utils/paymentEvidence.js";
-import { parseSpecialFeeOptionsFromBatch } from "../utils/specialFeeOptions.js";
+import { parseSpecialFeeOptionsFromBatch, batchIsPaid } from "../utils/specialFeeOptions.js";
 import {
   createStudentAdmissionFee,
   syncStudentFeeFromLogs,
@@ -114,7 +114,7 @@ const findStudentByPhoneDigits = async (phone) => {
 export const addStudent = async (req, res) => {
   const { name, phone, batch, remarks, cnic } = req.body;
   const admission_date = req.body.admission_date || new Date();
-  const payingNow = Number(req.body.paying_now) || 0;
+  let payingNow = Number(req.body.paying_now) || 0;
   const paymentMethod = req.body.payment_method;
   const nextInstallmentDate = req.body.next_installment_date;
 
@@ -149,6 +149,7 @@ export const addStudent = async (req, res) => {
     let rollNumber = "";
     let isSpecialBatch = false;
     let specialFeeOptions = {};
+    let unpaidBatch = false;
 
     if (batch) {
       batchRecord = await Batch.findById(batch);
@@ -158,10 +159,20 @@ export const addStudent = async (req, res) => {
       if (batchRecord.is_active === false) {
         return res.status(400).json({ message: "Selected batch is inactive" });
       }
+      if (batchRecord.is_interview_batch === true) {
+        return res.status(400).json({
+          message: "Interview batches cannot be used for students. Choose a class batch.",
+        });
+      }
 
+      unpaidBatch = !batchIsPaid(batchRecord);
       isSpecialBatch = batchRecord.is_special_batch === true;
 
-      if (isSpecialBatch) {
+      if (unpaidBatch) {
+        totalFee = 0;
+        specialFeeOptions = {};
+        payingNow = 0;
+      } else if (isSpecialBatch) {
         const parsed = parseSpecialFeeOptionsFromBatch(req.body, batchRecord);
         if (parsed.error) {
           return res.status(400).json({ message: parsed.error });
@@ -179,7 +190,9 @@ export const addStudent = async (req, res) => {
     }
 
     const grossFee = totalFee;
-    const discountAmount = Number(req.body.discount_amount) || 0;
+    const discountAmount = unpaidBatch
+      ? 0
+      : Number(req.body.discount_amount) || 0;
     const discountDescription =
       String(req.body.discount_description || "").trim() ||
       "Discount applied on student admission";
