@@ -18,6 +18,10 @@ const batchesSchema = mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  is_paid_batch: {
+    type: Boolean,
+    default: true,
+  },
   // Array of { key, label, fee } (legacy object shape still readable via helpers)
   special_fee_options: {
     type: mongoose.Schema.Types.Mixed,

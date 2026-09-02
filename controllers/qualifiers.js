@@ -226,19 +226,24 @@ export const addQualifier = async (req, res) => {
     }
 
     const batchFee = parseMoney(batchResult.batch.batch_fee);
-    const grossFee =
-      parseMoney(totalFeeBody) > 0 ? parseMoney(totalFeeBody) : batchFee;
-    const discountAmount = parseMoney(discount_amount);
+    const unpaidBatch = batchResult.batch.is_paid_batch === false;
+    const grossFee = unpaidBatch
+      ? 0
+      : parseMoney(totalFeeBody) > 0
+        ? parseMoney(totalFeeBody)
+        : batchFee;
+    const discountAmount = unpaidBatch ? 0 : parseMoney(discount_amount);
     if (discountAmount > grossFee) {
       return res
         .status(400)
         .json({ message: "Discount cannot be greater than batch fee" });
     }
-    const totalFee = Math.max(grossFee - discountAmount, 0);
-    const paidFee = Math.min(parseMoney(paying_now), totalFee);
-    const pendingFee = Math.max(totalFee - paidFee, 0);
-    const paymentMethod =
-      paidFee > 0
+    const totalFee = unpaidBatch ? 0 : Math.max(grossFee - discountAmount, 0);
+    const paidFee = unpaidBatch ? 0 : Math.min(parseMoney(paying_now), totalFee);
+    const pendingFee = unpaidBatch ? 0 : Math.max(totalFee - paidFee, 0);
+    const paymentMethod = unpaidBatch
+      ? ""
+      : paidFee > 0
         ? trimOrEmpty(payment_method) || "Cash"
         : discountAmount > 0 && totalFee === 0
           ? "Discount"
@@ -299,7 +304,7 @@ export const addQualifier = async (req, res) => {
 
     const populated = await Qualifier.findById(qualifier._id).populate(
       "batch",
-      "name is_interview_batch is_active batch_fee"
+      "name is_interview_batch is_active batch_fee is_paid_batch"
     );
 
     let whatsappWelcome = { sent: false, skipped: true };
