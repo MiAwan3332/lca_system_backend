@@ -61,6 +61,11 @@ export const isPlatformSuperAdminRole = (req) => {
     compact === "superadmin" ||
     compact === "superadmindevelopment" ||
     compact === "secrateadmin" ||
+    compact === "ceo" ||
+    compact === "principle" ||
+    compact === "viceprinciple" ||
+    role === "vice principle" ||
+    role === "vice-principle" ||
     role === "super admin" ||
     role === "super admin development" ||
     role === "secrate admin"

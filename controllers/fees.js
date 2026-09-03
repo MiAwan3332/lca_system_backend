@@ -1310,7 +1310,7 @@ export const getFinanceReport = async (req, res) => {
         }
 
         const studentFeeSelect =
-            "name _id email paid_fee pending_fee total_fee";
+            "name _id email paid_fee pending_fee total_fee image roll_number";
         const batchFeeSelect = "name batch_fee";
 
         const transactions = await FeeLog.find(transactionFilter)
@@ -1377,6 +1377,8 @@ export const getFinanceReport = async (req, res) => {
                 action_by: log.action_by?.name || "N/A",
                 student_name: studentDoc?.name || "N/A",
                 student_id: studentDoc?._id?.toString() || "N/A",
+                student_image: studentDoc?.image || null,
+                roll_number: studentDoc?.roll_number || null,
                 batch_name: log.fee?.batch?.name || "N/A",
                 program: log.fee?.batch?.name || "N/A",
                 title: null,

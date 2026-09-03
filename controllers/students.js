@@ -31,6 +31,11 @@ import {
 } from "../utils/paymentEvidence.js";
 import { parseSpecialFeeOptionsFromBatch, batchIsPaid } from "../utils/specialFeeOptions.js";
 import {
+  applyAdmissionDateFilter,
+  buildAdmissionDateFilter,
+  normalizeAdmissionDate,
+} from "../utils/admissionDate.js";
+import {
   createStudentAdmissionFee,
   syncStudentFeeFromLogs,
 } from "../utils/feePayment.js";
@@ -47,6 +52,7 @@ import {
 } from "../utils/studentRollNumber.js";
 import { sendStudentWelcomeWhatsApp } from "../utils/whatsappMessaging.js";
 import { deleteStudentCascade } from "../utils/deleteStudentCascade.js";
+import { logActivity } from "../utils/activityLogger.js";
 dotenv.config();
 
 const PENDING_FEE_BLOCK_MESSAGE =
@@ -113,7 +119,9 @@ const findStudentByPhoneDigits = async (phone) => {
 
 export const addStudent = async (req, res) => {
   const { name, phone, batch, remarks, cnic } = req.body;
-  const admission_date = req.body.admission_date || new Date();
+  const admission_date =
+    normalizeAdmissionDate(req.body.admission_date) ||
+    normalizeAdmissionDate(new Date());
   let payingNow = Number(req.body.paying_now) || 0;
   const paymentMethod = req.body.payment_method;
   const nextInstallmentDate = req.body.next_installment_date;
@@ -804,11 +812,7 @@ export const getStudents = async (req, res) => {
       }
     }
 
-    if (start_date || end_date) {
-      filter.admission_date = {};
-      if (start_date) filter.admission_date.$gte = start_date;
-      if (end_date) filter.admission_date.$lte = end_date;
-    }
+    applyAdmissionDateFilter(filter, start_date, end_date);
 
     if (city) {
       filter.city = { $regex: city, $options: "i" };
@@ -1348,7 +1352,9 @@ export const updateStudent = async (req, res) => {
       email,
       phone,
       cnic,
-      admission_date,
+      admission_date: admission_date
+        ? normalizeAdmissionDate(admission_date)
+        : admission_date,
       city,
       province,
       date_of_birth,
@@ -1611,8 +1617,34 @@ export const transferStudentBatch = async (req, res) => {
         .json(await buildPendingFeeBlockPayload(id, pendingAmount));
     }
 
+    const previousBatchId = student.batch;
+    const oldRollNumber = student.roll_number;
+
     student.batch = batch;
+    
+    // Assign new roll number for the new batch
+    const newRollNumber = await getNextStudentRollNumber({
+      batchId: batchRecord._id,
+      batchName: batchRecord.name
+    });
+    student.roll_number = newRollNumber;
+
     await student.save();
+
+    await logActivity({
+      req,
+      action: "update",
+      module: "students",
+      description: `Transferred student ${student.name} to batch ${batchRecord.name} and assigned new roll number ${newRollNumber} (was ${oldRollNumber || 'none'})`,
+      targetId: student._id,
+      targetType: "Student",
+      metadata: {
+        previousBatchId,
+        newBatchId: batchRecord._id,
+        oldRollNumber,
+        newRollNumber
+      }
+    });
 
     const updatedStudent = await Student.findById(id).populate("batch");
     res.status(200).json(updatedStudent);
@@ -1915,14 +1947,14 @@ export const getStudentsGraph = async (req, res) => {
         const monthEnd = moment(date).endOf("month").format("YYYY-MM-DD");
 
         const query = {
-          admission_date: {
-            $gte: rangeStart
+          admission_date: buildAdmissionDateFilter(
+            rangeStart
               ? moment.max(moment(rangeStart), moment(monthStart)).format("YYYY-MM-DD")
               : monthStart,
-            $lte: rangeEnd
+            rangeEnd
               ? moment.min(moment(rangeEnd), moment(monthEnd)).format("YYYY-MM-DD")
-              : monthEnd,
-          },
+              : monthEnd
+          ),
         };
 
         if (batch_id) query.batch = batch_id;
@@ -1952,11 +1984,7 @@ export const getStudentsByBatchesGraph = async (req, res) => {
       batches.map(async (batch) => {
         const query = { batch: batch._id };
 
-        if (start_date || end_date) {
-          query.admission_date = {};
-          if (start_date) query.admission_date.$gte = start_date;
-          if (end_date) query.admission_date.$lte = end_date;
-        }
+        applyAdmissionDateFilter(query, start_date, end_date);
 
         const count = await Student.countDocuments(query);
         return { batch: batch.name, count };
