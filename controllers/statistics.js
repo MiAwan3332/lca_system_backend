@@ -20,6 +20,7 @@ import {
   resolveQualifierRecord,
   phonesMatch,
 } from "../utils/qualifierScope.js";
+import { applyAdmissionDateFilter } from "../utils/admissionDate.js";
 import Assignment from "../models/assignments.js";
 import AssignmentSubmission from "../models/assignmentSubmissions.js";
 import CourseQuiz from "../models/courseQuizzes.js";
@@ -446,11 +447,7 @@ export const getStatistics = async (req, res) => {
     // Students Statistics
     const studentFilter = {};
     if (batch_id) studentFilter.batch = batch_id;
-    if (start_date || end_date) {
-      studentFilter.admission_date = {};
-      if (start_date) studentFilter.admission_date.$gte = start_date;
-      if (end_date) studentFilter.admission_date.$lte = end_date;
-    }
+    applyAdmissionDateFilter(studentFilter, start_date, end_date);
 
     const enrolledStudentFilter = { batch: { $ne: null }, ...studentFilter };
     if (studentFilter.batch) {
