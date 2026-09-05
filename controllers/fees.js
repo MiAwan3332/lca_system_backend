@@ -959,7 +959,7 @@ const isOnlinePaymentMethodExpr = {
  * Paid collections split by cash/online and by batch for the period.
  */
 const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []) => {
-    const match = { action_type: "Paid", ...dateFilter };
+    const match = { action_type: { $in: ["Paid", "Refund"] }, ...dateFilter };
     if (feeIds) {
         match.fee = { $in: feeIds };
     }
@@ -992,7 +992,11 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
         {
             $addFields: {
                 paidAmount: {
-                    $toDouble: { $ifNull: ["$action_amount", 0] },
+                    $cond: [
+                        { $eq: ["$action_type", "Refund"] },
+                        { $multiply: [{ $toDouble: { $ifNull: ["$action_amount", 0] } }, -1] },
+                        { $toDouble: { $ifNull: ["$action_amount", 0] } }
+                    ]
                 },
                 isOnline: isOnlinePaymentMethodExpr,
                 batchId: "$batchDoc._id",
@@ -1219,7 +1223,7 @@ export const getFinanceReport = async (req, res) => {
             sumFeeLogs("Refund", dateFilter, feeIds, changedByIds),
         ]);
 
-        const total_fee_record = total_fee_created - total_fee_discounted - total_fee_deleted;
+        const total_fee_record = total_fee_created - total_fee_discounted - total_fee_deleted - total_fee_refunded;
         const total_fee_pending = total_fee_record - total_fee_recovered;
 
         let total_pending_amount = 0;
@@ -1288,7 +1292,7 @@ export const getFinanceReport = async (req, res) => {
             pending_expenses.length > 0 ? pending_expenses[0].total : 0;
 
         const net_balance =
-            total_fee_recovered - total_approved_expenses - total_fee_refunded;
+            total_fee_recovered - total_approved_expenses;
 
         const paidCollections = await getPaidCollectionsBreakdown(
             dateFilter,
@@ -1298,7 +1302,7 @@ export const getFinanceReport = async (req, res) => {
 
         const transactionFilter = {
             ...dateFilter,
-            action_type: { $in: ["Paid"] },
+            action_type: { $in: ["Paid", "Refund"] },
         };
         if (feeIds) {
             transactionFilter.fee = { $in: feeIds };
@@ -1369,10 +1373,10 @@ export const getFinanceReport = async (req, res) => {
 
             return {
                 _id: log._id,
-                type: "fee",
+                type: log.action_type === "Refund" ? "refund" : "fee",
                 action_type: log.action_type,
-                amount: log.amount,
-                action_amount: log.action_amount,
+                amount: log.action_type === "Refund" ? -Math.abs(log.amount || 0) : log.amount,
+                action_amount: log.action_type === "Refund" ? -Math.abs(log.action_amount || 0) : log.action_amount,
                 action_date: log.action_date,
                 action_by: log.action_by?.name || "N/A",
                 student_name: studentDoc?.name || "N/A",
