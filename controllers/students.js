@@ -911,6 +911,55 @@ export const getStudentsByBatch = async (req, res) => {
         populate: ["batch"],
         sort: { _id: -1 },
       });
+
+    // Generate finance history if exporting (large limit)
+    if (parseInt(req.query.limit) > 1000 && students.docs.length > 0) {
+      const studentIds = students.docs.map(s => s._id);
+      
+      const fees = await Fee.find({ student: { $in: studentIds } }).select("_id student");
+      const feeIds = fees.map(f => f._id);
+      
+      const paymentLogs = await FeeLog.find({
+        $or: [
+          { student: { $in: studentIds } },
+          ...(feeIds.length ? [{ fee: { $in: feeIds } }] : [])
+        ]
+      }).sort({ action_date: 1 }).lean();
+      
+      const feeToStudent = {};
+      fees.forEach(f => {
+        feeToStudent[f._id.toString()] = f.student.toString();
+      });
+      
+      const historyByStudent = {};
+      paymentLogs.forEach(log => {
+        let sid = log.student?.toString();
+        if (!sid && log.fee) {
+          sid = feeToStudent[log.fee.toString()];
+        }
+        if (sid) {
+          if (!historyByStudent[sid]) historyByStudent[sid] = [];
+          
+          const dateStr = log.action_date ? new Date(log.action_date).toLocaleDateString() : "";
+          const amount = log.action_amount || log.amount || 0;
+          let entry = `${log.action_type} Rs.${amount}`;
+          if (log.payment_method) entry += ` via ${log.payment_method}`;
+          if (dateStr) entry += ` on ${dateStr}`;
+          
+          historyByStudent[sid].push(entry);
+        }
+      });
+      
+      const docsJson = students.docs.map(doc => {
+        const json = doc.toJSON();
+        const hist = historyByStudent[json._id.toString()];
+        json.finance_history = hist ? hist.join(" | ") : "No transactions";
+        return json;
+      });
+      
+      students.docs = docsJson;
+    }
+
     res.status(200).json(students);
   } catch (error) {
     res.status(500).json({ message: error.message });

@@ -100,7 +100,7 @@ const getMonthlyFinanceTrend = async (filterParams, referenceYear) => {
     ? await Fee.find({ batch: filterParams.batch_id }).distinct("_id")
     : null;
 
-  return Promise.all(
+    return Promise.all(
     months.map(async (month) => {
       const monthStart = month.clone().startOf("month");
       const monthEnd = month.clone().endOf("month");
@@ -111,7 +111,12 @@ const getMonthlyFinanceTrend = async (filterParams, referenceYear) => {
         },
       };
 
-      const recovered = await sumFeeLogAmount("Paid", dateFilter, feeIds);
+      const [paid, refunded] = await Promise.all([
+        sumFeeLogAmount("Paid", dateFilter, feeIds),
+        sumFeeLogAmount("Refund", dateFilter, feeIds)
+      ]);
+      const recovered = paid - refunded;
+      
       const expenses = await sumApprovedExpenses(
         monthStart.format("YYYY-MM-DD"),
         monthEnd.format("YYYY-MM-DD")
@@ -485,9 +490,15 @@ export const getStatistics = async (req, res) => {
     ]);
     const total_fee_paid = total_fee_paid_result.length > 0 ? total_fee_paid_result[0].total : 0;
 
-    const total_fee_record = total_fee_created - total_fee_discounted - total_fee_deleted;
+    const total_fee_refunded_result = await FeeLogs.aggregate([
+      { $match: await buildFeeLogMatch("Refund", filterParams) },
+      { $group: { _id: null, total: { $sum: { $toDouble: "$action_amount" } } } }
+    ]);
+    const total_fee_refunded = total_fee_refunded_result.length > 0 ? total_fee_refunded_result[0].total : 0;
 
-    const total_fee_recovered = total_fee_paid;
+    const total_fee_record = total_fee_created - total_fee_discounted - total_fee_deleted - total_fee_refunded;
+
+    const total_fee_recovered = total_fee_paid - total_fee_refunded;
 
     const total_fee_pending = total_fee_record - total_fee_recovered;
 
@@ -572,6 +583,7 @@ export const getStatistics = async (req, res) => {
         { label: "Recovered", value: total_fee_recovered },
         { label: "Pending", value: Math.max(total_fee_pending, 0) },
         { label: "Discounted", value: total_fee_discounted },
+        { label: "Refunded", value: total_fee_refunded },
       ],
       expense_overview: [
         { label: "Approved", value: total_approved_expenses },
@@ -597,6 +609,7 @@ export const getStatistics = async (req, res) => {
       total_fee_recovered,
       total_fee_pending,
       total_fee_discounted,
+      total_fee_refunded,
       total_fee_defaulters,
       total_approved_expenses,
       total_pending_expenses,
