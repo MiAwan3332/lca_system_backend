@@ -1037,6 +1037,7 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
                 batch_name: batchName,
                 total_cash: 0,
                 total_online: 0,
+                total_pending: 0,
                 total: 0,
             };
         }
@@ -1051,6 +1052,59 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
         byBatch[batchKey].total += amount;
     }
 
+    // Current pending fee balance by batch (not limited to period payments)
+    const pendingMatch = { status: "Pending", amount: { $gt: 0 } };
+    if (feeIds?.length) {
+        const batchIdsFromFees = await Fee.find({ _id: { $in: feeIds } }).distinct(
+            "batch"
+        );
+        if (batchIdsFromFees.length === 1) {
+            pendingMatch.batch = batchIdsFromFees[0];
+        } else if (batchIdsFromFees.length > 1) {
+            pendingMatch.batch = { $in: batchIdsFromFees };
+        }
+    }
+
+    const pendingRows = await Fee.aggregate([
+        { $match: pendingMatch },
+        {
+            $group: {
+                _id: "$batch",
+                pending: { $sum: { $toDouble: { $ifNull: ["$amount", 0] } } },
+            },
+        },
+        {
+            $lookup: {
+                from: "batches",
+                localField: "_id",
+                foreignField: "_id",
+                as: "batchDoc",
+            },
+        },
+        { $unwind: { path: "$batchDoc", preserveNullAndEmptyArrays: true } },
+    ]);
+
+    let total_pending = 0;
+    for (const row of pendingRows) {
+        const amount = Number(row.pending) || 0;
+        total_pending += amount;
+        const batchKey =
+            row._id?.toString?.() || String(row._id || "unassigned");
+        const batchName = row.batchDoc?.name || "Unassigned";
+
+        if (!byBatch[batchKey]) {
+            byBatch[batchKey] = {
+                batch_id: row._id || null,
+                batch_name: batchName,
+                total_cash: 0,
+                total_online: 0,
+                total_pending: 0,
+                total: 0,
+            };
+        }
+        byBatch[batchKey].total_pending = amount;
+    }
+
     const batch_wise = Object.values(byBatch).sort((a, b) =>
         String(a.batch_name).localeCompare(String(b.batch_name), undefined, {
             sensitivity: "base",
@@ -1060,6 +1114,7 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
     return {
         total_cash,
         total_online,
+        total_pending,
         batch_wise,
     };
 };

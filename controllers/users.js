@@ -8,7 +8,7 @@ import {
   denyUnlessOwnStudent,
   INACTIVE_STUDENT_MESSAGE,
 } from "../utils/studentScope.js";
-import { isTeacherRole } from "../utils/lmsAccess.js";
+import { isTeacherRole, isSecrateSuperAdminRole } from "../utils/lmsAccess.js";
 import { addEmailToQueue } from "../utils/emailQueue.js";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
@@ -691,8 +691,23 @@ export const getUsers = async (req, res) => {
     }
 
     let searchQuery = query ? query : "";
-    // Student and teacher accounts are managed on their own screens, not All Users
-    const rolesToExclude = ["student", "teacher", "secrateadmin"];
+    // Student and teacher accounts are managed on their own screens, not All Users.
+    // Hide secrateadmin from everyone. Superadmin accounts are visible only to
+    // secratesuperadmin / secrateadmin.
+    const rolesToExclude = ["student", "teacher", "secrateadmin", "secratesuperadmin"];
+    if (!isSecrateSuperAdminRole(req)) {
+      rolesToExclude.push(
+        "superadmin",
+        "super admin",
+        "super_admin",
+        "super admin development"
+      );
+    }
+
+    const excludePattern = `^(${rolesToExclude
+      .map((role) => role.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|")})$`;
+
     const users = await User.paginate(
       {
         $and: [
@@ -705,7 +720,7 @@ export const getUsers = async (req, res) => {
           {
             role: {
               $not: {
-                $regex: `^(${rolesToExclude.join("|")})$`,
+                $regex: excludePattern,
                 $options: "i",
               },
             },

@@ -52,7 +52,7 @@ export const isFullAccessRole = (req) => {
   );
 };
 
-/** Strict platform superadmin roles (delete student, system pages). */
+/** Strict platform superadmin roles (system pages). */
 export const isPlatformSuperAdminRole = (req) => {
   const role = normalizeRole(getRequestRole(req));
   if (!role) return false;
@@ -61,14 +61,51 @@ export const isPlatformSuperAdminRole = (req) => {
     compact === "superadmin" ||
     compact === "superadmindevelopment" ||
     compact === "secrateadmin" ||
+    compact === "secratesuperadmin" ||
     compact === "ceo" ||
     compact === "principle" ||
+    compact === "principal" ||
     compact === "viceprinciple" ||
+    compact === "viceprincipal" ||
     role === "vice principle" ||
     role === "vice-principle" ||
     role === "super admin" ||
     role === "super admin development" ||
-    role === "secrate admin"
+    role === "secrate admin" ||
+    role === "secrate superadmin" ||
+    role === "secrate super admin"
+  );
+};
+
+/** Secret platform owner — can see/manage all superadmin accounts in Users. */
+export const isSecrateSuperAdminRole = (req) => {
+  const role = normalizeRole(getRequestRole(req));
+  if (!role) return false;
+  const compact = role.replace(/\s+/g, "");
+  return (
+    compact === "secrateadmin" ||
+    compact === "secratesuperadmin" ||
+    role === "secrate admin" ||
+    role === "secrate superadmin" ||
+    role === "secrate super admin"
+  );
+};
+
+/** Delete student — only vice-principle, principle, ceo, superadmin, secratesuperadmin. */
+export const canDeleteStudentRole = (req) => {
+  const role = normalizeRole(getRequestRole(req));
+  if (!role) return false;
+  const compact = role.replace(/\s+/g, "");
+  return (
+    compact === "ceo" ||
+    compact === "principle" ||
+    compact === "principal" ||
+    compact === "viceprinciple" ||
+    compact === "viceprincipal" ||
+    compact === "superadmin" ||
+    compact === "superadmindevelopment" ||
+    compact === "secrateadmin" ||
+    compact === "secratesuperadmin"
   );
 };
 
@@ -76,6 +113,24 @@ export const denyUnlessPlatformSuperAdmin = (req, res) => {
   if (isPlatformSuperAdminRole(req)) return false;
   res.status(403).json({
     message: "Only Super Admin can perform this action",
+  });
+  return true;
+};
+
+export const denyUnlessCanDeleteStudent = (req, res) => {
+  if (canDeleteStudentRole(req)) return false;
+  res.status(403).json({
+    message:
+      "Only Vice Principle, Principle, CEO, Super Admin, or Secrate Super Admin can delete students",
+  });
+  return true;
+};
+
+export const denyUnlessCanShiftStudentBatch = (req, res) => {
+  if (canDeleteStudentRole(req)) return false;
+  res.status(403).json({
+    message:
+      "Only Vice Principle, Principle, CEO, Super Admin, or Secrate Super Admin can shift student batch",
   });
   return true;
 };
