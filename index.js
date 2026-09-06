@@ -40,6 +40,7 @@ import admissionSlipVerificationRoutes from './routes/admissionSlipVerification.
 import whatsappRoutes from './routes/whatsapp.js';
 import { startInstallmentReminderScheduler } from './utils/feeInstallmentReminders.js';
 import { normalizeStoredAdmissionDates } from './utils/admissionDate.js';
+import { startWhatsAppQueueWorker } from './utils/whatsappQueue.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -93,6 +94,7 @@ mongoose.connect(CONNECTION_URL)
     .then(() => {
         app.listen(PORT, () => console.log(`Server Running on Port: http://localhost:${PORT}`));
         startInstallmentReminderScheduler();
+        startWhatsAppQueueWorker();
         normalizeStoredAdmissionDates()
             .then((updated) => {
                 if (updated > 0) {
