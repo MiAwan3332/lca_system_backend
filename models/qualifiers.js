@@ -24,6 +24,18 @@ const qualifierSchema = mongoose.Schema(
       default: "",
       trim: true,
     },
+    /** CSS / PMS roll number */
+    css_pms_roll_no: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    /** Online or On Campus */
+    class_type: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     city: {
       type: String,
       default: "",

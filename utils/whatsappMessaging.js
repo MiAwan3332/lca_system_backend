@@ -57,6 +57,8 @@ export const WHATSAPP_TEMPLATE_TAGS = [
   { tag: "{{description}}", label: "Description / remarks", sample: "Senior interviewer" },
   { tag: "{{status}}", label: "Active / Inactive", sample: "Active" },
   { tag: "{{cnic}}", label: "CNIC", sample: "35202-1234567-1" },
+  { tag: "{{css_pms_roll_no}}", label: "CSS/PMS Roll No", sample: "CSS-001" },
+  { tag: "{{class_type}}", label: "Online / On Campus", sample: "On Campus" },
   { tag: "{{roll_number}}", label: "Roll number", sample: "CSS-001" },
   { tag: "{{batch}}", label: "Batch name", sample: "CSS Morning 2026" },
   { tag: "{{class_time}}", label: "Class time", sample: "9:00 AM – 1:00 PM" },
@@ -156,6 +158,8 @@ Your details:
 • Name: {{name}}
 • Phone: {{phone}}
 • CNIC: {{cnic}}
+• CSS/PMS Roll No: {{css_pms_roll_no}}
+• Mode: {{class_type}}
 • Interview Batch: {{batch}}
 
 
@@ -409,6 +413,9 @@ export const buildQualifierTemplateVars = ({
     name: qualifier?.name || "",
     phone: qualifier?.phone || "",
     cnic: qualifier?.cnic || "",
+    css_pms_roll_no: qualifier?.css_pms_roll_no || "",
+    roll_number: qualifier?.css_pms_roll_no || "",
+    class_type: qualifier?.class_type || "",
     email: qualifier?.email || "",
     city: qualifier?.city || "",
     description: qualifier?.description || "",
@@ -675,17 +682,27 @@ export const sendWhatsAppText = async ({ phone, text, sessionId } = {}) => {
   }
 };
 
-/** Render + send the active template for a process. Never throws. */
+/** Render template and queue WhatsApp (10s gap). Set immediate=true to send now. */
 export const sendWhatsAppForProcess = async ({
   process,
   phone,
   vars = {},
+  recipient_name = "",
+  source = "auto",
+  batch = null,
+  batch_name = "",
+  recipient_type = "",
+  recipient_id = null,
+  campaign_id = "",
+  created_by = null,
+  immediate = false,
 } = {}) => {
   try {
     const processKey = String(process || "").trim();
     if (!processKey || processKey === "custom") {
       return {
         sent: false,
+        queued: false,
         skipped: true,
         reason: "Custom templates are not sent automatically",
       };
@@ -695,16 +712,51 @@ export const sendWhatsAppForProcess = async ({
     if (!template?.body) {
       return {
         sent: false,
+        queued: false,
         skipped: true,
         reason: `No active WhatsApp template for process "${processKey}"`,
       };
     }
 
     const text = renderWhatsAppTemplate(template.body, vars);
-    const outcome = await sendWhatsAppText({ phone, text });
+
+    if (immediate) {
+      const outcome = await sendWhatsAppText({ phone, text });
+      return {
+        ...outcome,
+        queued: false,
+        process: processKey,
+        template_key: template.key,
+        template_name: template.name,
+        preview: text.slice(0, 180),
+      };
+    }
+
+    // Default: add to WA Queue (one message every ~10 seconds)
+    const { enqueueWhatsAppMessage } = await import("./whatsappQueue.js");
+    const outcome = await enqueueWhatsAppMessage({
+      phone,
+      message: text,
+      recipient_name: recipient_name || vars?.name || "",
+      source: source || processKey,
+      process: processKey,
+      template_key: template.key,
+      template_name: template.name,
+      batch,
+      batch_name:
+        batch_name ||
+        (typeof batch === "object" && batch?.name ? batch.name : "") ||
+        vars?.batch ||
+        "",
+      recipient_type,
+      recipient_id,
+      campaign_id,
+      created_by,
+    });
 
     return {
       ...outcome,
+      sent: false,
       process: processKey,
       template_key: template.key,
       template_name: template.name,
@@ -714,8 +766,9 @@ export const sendWhatsAppForProcess = async ({
     console.error(`WhatsApp process "${process}" failed:`, error.message);
     return {
       sent: false,
+      queued: false,
       process,
-      error: error.message || "Failed to send WhatsApp message",
+      error: error.message || "Failed to queue WhatsApp message",
     };
   }
 };
@@ -725,6 +778,7 @@ export const sendStudentWelcomeWhatsApp = async ({
   batch,
   password,
   paymentMethod,
+  campaign_id = "",
 } = {}) => {
   const vars = buildStudentTemplateVars({
     student,
@@ -737,24 +791,48 @@ export const sendStudentWelcomeWhatsApp = async ({
     process: "student_admission",
     phone: student?.phone,
     vars,
+    recipient_name: student?.name || "",
+    source: "student_add",
+    batch: batch?._id || student?.batch || null,
+    batch_name: batch?.name || "",
+    recipient_type: "student",
+    recipient_id: student?._id || null,
+    campaign_id,
   });
 };
 
-export const sendUserWelcomeWhatsApp = async ({ user, password } = {}) => {
+export const sendUserWelcomeWhatsApp = async ({
+  user,
+  password,
+  campaign_id = "",
+} = {}) => {
   const vars = buildUserTemplateVars({ user, password });
   return sendWhatsAppForProcess({
     process: "user_welcome",
     phone: user?.phone,
     vars,
+    recipient_name: user?.name || "",
+    source: "user_add",
+    recipient_type: "user",
+    recipient_id: user?._id || null,
+    campaign_id,
   });
 };
 
-export const sendPanelistWelcomeWhatsApp = async ({ panelist } = {}) => {
+export const sendPanelistWelcomeWhatsApp = async ({
+  panelist,
+  campaign_id = "",
+} = {}) => {
   const vars = buildPanelistTemplateVars({ panelist });
   return sendWhatsAppForProcess({
     process: "panelist_welcome",
     phone: panelist?.phone,
     vars,
+    recipient_name: panelist?.name || "",
+    source: "panelist_add",
+    recipient_type: "panelist",
+    recipient_id: panelist?._id || null,
+    campaign_id,
   });
 };
 
@@ -764,6 +842,8 @@ export const sendQualifierWelcomeWhatsApp = async ({
   password,
   paymentMethod,
   amountReceived,
+  campaign_id = "",
+  source = "qualifier_add",
 } = {}) => {
   const vars = buildQualifierTemplateVars({
     qualifier,
@@ -772,10 +852,20 @@ export const sendQualifierWelcomeWhatsApp = async ({
     paymentMethod,
     amountReceived,
   });
+  const batchDoc =
+    batch ||
+    (typeof qualifier?.batch === "object" ? qualifier.batch : null);
   return sendWhatsAppForProcess({
     process: "qualifier_welcome",
     phone: qualifier?.phone,
     vars,
+    recipient_name: qualifier?.name || "",
+    source,
+    batch: batchDoc?._id || qualifier?.batch || null,
+    batch_name: batchDoc?.name || "",
+    recipient_type: "qualifier",
+    recipient_id: qualifier?._id || null,
+    campaign_id,
   });
 };
 
@@ -784,6 +874,7 @@ export const sendFeePaymentWhatsApp = async ({
   batch,
   paymentMethod,
   amountReceived,
+  campaign_id = "",
 } = {}) => {
   const vars = buildStudentTemplateVars({
     student,
@@ -795,6 +886,13 @@ export const sendFeePaymentWhatsApp = async ({
     process: "fee_payment",
     phone: student?.phone,
     vars,
+    recipient_name: student?.name || "",
+    source: "fee_payment",
+    batch: batch?._id || student?.batch || null,
+    batch_name: batch?.name || "",
+    recipient_type: "student",
+    recipient_id: student?._id || null,
+    campaign_id,
   });
 };
 

@@ -24,6 +24,13 @@ import {
   testWhatsAppTemplate,
   updateWhatsAppTemplate,
 } from "../controllers/whatsappTemplates.js";
+import {
+  cancelAllWhatsAppQueue,
+  cancelWhatsAppQueueMessage,
+  enqueueBulkWhatsApp,
+  getWhatsAppQueueStats,
+  listWhatsAppQueue,
+} from "../controllers/whatsappQueue.js";
 
 const router = express.Router();
 
@@ -46,6 +53,12 @@ router.post("/sessions/:id/logout", logoutWhatsAppSession);
 router.delete("/sessions/:id", deleteWhatsAppSession);
 router.get("/sessions/:id/qr", getWhatsAppSessionQr);
 router.post("/sessions/:id/pairing-code", requestWhatsAppPairingCode);
+
+router.get("/queue/stats", getWhatsAppQueueStats);
+router.get("/queue", listWhatsAppQueue);
+router.post("/queue/bulk", enqueueBulkWhatsApp);
+router.post("/queue/cancel-all", cancelAllWhatsAppQueue);
+router.post("/queue/:id/cancel", cancelWhatsAppQueueMessage);
 
 router.get("/templates/tags", listWhatsAppTemplateTags);
 router.get("/templates", listWhatsAppTemplates);

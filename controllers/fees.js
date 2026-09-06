@@ -1087,29 +1087,29 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
     let total_pending = 0;
     for (const row of pendingRows) {
         const amount = Number(row.pending) || 0;
-        total_pending += amount;
         const batchKey =
             row._id?.toString?.() || String(row._id || "unassigned");
-        const batchName = row.batchDoc?.name || "Unassigned";
 
-        if (!byBatch[batchKey]) {
-            byBatch[batchKey] = {
-                batch_id: row._id || null,
-                batch_name: batchName,
-                total_cash: 0,
-                total_online: 0,
-                total_pending: 0,
-                total: 0,
-            };
-        }
+        // Only attach pending to batches that already have collections in this period
+        if (!byBatch[batchKey]) continue;
+
+        total_pending += amount;
         byBatch[batchKey].total_pending = amount;
     }
 
-    const batch_wise = Object.values(byBatch).sort((a, b) =>
-        String(a.batch_name).localeCompare(String(b.batch_name), undefined, {
-            sensitivity: "base",
-        })
-    );
+    // Only batches with actual period collections (cash/online activity)
+    const batch_wise = Object.values(byBatch)
+        .filter(
+            (b) =>
+                Math.abs(Number(b.total_cash) || 0) > 0 ||
+                Math.abs(Number(b.total_online) || 0) > 0 ||
+                Math.abs(Number(b.total) || 0) > 0
+        )
+        .sort((a, b) =>
+            String(a.batch_name).localeCompare(String(b.batch_name), undefined, {
+                sensitivity: "base",
+            })
+        );
 
     return {
         total_cash,

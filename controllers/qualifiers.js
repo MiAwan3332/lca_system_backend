@@ -9,7 +9,12 @@ import {
   uploadFile,
 } from "../utils/fileStorage.js";
 import { denyUnlessInstitutionAdmin } from "../utils/lmsAccess.js";
-import { sendQualifierWelcomeWhatsApp } from "../utils/whatsappMessaging.js";
+import {
+  sendQualifierWelcomeWhatsApp,
+} from "../utils/whatsappMessaging.js";
+import {
+  createCampaignId,
+} from "../utils/whatsappQueue.js";
 import {
   isQualifierRole,
   resolveQualifierId,
@@ -25,6 +30,29 @@ const DEFAULT_QUALIFIER_PASSWORD = "lca@123456";
 const QUALIFIER_ROLE = "qualifier";
 
 const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
+
+const ALLOWED_CLASS_TYPES = new Set(["Online", "On Campus"]);
+
+const normalizeClassType = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const lower = raw.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  if (lower === "online") return "Online";
+  if (lower === "on campus" || lower === "oncampus" || lower === "campus") {
+    return "On Campus";
+  }
+  if (ALLOWED_CLASS_TYPES.has(raw)) return raw;
+  return null;
+};
+
+/** Excel often drops leading 0 (03088811771 → 3088811771). */
+const normalizeLocalPhone = (value) => {
+  let digits = digitsOnly(value);
+  if (digits.length === 10 && digits.startsWith("3")) {
+    digits = `0${digits}`;
+  }
+  return digits;
+};
 
 /** Internal login email for qualifiers (phone-based). */
 const buildQualifierAccountEmail = (phone) => {
@@ -153,7 +181,7 @@ const resolveInterviewBatch = async (batchId) => {
   }
 
   const batch = await Batch.findById(id).select(
-    "name is_active is_interview_batch batch_fee"
+    "name is_active is_interview_batch batch_fee is_paid_batch"
   );
   if (!batch) {
     return { error: "Selected batch not found" };
@@ -194,6 +222,8 @@ export const addQualifier = async (req, res) => {
     phone,
     email,
     cnic,
+    css_pms_roll_no,
+    class_type,
     city,
     province,
     father_name,
@@ -218,6 +248,13 @@ export const addQualifier = async (req, res) => {
     }
     if (!trimmedPhone) {
       return res.status(400).json({ message: "Phone number is required" });
+    }
+
+    const normalizedClassType = normalizeClassType(class_type);
+    if (normalizedClassType === null) {
+      return res.status(400).json({
+        message: "Class type must be Online or On Campus",
+      });
     }
 
     const batchResult = await resolveInterviewBatch(batch);
@@ -267,6 +304,8 @@ export const addQualifier = async (req, res) => {
       phone: trimmedPhone,
       email: loginEmail,
       cnic: trimOrEmpty(cnic),
+      css_pms_roll_no: trimOrEmpty(css_pms_roll_no),
+      class_type: normalizedClassType,
       city: trimOrEmpty(city),
       province: trimOrEmpty(province),
       father_name: trimOrEmpty(father_name),
@@ -307,7 +346,7 @@ export const addQualifier = async (req, res) => {
       "name is_interview_batch is_active batch_fee is_paid_batch"
     );
 
-    let whatsappWelcome = { sent: false, skipped: true };
+    let whatsappWelcome = { sent: false, queued: false, skipped: true };
     try {
       whatsappWelcome = await sendQualifierWelcomeWhatsApp({
         qualifier: populated,
@@ -315,15 +354,17 @@ export const addQualifier = async (req, res) => {
         password: DEFAULT_QUALIFIER_PASSWORD,
         paymentMethod,
         amountReceived: paidFee,
+        source: "qualifier_add",
       });
     } catch (whatsappError) {
       console.error(
-        "WhatsApp welcome failed after qualifier add:",
+        "WhatsApp welcome queue failed after qualifier add:",
         whatsappError
       );
       whatsappWelcome = {
         sent: false,
-        error: whatsappError?.message || "WhatsApp send failed",
+        queued: false,
+        error: whatsappError?.message || "WhatsApp queue failed",
       };
     }
 
@@ -337,8 +378,228 @@ export const addQualifier = async (req, res) => {
   }
 };
 
+const phoneAlreadyUsed = async (phone) => {
+  const digits = digitsOnly(phone);
+  if (!digits) return "Phone number is required";
+
+  const last10 = digits.slice(-10);
+  const existingQualifier = await Qualifier.findOne({
+    $or: [
+      { phone: phone },
+      { phone: { $regex: `${last10}$` } },
+    ],
+  }).select("_id phone");
+  if (existingQualifier) {
+    return "A qualifier with this phone number already exists";
+  }
+
+  const loginEmail = buildQualifierAccountEmail(phone);
+  const existingUser = await User.findOne({ email: loginEmail });
+  if (existingUser) {
+    return "A login account already exists for this phone";
+  }
+
+  return null;
+};
+
+const importQualifierFromRow = async ({ row, batchRecord, campaignId }) => {
+  const trimmedName = trimOrEmpty(row?.name);
+  const trimmedPhone = normalizeLocalPhone(row?.phone);
+
+  if (!trimmedName) {
+    throw new Error("Name is required");
+  }
+  if (!trimmedPhone || digitsOnly(trimmedPhone).length < 10) {
+    throw new Error("Valid phone number is required");
+  }
+
+  const phoneConflict = await phoneAlreadyUsed(trimmedPhone);
+  if (phoneConflict) {
+    throw new Error(phoneConflict);
+  }
+
+  const unpaidBatch = batchRecord.is_paid_batch === false;
+  const batchFee = parseMoney(batchRecord.batch_fee);
+  const totalFee = unpaidBatch ? 0 : batchFee;
+  const paidFee = 0;
+  const pendingFee = unpaidBatch ? 0 : totalFee;
+  const paymentMethod = unpaidBatch
+    ? ""
+    : totalFee > 0
+      ? "Pay Later"
+      : "";
+
+  const loginEmail =
+    trimOrEmpty(row?.email).toLowerCase() ||
+    buildQualifierAccountEmail(trimmedPhone);
+
+  const emailTaken = await User.findOne({ email: loginEmail });
+  if (emailTaken) {
+    throw new Error("A login account already exists for this phone/email");
+  }
+
+  const hashedPassword = await bcrypt.hash(DEFAULT_QUALIFIER_PASSWORD, 12);
+
+  const normalizedClassType = normalizeClassType(row?.class_type);
+  if (normalizedClassType === null) {
+    throw new Error("Class type must be Online or On Campus");
+  }
+
+  const qualifier = await new Qualifier({
+    name: trimmedName,
+    phone: trimmedPhone,
+    email: loginEmail,
+    cnic: trimOrEmpty(row?.cnic),
+    css_pms_roll_no: trimOrEmpty(row?.css_pms_roll_no),
+    class_type: normalizedClassType,
+    city: trimOrEmpty(row?.city),
+    province: trimOrEmpty(row?.province),
+    father_name: trimOrEmpty(row?.father_name),
+    father_phone: normalizeLocalPhone(row?.father_phone) || trimOrEmpty(row?.father_phone),
+    description: trimOrEmpty(row?.description || row?.remarks),
+    batch: batchRecord._id,
+    total_fee: totalFee,
+    discount_amount: 0,
+    discount_description: "",
+    paid_fee: paidFee,
+    pending_fee: pendingFee,
+    payment_method: paymentMethod,
+    is_active: true,
+    photo: "",
+  }).save();
+
+  await new User({
+    name: trimmedName,
+    email: loginEmail,
+    phone: trimmedPhone,
+    password: hashedPassword,
+    role: QUALIFIER_ROLE,
+  }).save();
+
+  const populated = await Qualifier.findById(qualifier._id).populate(
+    "batch",
+    "name is_interview_batch is_active batch_fee is_paid_batch"
+  );
+
+  let whatsappWelcome = { queued: false, skipped: true };
+  try {
+    whatsappWelcome = await sendQualifierWelcomeWhatsApp({
+      qualifier: populated,
+      batch: populated?.batch || batchRecord,
+      password: DEFAULT_QUALIFIER_PASSWORD,
+      paymentMethod,
+      amountReceived: paidFee,
+      campaign_id: campaignId || "",
+      source: "qualifier_import",
+    });
+  } catch (whatsappError) {
+    console.error(
+      "WhatsApp welcome queue failed after qualifier import:",
+      whatsappError
+    );
+    whatsappWelcome = {
+      queued: false,
+      error: whatsappError?.message || "WhatsApp queue failed",
+    };
+  }
+
+  return { qualifier: populated, whatsappWelcome };
+};
+
+export const bulkImportQualifiers = async (req, res) => {
+  if (denyUnlessInstitutionAdmin(req, res)) return;
+
+  const { batch_id: batchId, qualifiers } = req.body || {};
+
+  if (!batchId) {
+    return res.status(400).json({ message: "Interview batch is required" });
+  }
+  if (!Array.isArray(qualifiers) || qualifiers.length === 0) {
+    return res
+      .status(400)
+      .json({ message: "No qualifiers provided for import" });
+  }
+  if (qualifiers.length > 500) {
+    return res
+      .status(400)
+      .json({ message: "Maximum 500 qualifiers can be imported at once" });
+  }
+
+  try {
+    const batchResult = await resolveInterviewBatch(batchId);
+    if (batchResult.error) {
+      return res.status(400).json({ message: batchResult.error });
+    }
+
+    const campaignId = createCampaignId();
+    const results = {
+      imported: 0,
+      failed: [],
+      imported_qualifiers: [],
+      whatsapp_queued: 0,
+      whatsapp_failed: 0,
+      whatsapp_campaign_id: campaignId,
+    };
+
+    const seenPhones = new Set();
+
+    for (let index = 0; index < qualifiers.length; index += 1) {
+      const row = qualifiers[index];
+      const rowNumber = row.excelRow || index + 2;
+
+      try {
+        const phoneKey = digitsOnly(row?.phone);
+        if (!phoneKey) {
+          throw new Error("Phone number is required");
+        }
+        if (seenPhones.has(phoneKey) || seenPhones.has(phoneKey.slice(-10))) {
+          throw new Error("Duplicate phone number in import file");
+        }
+        seenPhones.add(phoneKey);
+        seenPhones.add(phoneKey.slice(-10));
+
+        const { qualifier, whatsappWelcome } = await importQualifierFromRow({
+          row: { ...row, excelRow: rowNumber },
+          batchRecord: batchResult.batch,
+          campaignId,
+        });
+
+        results.imported += 1;
+        if (whatsappWelcome?.queued) {
+          results.whatsapp_queued += 1;
+        } else if (!whatsappWelcome?.skipped) {
+          results.whatsapp_failed += 1;
+        }
+
+        results.imported_qualifiers.push({
+          row: rowNumber,
+          name: qualifier?.name || "",
+          phone: qualifier?.phone || "",
+          whatsapp_queued: Boolean(whatsappWelcome?.queued),
+        });
+      } catch (error) {
+        results.failed.push({
+          row: rowNumber,
+          phone: row?.phone || "",
+          name: row?.name || "",
+          message: error.message,
+        });
+      }
+    }
+
+    res.status(200).json({
+      message: `Imported ${results.imported} of ${qualifiers.length} qualifiers`,
+      batch_id: batchId,
+      batch_name: batchResult.batch.name,
+      ...results,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 export const getQualifiers = async (req, res) => {
-  const { query, search_field, is_active, city, batch } = req.query;
+  const { query, search_field, is_active, city, batch, class_type } = req.query;
   try {
     const searchQuery = query ? String(query).trim() : "";
     const field = search_field || "all";
@@ -360,6 +621,8 @@ export const getQualifiers = async (req, res) => {
           filter.email = { $regex: searchQuery, $options: "i" };
         } else if (field === "cnic") {
           filter.cnic = { $regex: searchQuery, $options: "i" };
+        } else if (field === "css_pms_roll_no") {
+          filter.css_pms_roll_no = { $regex: searchQuery, $options: "i" };
         } else if (field === "city") {
           filter.city = { $regex: searchQuery, $options: "i" };
         } else {
@@ -368,6 +631,8 @@ export const getQualifiers = async (req, res) => {
             { phone: { $regex: searchQuery, $options: "i" } },
             { email: { $regex: searchQuery, $options: "i" } },
             { cnic: { $regex: searchQuery, $options: "i" } },
+            { css_pms_roll_no: { $regex: searchQuery, $options: "i" } },
+            { class_type: { $regex: searchQuery, $options: "i" } },
             { city: { $regex: searchQuery, $options: "i" } },
             { father_name: { $regex: searchQuery, $options: "i" } },
             { description: { $regex: searchQuery, $options: "i" } },
@@ -377,6 +642,11 @@ export const getQualifiers = async (req, res) => {
 
       if (city && String(city).trim()) {
         filter.city = { $regex: String(city).trim(), $options: "i" };
+      }
+
+      const normalizedClassFilter = normalizeClassType(class_type);
+      if (normalizedClassFilter) {
+        filter.class_type = normalizedClassFilter;
       }
 
       if (batch && String(batch).trim()) {
@@ -432,6 +702,8 @@ export const updateQualifier = async (req, res) => {
     phone,
     email,
     cnic,
+    css_pms_roll_no,
+    class_type,
     city,
     province,
     father_name,
@@ -490,6 +762,18 @@ export const updateQualifier = async (req, res) => {
         return res.status(400).json({ message: "CNIC is required" });
       }
       qualifier.cnic = trimmedCnic;
+    }
+    if (css_pms_roll_no !== undefined) {
+      qualifier.css_pms_roll_no = trimOrEmpty(css_pms_roll_no);
+    }
+    if (class_type !== undefined) {
+      const normalizedClassType = normalizeClassType(class_type);
+      if (normalizedClassType === null) {
+        return res.status(400).json({
+          message: "Class type must be Online or On Campus",
+        });
+      }
+      qualifier.class_type = normalizedClassType;
     }
     if (city !== undefined) {
       const trimmedCity = trimOrEmpty(city);
