@@ -16,6 +16,8 @@ import {
   canAccessBatch,
   isFullAccessRole,
   denyUnlessPlatformSuperAdmin,
+  denyUnlessCanDeleteStudent,
+  denyUnlessCanShiftStudentBatch,
 } from "../utils/lmsAccess.js";
 import { addEmailToQueue } from "../utils/emailQueue.js";
 import dotenv, { populate } from "dotenv";
@@ -1270,7 +1272,7 @@ export const getStudent = async (req, res) => {
 export const deleteStudent = async (req, res) => {
   const { id } = req.params;
   try {
-    if (denyUnlessPlatformSuperAdmin(req, res)) return;
+    if (denyUnlessCanDeleteStudent(req, res)) return;
 
     const summary = await deleteStudentCascade(id);
     res.status(200).json({
@@ -1627,9 +1629,7 @@ export const transferStudentBatch = async (req, res) => {
   const { id } = req.params;
   const { batch } = req.body;
 
-  if (isStudentRole(req)) {
-    return res.status(403).json({ message: "Access denied" });
-  }
+  if (denyUnlessCanShiftStudentBatch(req, res)) return;
 
   if (!batch) {
     return res.status(400).json({ message: "Destination batch is required" });
