@@ -25,6 +25,7 @@ import {
   isEducationBackgroundComplete,
 } from "../utils/qualifierEducation.js";
 import { isPakistanProvince } from "../utils/pakistanProvinces.js";
+import { isQualifierProfileComplete } from "../utils/qualifierProfile.js";
 
 const DEFAULT_QUALIFIER_PASSWORD = "lca@123456";
 const QUALIFIER_ROLE = "qualifier";
@@ -32,6 +33,38 @@ const QUALIFIER_ROLE = "qualifier";
 const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
 
 const ALLOWED_CLASS_TYPES = new Set(["Online", "On Campus"]);
+
+/** Mongo filter approximating a fully updated qualifier profile. */
+const buildProfileUpdatedMongoFilter = () => ({
+  $and: [
+    { name: { $type: "string", $ne: "" } },
+    { phone: { $type: "string", $ne: "" } },
+    { cnic: { $type: "string", $ne: "" } },
+    { city: { $type: "string", $ne: "" } },
+    { province: { $type: "string", $ne: "" } },
+    { father_name: { $type: "string", $ne: "" } },
+    { father_phone: { $type: "string", $ne: "" } },
+    { description: { $type: "string", $ne: "" } },
+    { latest_degree: { $type: "string", $ne: "" } },
+    { photo: { $type: "string", $ne: "" } },
+    { no_of_attempts: { $exists: true, $ne: null } },
+    {
+      optional_subjects: {
+        $exists: true,
+        $type: "array",
+        $not: { $size: 0 },
+      },
+    },
+    {
+      education_background: {
+        $elemMatch: {
+          qualification: { $type: "string", $ne: "" },
+          institution: { $type: "string", $ne: "" },
+        },
+      },
+    },
+  ],
+});
 
 const normalizeClassType = (value) => {
   const raw = String(value || "").trim();
@@ -599,7 +632,15 @@ export const bulkImportQualifiers = async (req, res) => {
 };
 
 export const getQualifiers = async (req, res) => {
-  const { query, search_field, is_active, city, batch, class_type } = req.query;
+  const {
+    query,
+    search_field,
+    is_active,
+    city,
+    batch,
+    class_type,
+    profile_updated,
+  } = req.query;
   try {
     const searchQuery = query ? String(query).trim() : "";
     const field = search_field || "all";
@@ -658,6 +699,13 @@ export const getQualifiers = async (req, res) => {
       } else if (is_active === "false" || is_active === false) {
         filter.is_active = false;
       }
+
+      const profileFlag = String(profile_updated || "").trim().toLowerCase();
+      if (profileFlag === "true" || profileFlag === "updated") {
+        Object.assign(filter, buildProfileUpdatedMongoFilter());
+      } else if (profileFlag === "false" || profileFlag === "not_updated") {
+        filter.$nor = [buildProfileUpdatedMongoFilter()];
+      }
     }
 
     const qualifiers = await Qualifier.paginate(filter, {
@@ -666,7 +714,19 @@ export const getQualifiers = async (req, res) => {
       sort: { createdAt: -1 },
       populate: { path: "batch", select: "name is_interview_batch is_active" },
     });
-    res.status(200).json(qualifiers);
+
+    const docs = (qualifiers.docs || []).map((doc) => {
+      const plain = doc.toObject ? doc.toObject({ virtuals: true }) : doc;
+      return {
+        ...plain,
+        profile_updated: isQualifierProfileComplete(plain),
+      };
+    });
+
+    res.status(200).json({
+      ...qualifiers,
+      docs,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -973,6 +1033,36 @@ export const changeQualifierPassword = async (req, res) => {
     res.status(200).json({
       message: "Qualifier password updated successfully",
     });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const toggleQualifierStatus = async (req, res) => {
+  if (denyUnlessInstitutionAdmin(req, res)) return;
+
+  const { id } = req.params;
+  const { is_active } = req.body || {};
+
+  try {
+    const qualifier = await Qualifier.findById(id);
+    if (!qualifier) {
+      return res.status(404).json({ message: "Qualifier not found" });
+    }
+
+    qualifier.is_active =
+      is_active !== undefined
+        ? parseIsActive(is_active, qualifier.is_active !== false)
+        : qualifier.is_active === false;
+
+    await qualifier.save();
+
+    const populated = await Qualifier.findById(qualifier._id).populate(
+      "batch",
+      "name is_interview_batch is_active batch_fee is_paid_batch"
+    );
+
+    res.status(200).json(populated);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
