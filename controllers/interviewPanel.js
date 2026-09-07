@@ -87,6 +87,26 @@ const isSlotBooked = (slot) =>
 
 const idsMatch = (a, b) => Boolean(a && b && String(a) === String(b));
 
+/** Normalize schedule date strings to YYYY-MM-DD for same-day comparisons. */
+const normalizeScheduleDateKey = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+
+  const dmy = raw.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+  if (dmy) {
+    const day = dmy[1].padStart(2, "0");
+    const month = dmy[2].padStart(2, "0");
+    return `${dmy[3]}-${month}-${day}`;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+  return raw.toLowerCase();
+};
+
 const isOwnQualifierBooking = (slot, qualifier) => {
   if (!qualifier || !isSlotBooked(slot)) return false;
   const slotQualifierId =
@@ -96,6 +116,101 @@ const isOwnQualifierBooking = (slot, qualifier) => {
   const slotName = String(slot.booked_for || "").trim().toLowerCase();
   const qualifierName = String(qualifier.name || "").trim().toLowerCase();
   return Boolean(slotName && qualifierName && slotName === qualifierName);
+};
+
+/**
+ * Returns an existing booked slot for this qualifier on the same calendar day,
+ * or null if none. Optionally skip one panel (e.g. the panel being updated).
+ */
+const findQualifierSameDayBooking = async ({
+  qualifier,
+  date,
+  excludePanelId = null,
+} = {}) => {
+  if (!qualifier) return null;
+  const targetDateKey = normalizeScheduleDateKey(date);
+  if (!targetDateKey) return null;
+
+  const panels = await InterviewPanel.find({
+    schedules: {
+      $elemMatch: {
+        booking_status: "booked",
+      },
+    },
+  }).select("schedules title");
+
+  for (const panel of panels) {
+    if (excludePanelId && idsMatch(panel._id, excludePanelId)) continue;
+    const list = panel.schedules || [];
+    for (let i = 0; i < list.length; i += 1) {
+      const slot = list[i];
+      if (!isOwnQualifierBooking(slot, qualifier)) continue;
+      if (normalizeScheduleDateKey(slot.date) !== targetDateKey) continue;
+      return {
+        panel,
+        slot,
+        scheduleIndex: i,
+        dateKey: targetDateKey,
+      };
+    }
+  }
+  return null;
+};
+
+const sameDayBookingMessage = (dateKey, { forSelf = false } = {}) => {
+  const dateLabel = dateKey || "this day";
+  if (forSelf) {
+    return `You can only book one interview per day. You already have an interview on ${dateLabel}.`;
+  }
+  return `This qualifier can only book one interview per day. They already have an interview on ${dateLabel}.`;
+};
+
+/** Ensure booked slots in a schedules payload don't double-book a qualifier on one day. */
+const assertNoQualifierSameDayDoubleBooking = async ({
+  schedules,
+  excludePanelId = null,
+} = {}) => {
+  const list = Array.isArray(schedules) ? schedules : [];
+  const seen = new Map();
+
+  for (let i = 0; i < list.length; i += 1) {
+    const slot = list[i];
+    if (!isSlotBooked(slot)) continue;
+
+    const qualifier = await resolveQualifierByBooking({
+      booked_qualifier_id: slot.booked_qualifier_id,
+      booked_phone: slot.booked_phone,
+      booked_for: slot.booked_for,
+      booked_user_id: slot.booked_user_id,
+    });
+    if (!qualifier?._id) continue;
+
+    const dateKey = normalizeScheduleDateKey(slot.date);
+    if (!dateKey) continue;
+
+    const localKey = `${String(qualifier._id)}|${dateKey}`;
+    if (seen.has(localKey)) {
+      return {
+        error: sameDayBookingMessage(dateKey, { forSelf: false }),
+      };
+    }
+    seen.set(localKey, i);
+
+    const existing = await findQualifierSameDayBooking({
+      qualifier,
+      date: slot.date,
+      excludePanelId,
+    });
+    if (existing) {
+      return {
+        error: sameDayBookingMessage(existing.dateKey || dateKey, {
+          forSelf: false,
+        }),
+      };
+    }
+  }
+
+  return { error: null };
 };
 
 /** Qualifiers see available slots plus their own booked / in-progress / completed ones. */
@@ -468,6 +583,14 @@ export const updateInterviewPanel = async (req, res) => {
 
       updatePayload.schedules = nextSchedules;
       Object.assign(updatePayload, syncPrimaryFromSchedules(nextSchedules));
+
+      const sameDayCheck = await assertNoQualifierSameDayDoubleBooking({
+        schedules: nextSchedules,
+        excludePanelId: existing._id,
+      });
+      if (sameDayCheck.error) {
+        return res.status(400).json({ message: sameDayCheck.error });
+      }
     } else if (
       req.body.start_time !== undefined ||
       req.body.end_time !== undefined ||
@@ -573,22 +696,16 @@ export const bookInterviewSlot = async (req, res) => {
       bookedPhone = String(qualifier.phone || "").trim();
       bookedQualifierId = qualifier._id;
 
-      // One active booking per qualifier
-      const panelsWithBooking = await InterviewPanel.find({
-        schedules: {
-          $elemMatch: {
-            booking_status: "booked",
-          },
-        },
-      }).select("schedules title");
-
-      const hasExisting = panelsWithBooking.some((p) =>
-        (p.schedules || []).some((s) => isOwnQualifierBooking(s, qualifier))
-      );
-
-      if (hasExisting) {
+      // One interview booking per qualifier per calendar day
+      const existingSameDay = await findQualifierSameDayBooking({
+        qualifier,
+        date: slot.date,
+      });
+      if (existingSameDay) {
         return res.status(400).json({
-          message: "You already have an interview booked",
+          message: sameDayBookingMessage(existingSameDay.dateKey, {
+            forSelf: true,
+          }),
         });
       }
     } else {
@@ -607,6 +724,17 @@ export const bookInterviewSlot = async (req, res) => {
       });
       if (resolvedQualifier?._id) {
         bookedQualifierId = resolvedQualifier._id;
+        const existingSameDay = await findQualifierSameDayBooking({
+          qualifier: resolvedQualifier,
+          date: slot.date,
+        });
+        if (existingSameDay) {
+          return res.status(400).json({
+            message: sameDayBookingMessage(existingSameDay.dateKey, {
+              forSelf: false,
+            }),
+          });
+        }
       }
     }
 
