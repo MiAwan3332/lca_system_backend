@@ -47,6 +47,12 @@ const notificationSchema = mongoose.Schema(
   { timestamps: true }
 );
 
+// Recipient feeds and reminder de-duplication are the dominant notification queries.
+notificationSchema.index({ recipient_user: 1, is_read: 1, createdAt: -1 });
+notificationSchema.index({ recipient_student: 1, is_read: 1, createdAt: -1 });
+notificationSchema.index({ recipient_user: 1, type: 1, entity_id: 1, createdAt: -1 });
+notificationSchema.index({ recipient_student: 1, type: 1, entity_id: 1, createdAt: -1 });
+
 notificationSchema.plugin(mongoosePaginate);
 
 const Notification = mongoose.model("Notification", notificationSchema);
