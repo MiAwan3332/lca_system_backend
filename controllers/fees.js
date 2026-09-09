@@ -592,12 +592,16 @@ export const collectPendingFee = async (req, res) => {
             });
         }
 
-        let paymentAmount =
-            option === "full" ? payableAfterDiscount : Number(amount);
+        const parsedAmount = Math.round(
+            Number(String(Array.isArray(amount) ? amount[0] : amount || "")
+                .replace(/,/g, "")
+                .trim())
+        );
 
-        if (option === "full") {
-            paymentAmount = payableAfterDiscount;
-        }
+        let paymentAmount =
+            option === "full"
+                ? payableAfterDiscount
+                : parsedAmount;
 
         if (!Number.isFinite(paymentAmount) || paymentAmount < 0) {
             return res.status(400).json({ message: "Payment amount must be greater than or equal to 0" });
