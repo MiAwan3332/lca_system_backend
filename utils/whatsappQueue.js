@@ -35,6 +35,7 @@ export const enqueueWhatsAppMessage = async ({
   recipient_id = null,
   campaign_id = "",
   created_by = null,
+  created_by_name = "",
 } = {}) => {
   const trimmedPhone = String(phone || "").trim();
   const trimmedMessage = String(message || "").trim();
@@ -64,6 +65,7 @@ export const enqueueWhatsAppMessage = async ({
     recipient_id: recipient_id || null,
     campaign_id: String(campaign_id || "").trim(),
     created_by: created_by || null,
+    created_by_name: String(created_by_name || "").trim(),
   });
 
   kickWhatsAppQueueWorker();
@@ -89,6 +91,7 @@ export const enqueueWhatsAppForProcess = async ({
   recipient_id = null,
   campaign_id = "",
   created_by = null,
+  created_by_name = "",
 } = {}) => {
   try {
     const processKey = String(process || "").trim();
@@ -125,6 +128,7 @@ export const enqueueWhatsAppForProcess = async ({
       recipient_id,
       campaign_id,
       created_by,
+      created_by_name,
     });
 
     return {

@@ -9,7 +9,7 @@ import {
   uploadFile,
 } from "../utils/fileStorage.js";
 import { denyUnlessInstitutionAdmin } from "../utils/lmsAccess.js";
-import { sendPanelistWelcomeWhatsApp } from "../utils/whatsappMessaging.js";
+import { sendPanelistWelcomeWhatsApp, resolveWhatsAppSenderFromReq } from "../utils/whatsappMessaging.js";
 
 const DEFAULT_PANELIST_PASSWORD = "lca@123456";
 const PANELIST_ROLE = "panelist";
@@ -162,7 +162,10 @@ export const addPanelist = async (req, res) => {
 
     let whatsappWelcome = { sent: false, skipped: true };
     try {
-      whatsappWelcome = await sendPanelistWelcomeWhatsApp({ panelist });
+      whatsappWelcome = await sendPanelistWelcomeWhatsApp({
+        panelist,
+        ...(await resolveWhatsAppSenderFromReq(req)),
+      });
     } catch (whatsappError) {
       console.error(
         "WhatsApp welcome failed after panelist add:",

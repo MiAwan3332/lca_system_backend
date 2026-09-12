@@ -23,12 +23,14 @@ import {
   uploadPaymentEvidenceFiles,
 } from "../utils/paymentEvidence.js";
 import { logActivity } from "../utils/activityLogger.js";
-import { sendFeePaymentWhatsApp } from "../utils/whatsappMessaging.js";
+import { sendFeePaymentWhatsApp, resolveWhatsAppSenderFromReq } from "../utils/whatsappMessaging.js";
 
 const notifyFeePaymentWhatsApp = async ({
   studentId,
   amountReceived,
   paymentMethod,
+  created_by = null,
+  created_by_name = "",
 }) => {
   try {
     if (!studentId || !(Number(amountReceived) > 0)) return null;
@@ -39,6 +41,8 @@ const notifyFeePaymentWhatsApp = async ({
       batch: student.batch,
       paymentMethod: paymentMethod || "Cash",
       amountReceived,
+      created_by,
+      created_by_name,
     });
   } catch (error) {
     console.error("Fee payment WhatsApp notify failed:", error.message);
@@ -528,6 +532,7 @@ export const payFee = async (req, res) => {
             studentId: student_id || fee.student,
             amountReceived: paymentAmount,
             paymentMethod: payment_method,
+            ...(await resolveWhatsAppSenderFromReq(req)),
         });
 
         const payload =
@@ -711,6 +716,7 @@ export const collectPendingFee = async (req, res) => {
             studentId,
             amountReceived: result.amount_paid || paymentAmount,
             paymentMethod: result.payment_method || payment_method,
+            ...(await resolveWhatsAppSenderFromReq(req)),
         });
 
         res.status(200).json({
@@ -1148,12 +1154,33 @@ const getBreakdownBuckets = (period, start, end) => {
         return buckets;
     }
 
+    if (period === "yearly_range") {
+        const cursor = start.clone().startOf("month");
+        const lastMonth = end.clone().startOf("month");
+        while (cursor.isSameOrBefore(lastMonth, "month")) {
+            const monthStart = cursor.clone().startOf("month");
+            const monthEnd = cursor.clone().endOf("month");
+            buckets.push({
+                label: monthStart.format("MMM YYYY"),
+                start: moment.max(monthStart, start.clone().startOf("day")),
+                end: moment.min(monthEnd, end.clone().endOf("day")),
+            });
+            cursor.add(1, "month");
+        }
+        return buckets;
+    }
+
     const cursor = start.clone().startOf("day");
     const lastDay = end.clone().endOf("day");
 
     while (cursor.isSameOrBefore(lastDay, "day")) {
         buckets.push({
-            label: period === "weekly" ? cursor.format("ddd") : cursor.format("D"),
+            label:
+                period === "custom"
+                    ? cursor.format("MMM D")
+                    : period === "weekly"
+                      ? cursor.format("ddd")
+                      : cursor.format("D"),
             start: cursor.clone().startOf("day"),
             end: cursor.clone().endOf("day"),
         });
@@ -1236,8 +1263,48 @@ export const getFinanceReport = async (req, res) => {
             return res.status(403).json({ message: "Access denied" });
         }
 
-        const { period = "daily", date, batch_id, changed_by } = req.query;
-        const { start, end } = getPeriodRange(period, date);
+        const {
+            period = "daily",
+            date,
+            start_date,
+            end_date,
+            batch_id,
+            changed_by,
+        } = req.query;
+
+        let start;
+        let end;
+        let effectivePeriod = period || "daily";
+
+        const hasCustomRange = Boolean(
+            String(start_date || "").trim() || String(end_date || "").trim()
+        );
+
+        if (hasCustomRange) {
+            const fromRaw = String(start_date || end_date).trim();
+            const toRaw = String(end_date || start_date).trim();
+            start = moment(fromRaw).tz("Asia/Karachi").startOf("day");
+            end = moment(toRaw).tz("Asia/Karachi").endOf("day");
+            if (!start.isValid() || !end.isValid()) {
+                return res.status(400).json({
+                    message: "Invalid from/to date. Use YYYY-MM-DD.",
+                });
+            }
+            if (start.isAfter(end)) {
+                const swappedStart = end.clone().startOf("day");
+                const swappedEnd = start.clone().endOf("day");
+                start = swappedStart;
+                end = swappedEnd;
+            }
+            if (!start.isSame(end, "day")) {
+                const daySpan = end.clone().startOf("day").diff(start.clone().startOf("day"), "days") + 1;
+                effectivePeriod = daySpan > 62 ? "yearly_range" : "custom";
+            } else {
+                effectivePeriod = "daily";
+            }
+        } else {
+            ({ start, end } = getPeriodRange(period, date));
+        }
 
         const parseIdList = (value) => {
             if (value == null || value === "") return [];
@@ -1309,11 +1376,15 @@ export const getFinanceReport = async (req, res) => {
             total_fee_defaulters = await Fee.countDocuments(defaulterFilter);
         }
 
-        const buckets = getBreakdownBuckets(period, start, end);
+        const buckets = getBreakdownBuckets(effectivePeriod, start, end);
         const feeBreakdown = await Promise.all(
             buckets.map((bucket) => getBucketTotals(bucket, feeIds, changedByIds))
         );
-        const expenseBreakdown = await getApprovedExpensesBreakdown(period, start, end);
+        const expenseBreakdown = await getApprovedExpensesBreakdown(
+            effectivePeriod,
+            start,
+            end
+        );
 
         const breakdown = feeBreakdown.map((item, index) => ({
             ...item,
@@ -1600,7 +1671,7 @@ export const getFinanceReport = async (req, res) => {
             .slice(0, 150);
 
         res.status(200).json({
-            period,
+            period: hasCustomRange ? effectivePeriod : period,
             start_date: start.format("YYYY-MM-DD"),
             end_date: end.format("YYYY-MM-DD"),
             summary: {

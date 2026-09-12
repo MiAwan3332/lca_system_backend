@@ -1,10 +1,34 @@
 import moment from "moment";
 import WhatsAppTemplate from "../models/whatsappTemplate.js";
+import User from "../models/users.js";
 import {
   getOpenWaConfig,
   isOpenWaConfigured,
   openWaRequest,
 } from "./openwaClient.js";
+
+/** Resolve the logged-in user who triggered a WhatsApp send. */
+export const resolveWhatsAppSenderFromReq = async (req) => {
+  const created_by = req?.user?.user?.id || req?.user?.user?._id || null;
+  if (!created_by) {
+    return { created_by: null, created_by_name: "" };
+  }
+
+  const tokenName = String(req?.user?.user?.name || "").trim();
+  if (tokenName) {
+    return { created_by, created_by_name: tokenName };
+  }
+
+  try {
+    const user = await User.findById(created_by).select("name email").lean();
+    return {
+      created_by,
+      created_by_name: String(user?.name || user?.email || "").trim(),
+    };
+  } catch {
+    return { created_by, created_by_name: "" };
+  }
+};
 
 /** System processes that can auto-send a WhatsApp template. */
 export const WHATSAPP_PROCESSES = [
@@ -695,6 +719,7 @@ export const sendWhatsAppForProcess = async ({
   recipient_id = null,
   campaign_id = "",
   created_by = null,
+  created_by_name = "",
   immediate = false,
 } = {}) => {
   try {
@@ -752,6 +777,7 @@ export const sendWhatsAppForProcess = async ({
       recipient_id,
       campaign_id,
       created_by,
+      created_by_name,
     });
 
     return {
@@ -779,6 +805,8 @@ export const sendStudentWelcomeWhatsApp = async ({
   password,
   paymentMethod,
   campaign_id = "",
+  created_by = null,
+  created_by_name = "",
 } = {}) => {
   const vars = buildStudentTemplateVars({
     student,
@@ -798,6 +826,8 @@ export const sendStudentWelcomeWhatsApp = async ({
     recipient_type: "student",
     recipient_id: student?._id || null,
     campaign_id,
+    created_by,
+    created_by_name,
   });
 };
 
@@ -805,6 +835,8 @@ export const sendUserWelcomeWhatsApp = async ({
   user,
   password,
   campaign_id = "",
+  created_by = null,
+  created_by_name = "",
 } = {}) => {
   const vars = buildUserTemplateVars({ user, password });
   return sendWhatsAppForProcess({
@@ -816,12 +848,16 @@ export const sendUserWelcomeWhatsApp = async ({
     recipient_type: "user",
     recipient_id: user?._id || null,
     campaign_id,
+    created_by,
+    created_by_name,
   });
 };
 
 export const sendPanelistWelcomeWhatsApp = async ({
   panelist,
   campaign_id = "",
+  created_by = null,
+  created_by_name = "",
 } = {}) => {
   const vars = buildPanelistTemplateVars({ panelist });
   return sendWhatsAppForProcess({
@@ -833,6 +869,8 @@ export const sendPanelistWelcomeWhatsApp = async ({
     recipient_type: "panelist",
     recipient_id: panelist?._id || null,
     campaign_id,
+    created_by,
+    created_by_name,
   });
 };
 
@@ -844,6 +882,8 @@ export const sendQualifierWelcomeWhatsApp = async ({
   amountReceived,
   campaign_id = "",
   source = "qualifier_add",
+  created_by = null,
+  created_by_name = "",
 } = {}) => {
   const vars = buildQualifierTemplateVars({
     qualifier,
@@ -866,6 +906,8 @@ export const sendQualifierWelcomeWhatsApp = async ({
     recipient_type: "qualifier",
     recipient_id: qualifier?._id || null,
     campaign_id,
+    created_by,
+    created_by_name,
   });
 };
 
@@ -875,6 +917,8 @@ export const sendFeePaymentWhatsApp = async ({
   paymentMethod,
   amountReceived,
   campaign_id = "",
+  created_by = null,
+  created_by_name = "",
 } = {}) => {
   const vars = buildStudentTemplateVars({
     student,
@@ -893,6 +937,8 @@ export const sendFeePaymentWhatsApp = async ({
     recipient_type: "student",
     recipient_id: student?._id || null,
     campaign_id,
+    created_by,
+    created_by_name,
   });
 };
 

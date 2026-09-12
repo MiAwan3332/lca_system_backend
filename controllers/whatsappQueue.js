@@ -6,6 +6,7 @@ import {
   buildQualifierTemplateVars,
   buildStudentTemplateVars,
   renderWhatsAppTemplate,
+  resolveWhatsAppSenderFromReq,
 } from "../utils/whatsappMessaging.js";
 import {
   cancelAllInQueue,
@@ -48,6 +49,7 @@ export const listWhatsAppQueue = async (req, res) => {
         { template_name: { $regex: search, $options: "i" } },
         { batch_name: { $regex: search, $options: "i" } },
         { source: { $regex: search, $options: "i" } },
+        { created_by_name: { $regex: search, $options: "i" } },
       ];
     }
 
@@ -56,6 +58,7 @@ export const listWhatsAppQueue = async (req, res) => {
       limit: Math.min(200, Math.max(1, Number(limit) || 50)),
       sort: { createdAt: -1 },
       lean: true,
+      populate: [{ path: "created_by", select: "name email" }],
     };
 
     const result = await WhatsAppQueuedMessage.paginate(filter, options);
@@ -224,12 +227,13 @@ export const enqueueBulkWhatsApp = async (req, res) => {
     }
 
     const campaignId = createCampaignId();
-    const createdBy = req.user?.user?._id || req.user?.user?.id || null;
+    const sender = await resolveWhatsAppSenderFromReq(req);
     const results = {
       queued: 0,
       failed: [],
       campaign_id: campaignId,
       delay_ms: WHATSAPP_QUEUE_DELAY_MS,
+      sent_by: sender.created_by_name || null,
     };
 
     for (let index = 0; index < loaded.length; index += 1) {
@@ -255,7 +259,8 @@ export const enqueueBulkWhatsApp = async (req, res) => {
           recipient_type: row.recipient_type,
           recipient_id: row.recipient_id,
           campaign_id: campaignId,
-          created_by: createdBy,
+          created_by: sender.created_by,
+          created_by_name: sender.created_by_name,
         });
 
         if (outcome.queued) {
