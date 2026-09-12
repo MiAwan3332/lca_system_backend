@@ -52,7 +52,7 @@ import {
   getNextStudentRollNumber,
   backfillMissingRollNumbersForBatch,
 } from "../utils/studentRollNumber.js";
-import { sendStudentWelcomeWhatsApp } from "../utils/whatsappMessaging.js";
+import { sendStudentWelcomeWhatsApp, resolveWhatsAppSenderFromReq } from "../utils/whatsappMessaging.js";
 import { deleteStudentCascade } from "../utils/deleteStudentCascade.js";
 import { logActivity } from "../utils/activityLogger.js";
 dotenv.config();
@@ -384,6 +384,7 @@ export const addStudent = async (req, res) => {
         batch: savedStudent?.batch || batchRecord,
         password: randomPassword,
         paymentMethod: payingNow > 0 ? paymentMethod : "Pay Later",
+        ...(await resolveWhatsAppSenderFromReq(req)),
       });
     } catch (whatsappError) {
       console.error("WhatsApp welcome failed after student add:", whatsappError);

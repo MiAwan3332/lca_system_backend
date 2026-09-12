@@ -11,6 +11,7 @@ import {
 import { denyUnlessInstitutionAdmin } from "../utils/lmsAccess.js";
 import {
   sendQualifierWelcomeWhatsApp,
+  resolveWhatsAppSenderFromReq,
 } from "../utils/whatsappMessaging.js";
 import {
   createCampaignId,
@@ -388,6 +389,7 @@ export const addQualifier = async (req, res) => {
         paymentMethod,
         amountReceived: paidFee,
         source: "qualifier_add",
+        ...(await resolveWhatsAppSenderFromReq(req)),
       });
     } catch (whatsappError) {
       console.error(
@@ -435,7 +437,13 @@ const phoneAlreadyUsed = async (phone) => {
   return null;
 };
 
-const importQualifierFromRow = async ({ row, batchRecord, campaignId }) => {
+const importQualifierFromRow = async ({
+  row,
+  batchRecord,
+  campaignId,
+  created_by = null,
+  created_by_name = "",
+}) => {
   const trimmedName = trimOrEmpty(row?.name);
   const trimmedPhone = normalizeLocalPhone(row?.phone);
 
@@ -524,6 +532,8 @@ const importQualifierFromRow = async ({ row, batchRecord, campaignId }) => {
       amountReceived: paidFee,
       campaign_id: campaignId || "",
       source: "qualifier_import",
+      created_by,
+      created_by_name,
     });
   } catch (whatsappError) {
     console.error(
@@ -565,6 +575,7 @@ export const bulkImportQualifiers = async (req, res) => {
     }
 
     const campaignId = createCampaignId();
+    const sender = await resolveWhatsAppSenderFromReq(req);
     const results = {
       imported: 0,
       failed: [],
@@ -595,6 +606,8 @@ export const bulkImportQualifiers = async (req, res) => {
           row: { ...row, excelRow: rowNumber },
           batchRecord: batchResult.batch,
           campaignId,
+          created_by: sender.created_by,
+          created_by_name: sender.created_by_name,
         });
 
         results.imported += 1;

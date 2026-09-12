@@ -12,6 +12,7 @@ import {
   denyUnlessInstitutionAdmin,
 } from "../utils/lmsAccess.js";
 import { parseBatchSpecialFees } from "../utils/specialFeeOptions.js";
+import { deleteBatchCascade } from "../utils/deleteBatchCascade.js";
 
 const getBatchEnrolledStudentCount = async (batchId) =>
   Student.countDocuments({ batch: batchId });
@@ -393,10 +394,18 @@ export const deleteBatch = async (req, res) => {
 
   const { id } = req.params;
   try {
-    await Batch.findByIdAndDelete(id);
-    res.status(200).json("Batch deleted successfully");
+    const summary = await deleteBatchCascade(id);
+    res.status(200).json({
+      message:
+        "Batch, enrolled students, finance records, and related data deleted successfully",
+      summary,
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const msg = error?.message || "Failed to delete batch";
+    if (msg === "Batch not found" || msg === "Invalid batch id") {
+      return res.status(404).json({ message: msg });
+    }
+    res.status(500).json({ message: msg });
   }
 };
 

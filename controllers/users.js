@@ -25,7 +25,7 @@ import Permission from "../models/permissions.js";
 import { compressImage, uploadFile } from "../utils/fileStorage.js";
 import { JWT_EXPIRES_IN, JWT_COOKIE_MAX_AGE_MS } from "../utils/jwtConfig.js";
 import { logLoginActivity } from "../utils/activityLogger.js";
-import { sendUserWelcomeWhatsApp } from "../utils/whatsappMessaging.js";
+import { sendUserWelcomeWhatsApp, resolveWhatsAppSenderFromReq } from "../utils/whatsappMessaging.js";
 
 const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
 
@@ -782,6 +782,7 @@ export const addUser = async (req, res) => {
       whatsappWelcome = await sendUserWelcomeWhatsApp({
         user: userPayload,
         password: randomPassword,
+        ...(await resolveWhatsAppSenderFromReq(req)),
       });
       if (!whatsappWelcome?.sent) {
         console.error("WhatsApp welcome not sent after user add:", whatsappWelcome);
