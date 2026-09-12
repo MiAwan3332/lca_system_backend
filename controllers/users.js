@@ -691,10 +691,10 @@ export const getUsers = async (req, res) => {
     }
 
     let searchQuery = query ? query : "";
-    // Student and teacher accounts are managed on their own screens, not All Users.
+    // Student, teacher, and qualifier accounts are managed on their own screens, not All Users.
     // Hide secrateadmin from everyone. Superadmin accounts are visible only to
     // secratesuperadmin / secrateadmin.
-    const rolesToExclude = ["student", "teacher", "secrateadmin", "secratesuperadmin"];
+    const rolesToExclude = ["student", "teacher", "qualifier", "secrateadmin", "secratesuperadmin"];
     if (!isSecrateSuperAdminRole(req)) {
       rolesToExclude.push(
         "superadmin",
