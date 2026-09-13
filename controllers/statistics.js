@@ -648,3 +648,186 @@ export const getStatistics = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+/**
+ * Batch-wise fee summary for active batches only:
+ * total fee created, discount, received, pending dues.
+ */
+export const getBatchFinanceStats = async (req, res) => {
+  try {
+    if (isStudentRole(req) || isTeacherRole(req) || isQualifierRole(req)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const { start_date, end_date, batch_id } = req.query;
+
+    const batchFilter = {
+      is_active: { $ne: false },
+      is_interview_batch: { $ne: true },
+    };
+    if (batch_id) {
+      batchFilter._id = batch_id;
+    }
+
+    const activeBatches = await Batch.find(batchFilter)
+      .select("name is_active")
+      .sort({ name: 1 })
+      .lean();
+
+    if (!activeBatches.length) {
+      return res.status(200).json({
+        batches: [],
+        totals: {
+          total_fee_created: 0,
+          discount: 0,
+          received: 0,
+          pending: 0,
+        },
+      });
+    }
+
+    const activeBatchIds = activeBatches.map((batch) => batch._id);
+    const fees = await Fee.find({ batch: { $in: activeBatchIds } })
+      .select("_id batch")
+      .lean();
+
+    if (!fees.length) {
+      return res.status(200).json({
+        batches: activeBatches.map((batch) => ({
+          batch_id: String(batch._id),
+          batch_name: batch.name || "Untitled batch",
+          total_fee_created: 0,
+          discount: 0,
+          received: 0,
+          pending: 0,
+        })),
+        totals: {
+          total_fee_created: 0,
+          discount: 0,
+          received: 0,
+          pending: 0,
+        },
+      });
+    }
+
+    const feeIds = fees.map((fee) => fee._id);
+    const feeToBatch = new Map(
+      fees.map((fee) => [String(fee._id), String(fee.batch)])
+    );
+
+    const logMatch = {
+      fee: { $in: feeIds },
+      action_type: {
+        $in: ["Created", "Discounted", "Paid", "Deleted", "Refund"],
+      },
+    };
+
+    if (start_date || end_date) {
+      logMatch.action_date = {};
+      if (start_date) logMatch.action_date.$gte = new Date(start_date);
+      if (end_date) {
+        logMatch.action_date.$lte = new Date(`${end_date}T23:59:59.999Z`);
+      }
+    }
+
+    const grouped = await FeeLogs.aggregate([
+      { $match: logMatch },
+      {
+        $group: {
+          _id: { fee: "$fee", action_type: "$action_type" },
+          total: {
+            $sum: {
+              $toDouble: {
+                $cond: [
+                  {
+                    $in: ["$action_type", ["Created", "Deleted"]],
+                  },
+                  { $ifNull: ["$amount", 0] },
+                  { $ifNull: ["$action_amount", 0] },
+                ],
+              },
+            },
+          },
+        },
+      },
+    ]);
+
+    const byBatch = new Map();
+    for (const batch of activeBatches) {
+      byBatch.set(String(batch._id), {
+        batch_id: String(batch._id),
+        batch_name: batch.name || "Untitled batch",
+        created: 0,
+        discounted: 0,
+        paid: 0,
+        deleted: 0,
+        refunded: 0,
+      });
+    }
+
+    for (const row of grouped) {
+      const feeId = String(row._id?.fee || "");
+      const batchKey = feeToBatch.get(feeId);
+      if (!batchKey || !byBatch.has(batchKey)) continue;
+      const bucket = byBatch.get(batchKey);
+      const amount = Number(row.total) || 0;
+      switch (row._id?.action_type) {
+        case "Created":
+          bucket.created += amount;
+          break;
+        case "Discounted":
+          bucket.discounted += amount;
+          break;
+        case "Paid":
+          bucket.paid += amount;
+          break;
+        case "Deleted":
+          bucket.deleted += amount;
+          break;
+        case "Refund":
+          bucket.refunded += amount;
+          break;
+        default:
+          break;
+      }
+    }
+
+    const batches = Array.from(byBatch.values()).map((bucket) => {
+      const total_fee_created = Math.round(bucket.created);
+      const discount = Math.round(bucket.discounted);
+      const received = Math.round(bucket.paid - bucket.refunded);
+      const netRecord = Math.round(
+        bucket.created - bucket.discounted - bucket.deleted - bucket.refunded
+      );
+      const pending = Math.max(netRecord - received, 0);
+      return {
+        batch_id: bucket.batch_id,
+        batch_name: bucket.batch_name,
+        total_fee_created,
+        discount,
+        received: Math.max(received, 0),
+        pending,
+      };
+    });
+
+    const totals = batches.reduce(
+      (acc, row) => {
+        acc.total_fee_created += row.total_fee_created;
+        acc.discount += row.discount;
+        acc.received += row.received;
+        acc.pending += row.pending;
+        return acc;
+      },
+      {
+        total_fee_created: 0,
+        discount: 0,
+        received: 0,
+        pending: 0,
+      }
+    );
+
+    res.status(200).json({ batches, totals });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};

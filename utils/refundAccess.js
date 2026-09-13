@@ -34,11 +34,14 @@ export const isPrincipalFamilyRoleName = (role) => {
   return compact === "principal" || compact === "viceprincipal";
 };
 
-/** CEO / Principal / VP / Super Admin — create + decide. */
+export const isAccountsRoleName = (role) => compactRole(role) === "accounts";
+
+/** CEO / Principal / VP / Super Admin / Accounts — create + decide. */
 export const canCreateRefundRequest = (role) =>
   isCeoRoleName(role) ||
   isPrincipalFamilyRoleName(role) ||
-  isSuperAdminRoleName(role);
+  isSuperAdminRoleName(role) ||
+  isAccountsRoleName(role);
 
 export const canDecideRefundRequest = (role) =>
   canCreateRefundRequest(role);
