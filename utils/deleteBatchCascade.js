@@ -20,6 +20,11 @@ import StudentRollCounter from "../models/studentRollCounters.js";
 import Announcement from "../models/announcements.js";
 import { deleteStudentCascade } from "./deleteStudentCascade.js";
 import { deleteFile } from "./fileStorage.js";
+import {
+  createBatchDeletionArchive,
+  finalizeBatchDeletionArchive,
+} from "./batchDeletionArchive.js";
+import { resolveDeletionActor } from "./studentDeletionArchive.js";
 
 const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
 
@@ -68,14 +73,24 @@ export const deleteBatchCascade = async (batchId, options = {}) => {
   }
 
   const id = batch._id;
-  const students = await Student.find({ batch: id }).select("_id name").lean();
+  const resolvedActor = actor || (await resolveDeletionActor(req, null));
+  const students = await Student.find({ batch: id }).lean();
+
+  const batchArchive = await createBatchDeletionArchive({
+    batch,
+    students,
+    req,
+    actor: resolvedActor,
+    deletionReason: `Batch deleted: ${batch.name || id}`,
+  });
+
   const studentSummaries = [];
 
   for (const student of students) {
     try {
       const summary = await deleteStudentCascade(student._id, {
         req,
-        actor,
+        actor: resolvedActor,
         deletionSource: "batch_delete",
         deletionReason: `Batch deleted: ${batch.name || id}`,
       });
@@ -220,9 +235,10 @@ export const deleteBatchCascade = async (batchId, options = {}) => {
     }
   );
 
-  return {
+  const cascadeSummary = {
     batch_id: String(id),
     batch_name: batch.name,
+    archive_id: batchArchive?._id ? String(batchArchive._id) : null,
     students_deleted: studentSummaries.length,
     finance: financeTotals,
     academic: {
@@ -247,6 +263,17 @@ export const deleteBatchCascade = async (batchId, options = {}) => {
       empty_announcements: emptyAnnouncementsDeleted.deletedCount || 0,
     },
   };
+
+  if (batchArchive?._id) {
+    await finalizeBatchDeletionArchive(batchArchive._id, {
+      studentArchiveIds: studentSummaries
+        .map((row) => row.archive_id)
+        .filter(Boolean),
+      cascadeSummary,
+    });
+  }
+
+  return cascadeSummary;
 };
 
 export default deleteBatchCascade;

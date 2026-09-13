@@ -64,6 +64,17 @@ const refundRequestSchema = mongoose.Schema(
       type: Number,
       min: 0,
     },
+    /** How the refund was paid out: Cash or Online Payment */
+    refund_payment_method: {
+      type: String,
+      enum: ["Cash", "Online Payment", "Online", ""],
+      default: "",
+    },
+    /** Screenshot / slip when refund was paid online */
+    refund_evidence: {
+      type: mongoose.Schema.Types.Mixed,
+      default: "",
+    },
   },
   { timestamps: true }
 );

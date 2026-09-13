@@ -10,9 +10,11 @@ import {
   getTeacherScope,
   buildEmptyPaginatedResponse,
   denyUnlessInstitutionAdmin,
+  denyUnlessCanDeleteStudent,
 } from "../utils/lmsAccess.js";
 import { parseBatchSpecialFees } from "../utils/specialFeeOptions.js";
 import { deleteBatchCascade } from "../utils/deleteBatchCascade.js";
+import BatchDeletionArchive from "../models/batchDeletionArchives.js";
 
 const getBatchEnrolledStudentCount = async (batchId) =>
   Student.countDocuments({ batch: batchId });
@@ -390,14 +392,15 @@ export const toggleBatchStatus = async (req, res) => {
 };
 
 export const deleteBatch = async (req, res) => {
-  if (denyUnlessInstitutionAdmin(req, res)) return;
+  // Same roles as student delete: Accounts, Principal, VP, CEO, Super Admins
+  if (denyUnlessCanDeleteStudent(req, res)) return;
 
   const { id } = req.params;
   try {
     const summary = await deleteBatchCascade(id, { req });
     res.status(200).json({
       message:
-        "Batch, enrolled students, finance records, and related data deleted successfully",
+        "Batch, enrolled students, finance records, and related data deleted successfully. History archived.",
       summary,
     });
   } catch (error) {
@@ -406,6 +409,72 @@ export const deleteBatch = async (req, res) => {
       return res.status(404).json({ message: msg });
     }
     res.status(500).json({ message: msg });
+  }
+};
+
+export const getDeletedBatches = async (req, res) => {
+  try {
+    if (denyUnlessCanDeleteStudent(req, res)) return;
+
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+    const query = String(req.query.query || "").trim();
+
+    const filter = {};
+    if (query) {
+      const regex = new RegExp(
+        query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        "i"
+      );
+      filter.$or = [
+        { "batch.name": regex },
+        { "batch.description": regex },
+        { "batch.batch_type": regex },
+        { deleted_by_name: regex },
+        { deleted_by_email: regex },
+        { "students.name": regex },
+        { "students.phone": regex },
+        { "students.roll_number": regex },
+      ];
+    }
+
+    const result = await BatchDeletionArchive.paginate(filter, {
+      page,
+      limit,
+      sort: { deleted_at: -1 },
+      select:
+        "original_batch_id batch.name batch.description batch.batch_type batch.batch_fee batch.startdate batch.enddate batch.is_interview_batch batch.is_paid_batch summary deleted_by deleted_by_name deleted_by_email deleted_by_role deletion_reason deleted_at cascade_summary.students_deleted",
+      populate: { path: "deleted_by", select: "name email role" },
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getDeletedBatchArchive = async (req, res) => {
+  const { id } = req.params;
+  try {
+    if (denyUnlessCanDeleteStudent(req, res)) return;
+
+    const archive = await BatchDeletionArchive.findById(id)
+      .populate("deleted_by", "name email role")
+      .populate({
+        path: "student_archive_ids",
+        select:
+          "original_student_id student.name student.phone student.roll_number student.paid_fee student.pending_fee student.total_fee finance.summary deleted_at deletion_source",
+      });
+
+    if (!archive) {
+      return res
+        .status(404)
+        .json({ message: "Deleted batch archive not found" });
+    }
+
+    res.status(200).json(archive);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };
 

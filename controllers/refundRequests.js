@@ -8,6 +8,15 @@ import {
   canDecideRefundRequest,
   getRequestRoleName,
 } from "../utils/refundAccess.js";
+import {
+  asUploadedFileArray,
+  normalizePaymentEvidenceForStorage,
+  uploadPaymentEvidenceFiles,
+} from "../utils/paymentEvidence.js";
+import {
+  isOnlinePaymentMethod,
+  requiresPaymentEvidence,
+} from "../utils/paymentMethods.js";
 
 const populateFields = [
   {
@@ -19,6 +28,19 @@ const populateFields = [
   { path: "rejected_by", select: "name email role" },
   { path: "refunded_by", select: "name email role" },
 ];
+
+const normalizeRefundPaymentMethod = (raw) => {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  if (value === "Online" || value.toLowerCase() === "online") {
+    return "Online Payment";
+  }
+  if (value === "Cash" || value.toLowerCase() === "cash") {
+    return "Cash";
+  }
+  if (value === "Online Payment") return "Online Payment";
+  return value;
+};
 
 export const getRefundRequests = async (req, res) => {
   try {
@@ -293,7 +315,8 @@ export const rejectRefundRequest = async (req, res) => {
 /**
  * Process payout for an approved refund:
  * - create FeeLog "Refund" (subtracts from finance net)
- * - reduce student paid_fee
+ * - reduce student paid_fee (and cash/online totals)
+ * - require screenshot when refunded via Online Payment
  * - mark request as refunded
  */
 export const processRefundRequest = async (req, res) => {
@@ -344,6 +367,35 @@ export const processRefundRequest = async (req, res) => {
       });
     }
 
+    const paymentMethod = normalizeRefundPaymentMethod(
+      req.body?.payment_method || req.body?.refund_payment_method
+    );
+    if (paymentMethod !== "Cash" && paymentMethod !== "Online Payment") {
+      return res.status(400).json({
+        message: "Select refund payment method: Cash or Online",
+      });
+    }
+
+    let refundEvidence = "";
+    if (requiresPaymentEvidence(paymentMethod)) {
+      const evidenceFiles = asUploadedFileArray(req.files?.payment_evidence);
+      if (!evidenceFiles.length) {
+        return res.status(400).json({
+          message: "Screenshot / receipt is required for online refunds",
+        });
+      }
+      const urls = await uploadPaymentEvidenceFiles(
+        evidenceFiles,
+        request.student
+      );
+      refundEvidence = normalizePaymentEvidenceForStorage(urls);
+      if (!refundEvidence) {
+        return res.status(400).json({
+          message: "Failed to upload online refund screenshot",
+        });
+      }
+    }
+
     const student = await Student.findById(request.student);
     if (!student) {
       return res.status(404).json({ message: "Student not found" });
@@ -356,20 +408,31 @@ export const processRefundRequest = async (req, res) => {
     const paidReduction = Math.min(refundAmount, currentPaid);
     student.paid_fee = Math.max(0, currentPaid - paidReduction);
     student.is_active = false;
+
+    const currentCash = Math.round(Math.max(Number(student.cash_amount) || 0, 0));
+    const currentOnline = Math.round(
+      Math.max(Number(student.online_amount) || 0, 0)
+    );
+    if (isOnlinePaymentMethod(paymentMethod)) {
+      student.online_amount = Math.max(0, currentOnline - paidReduction);
+    } else {
+      student.cash_amount = Math.max(0, currentCash - paidReduction);
+    }
     await student.save();
 
     const feeLog = await FeeLog.create({
       amount: refundAmount,
       action_amount: refundAmount,
       action_date: new Date(),
-      description: `Refund processed for ${student.name || "student"} (approved Rs. ${approvedMax})${
+      description: `Refund processed (${paymentMethod}) for ${student.name || "student"} (approved Rs. ${approvedMax})${
         request.reason ? `: ${request.reason}` : ""
       }`,
       action_type: "Refund",
       action_by: actor?._id,
       fee: fee?._id,
       student: student._id,
-      payment_method: "Cash",
+      payment_method: paymentMethod,
+      payment_evidence: refundEvidence || null,
     });
 
     request.refunded_amount = refundAmount;
@@ -377,6 +440,8 @@ export const processRefundRequest = async (req, res) => {
     request.refunded_by = actor?._id;
     request.refunded_at = new Date();
     request.fee_log = feeLog._id;
+    request.refund_payment_method = paymentMethod;
+    request.refund_evidence = refundEvidence || "";
     await request.save();
 
     const updated = await RefundRequest.findById(id).populate(populateFields);
