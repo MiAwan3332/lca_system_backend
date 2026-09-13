@@ -55,6 +55,7 @@ import {
 import { sendStudentWelcomeWhatsApp, resolveWhatsAppSenderFromReq } from "../utils/whatsappMessaging.js";
 import { deleteStudentCascade } from "../utils/deleteStudentCascade.js";
 import { logActivity } from "../utils/activityLogger.js";
+import StudentDeletionArchive from "../models/studentDeletionArchives.js";
 dotenv.config();
 
 const PENDING_FEE_BLOCK_MESSAGE =
@@ -119,6 +120,41 @@ const findStudentByPhoneDigits = async (phone) => {
   );
 };
 
+/**
+ * Phone must be unique among live All Students only.
+ * Numbers that exist only in Deleted Students archive may be re-added.
+ * Orphan student login users left after older deletes are cleaned up.
+ */
+const assertPhoneAvailableForNewStudent = async (phone) => {
+  const existingByPhone = await findStudentByPhoneDigits(phone);
+  if (existingByPhone) {
+    throw new Error(
+      "Phone number already exists in All Students. Numbers from Deleted Students can be re-added."
+    );
+  }
+
+  const email = buildStudentAccountEmail(phone);
+  const existingStudent = await Student.findOne({ email });
+  if (existingStudent) {
+    throw new Error(
+      "A student with this phone already exists in All Students"
+    );
+  }
+
+  const existingUser = await User.findOne({ email });
+  if (existingUser) {
+    const role = String(existingUser.role || "").toLowerCase();
+    // Leftover login from a deleted student — allow re-create.
+    if (role === "student") {
+      await User.findByIdAndDelete(existingUser._id);
+    } else {
+      throw new Error("A login account already exists for this phone");
+    }
+  }
+
+  return email;
+};
+
 export const addStudent = async (req, res) => {
   const { name, phone, batch, remarks, cnic } = req.body;
   const admission_date =
@@ -136,22 +172,11 @@ export const addStudent = async (req, res) => {
       return res.status(400).json({ message: "Phone number is required" });
     }
 
-    const existingByPhone = await findStudentByPhoneDigits(phone);
-    if (existingByPhone) {
-      return res.status(400).json({ message: "Phone number already exists" });
-    }
-
     let email;
     try {
-      email = buildStudentAccountEmail(phone);
+      email = await assertPhoneAvailableForNewStudent(phone);
     } catch (err) {
       return res.status(400).json({ message: err.message });
-    }
-
-    // Check if the email already exists
-    const existingStudent = await Student.findOne({ email });
-    if (existingStudent) {
-      return res.status(400).json({ message: "A student account already exists for this phone" });
     }
 
     let batchRecord = null;
@@ -272,10 +297,6 @@ export const addStudent = async (req, res) => {
     // Hash the password
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(randomPassword, saltRounds);
-
-    if (await User.findOne({ email })) {
-      return res.status(400).json({ message: "A login account already exists for this phone" });
-    }
 
     const newUser = new User({
       name,
@@ -470,19 +491,7 @@ const importStudentFromRow = async ({
 }) => {
   const validated = validateStudentImportRow(row, row.excelRow || row.rowNumber);
 
-  const existingByPhone = await findStudentByPhoneDigits(validated.phone);
-  if (existingByPhone) {
-    throw new Error("Phone number already exists for a student");
-  }
-
-  const existingStudent = await Student.findOne({ email: validated.email });
-  if (existingStudent) {
-    throw new Error("A student account already exists for this phone");
-  }
-
-  if (await User.findOne({ email: validated.email })) {
-    throw new Error("A login account already exists for this phone");
-  }
+  await assertPhoneAvailableForNewStudent(validated.phone);
 
   const rollNumber = await getNextStudentRollNumber({
     batchId: batchRecord._id,
@@ -728,6 +737,7 @@ export const getStudents = async (req, res) => {
   const {
     query,
     batch_id,
+    payment_status,
     enrollment_status,
     start_date,
     end_date,
@@ -744,6 +754,7 @@ export const getStudents = async (req, res) => {
       }
 
       const student = await Student.findById(studentId).populate("batch");
+      const isActive = student ? student.is_active !== false : false;
       return res.status(200).json({
         docs: student ? [student] : [],
         totalDocs: student ? 1 : 0,
@@ -755,6 +766,11 @@ export const getStudents = async (req, res) => {
         hasNextPage: false,
         prevPage: null,
         nextPage: null,
+        status_counts: {
+          total: student ? 1 : 0,
+          active: student && isActive ? 1 : 0,
+          inactive: student && !isActive ? 1 : 0,
+        },
       });
     }
 
@@ -803,9 +819,26 @@ export const getStudents = async (req, res) => {
     if (batch_id) {
       filter.batch = batch_id;
     } else if (enrollment_status === "enrolled") {
+      // Legacy support
       filter.batch = { $ne: null };
     } else if (enrollment_status === "unenrolled") {
       filter.batch = null;
+    }
+
+    const feeStatus = String(payment_status || "").trim().toLowerCase();
+    if (feeStatus === "pending_dues" || feeStatus === "pending") {
+      filter.pending_fee = { $gt: 0 };
+    } else if (feeStatus === "fully_paid" || feeStatus === "paid") {
+      filter.$and = [
+        ...(filter.$and || []),
+        {
+          $or: [
+            { pending_fee: { $lte: 0 } },
+            { pending_fee: null },
+            { pending_fee: { $exists: false } },
+          ],
+        },
+      ];
     }
 
     if (isTeacherRole(req)) {
@@ -820,6 +853,20 @@ export const getStudents = async (req, res) => {
     if (city) {
       filter.city = { $regex: city, $options: "i" };
     }
+
+    // Status counts ignore the active/inactive filter so all three chips stay visible.
+    const countBaseFilter = { ...filter };
+    const [totalCount, activeCount, inactiveCount] = await Promise.all([
+      Student.countDocuments(countBaseFilter),
+      Student.countDocuments({
+        ...countBaseFilter,
+        is_active: { $ne: false },
+      }),
+      Student.countDocuments({
+        ...countBaseFilter,
+        is_active: false,
+      }),
+    ]);
 
     if (is_active === "true") {
       filter.is_active = { $ne: false };
@@ -870,7 +917,17 @@ export const getStudents = async (req, res) => {
       };
     });
 
-    res.status(200).json(students);
+    const payload =
+      typeof students.toJSON === "function" ? students.toJSON() : { ...students };
+
+    res.status(200).json({
+      ...payload,
+      status_counts: {
+        total: totalCount,
+        active: activeCount,
+        inactive: inactiveCount,
+      },
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -1275,7 +1332,27 @@ export const deleteStudent = async (req, res) => {
   try {
     if (denyUnlessCanDeleteStudent(req, res)) return;
 
-    const summary = await deleteStudentCascade(id);
+    const summary = await deleteStudentCascade(id, {
+      req,
+      deletionSource: "student_delete",
+      deletionReason: String(req.body?.reason || "").trim(),
+    });
+
+    await logActivity({
+      req,
+      action: "delete",
+      module: "students",
+      description: `Deleted student ${summary.student_name || id} (archive ${summary.archive_id || "n/a"})`,
+      targetId: summary.archive_id || id,
+      targetType: "StudentDeletionArchive",
+      metadata: {
+        original_student_id: summary.student_id,
+        student_name: summary.student_name,
+        archive_id: summary.archive_id,
+        finance: summary.finance,
+      },
+    });
+
     res.status(200).json({
       message: "Student and all related data deleted successfully",
       summary,
@@ -1286,6 +1363,61 @@ export const deleteStudent = async (req, res) => {
       return res.status(404).json({ message: msg });
     }
     res.status(500).json({ message: msg });
+  }
+};
+
+export const getDeletedStudents = async (req, res) => {
+  try {
+    if (denyUnlessCanDeleteStudent(req, res)) return;
+
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+    const query = String(req.query.query || "").trim();
+
+    const filter = {};
+    if (query) {
+      const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      filter.$or = [
+        { "student.name": regex },
+        { "student.email": regex },
+        { "student.phone": regex },
+        { "student.roll_number": regex },
+        { deleted_by_name: regex },
+        { deleted_by_email: regex },
+      ];
+    }
+
+    const result = await StudentDeletionArchive.paginate(filter, {
+      page,
+      limit,
+      sort: { deleted_at: -1 },
+      select:
+        "original_student_id student.name student.email student.phone student.roll_number student.paid_fee student.pending_fee student.total_fee student.cash_amount student.online_amount batch_snapshot deleted_by deleted_by_name deleted_by_email deleted_by_role deletion_source deletion_reason deleted_at finance.summary cascade_summary",
+      populate: { path: "deleted_by", select: "name email role" },
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getDeletedStudentArchive = async (req, res) => {
+  const { id } = req.params;
+  try {
+    if (denyUnlessCanDeleteStudent(req, res)) return;
+
+    const archive = await StudentDeletionArchive.findById(id).populate(
+      "deleted_by",
+      "name email role"
+    );
+    if (!archive) {
+      return res.status(404).json({ message: "Deleted student archive not found" });
+    }
+
+    res.status(200).json(archive);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };
 
@@ -2027,24 +2159,35 @@ export const getStudentsByBatchesGraph = async (req, res) => {
   try {
     const { batch_id, start_date, end_date } = req.query;
     const batches = batch_id
-      ? await Batch.find({ _id: batch_id })
-      : await Batch.find();
+      ? await Batch.find({ _id: batch_id }).select("name").lean()
+      : await Batch.find().select("name").sort({ name: 1 }).lean();
 
     const studentCounts = await Promise.all(
       batches.map(async (batch) => {
         const query = { batch: batch._id };
-
         applyAdmissionDateFilter(query, start_date, end_date);
 
-        const count = await Student.countDocuments(query);
-        return { batch: batch.name, count };
+        const [total, active, inactive] = await Promise.all([
+          Student.countDocuments(query),
+          Student.countDocuments({ ...query, is_active: { $ne: false } }),
+          Student.countDocuments({ ...query, is_active: false }),
+        ]);
+
+        return {
+          batch: batch.name,
+          batch_id: String(batch._id),
+          total,
+          active,
+          inactive,
+          count: total,
+        };
       })
     );
 
     res.json(studentCounts);
   } catch (error) {
     console.error("Error fetching student data:", error);
-    res.status(500).send(error);
+    res.status(500).json({ message: error.message || "Failed to load batch student counts" });
   }
 };
 

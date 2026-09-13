@@ -90,7 +90,10 @@ export const WHATSAPP_TEMPLATE_TAGS = [
   { tag: "{{total_fee}}", label: "Total fee (after discount)", sample: "50,000" },
   { tag: "{{discount}}", label: "Discount amount", sample: "5,000" },
   { tag: "{{paid_fee}}", label: "Paid fee (total)", sample: "20,000" },
-  { tag: "{{pending_fee}}", label: "Remaining fee", sample: "30,000" },
+  { tag: "{{pending_fee}}", label: "Pending dues / remaining fee", sample: "30,000" },
+  { tag: "{{pending_dues}}", label: "Pending dues (alias)", sample: "30,000" },
+  { tag: "{{next_installment_date}}", label: "Next installment date", sample: "15 Sep 2026" },
+  { tag: "{{nextInstallmentDate}}", label: "Next installment date (alias)", sample: "15 Sep 2026" },
   { tag: "{{amount_received}}", label: "Amount just received", sample: "10,000" },
   { tag: "{{payment_method}}", label: "Payment method", sample: "Cash" },
   { tag: "{{password}}", label: "Portal password", sample: "lca@123456" },
@@ -218,17 +221,16 @@ Thank you.
 
 export const DEFAULT_FEE_REMINDER_BODY = `Assalam o Alaikum {{name}}!
 
-This is a friendly reminder from {{academy_name}}.
+This is a reminder from {{academy_name}} Accounts regarding your pending dues.
 
-You have a pending fee balance:
-• Batch: {{batch}}
-• Roll No: {{roll_number}}
-• Remaining: Rs. {{pending_fee}}
 • Total Fee: Rs. {{total_fee}}
-• Paid so far: Rs. {{paid_fee}}
+• Paid Fee: Rs. {{paid_fee}}
+• Pending Dues: Rs. {{pending_dues}}
+• Next Installment Date: {{nextInstallmentDate}}
 
-Please clear your dues at your earliest convenience.
-— {{academy_name}}`;
+Clear your pending dues immediately. Late payment may result in your LCA account being stuck/blocked from all academy activities until dues are cleared.
+
+— {{academy_name}} Accounts`;
 
 const formatTime12Hour = (value) => {
   if (value == null || value === "") return "";
@@ -311,6 +313,7 @@ export const buildStudentTemplateVars = ({
   password = "lca@123456",
   paymentMethod = "",
   amountReceived = null,
+  nextInstallmentDate = null,
 } = {}) => {
   const portalUrl = (
     process.env.FRONTEND_URL ||
@@ -327,6 +330,19 @@ export const buildStudentTemplateVars = ({
     amountReceived != null
       ? formatCurrencyPlain(amountReceived)
       : formatCurrencyPlain(student?.paid_fee);
+
+  const formatInstallmentDate = (raw) => {
+    if (!raw) return "N/A";
+    const parsed = moment(
+      raw instanceof Date || typeof raw === "number" ? raw : String(raw)
+    );
+    return parsed.isValid() ? parsed.format("DD MMM YYYY") : String(raw);
+  };
+
+  const nextDate = formatInstallmentDate(
+    nextInstallmentDate ?? student?.next_installment_date ?? student?.due_date
+  );
+  const pendingDues = formatCurrencyPlain(student?.pending_fee);
 
   return {
     name: student?.name || "",
@@ -349,7 +365,10 @@ export const buildStudentTemplateVars = ({
     })(),
     total_fee: formatCurrencyPlain(student?.total_fee),
     paid_fee: formatCurrencyPlain(student?.paid_fee),
-    pending_fee: formatCurrencyPlain(student?.pending_fee),
+    pending_fee: pendingDues,
+    pending_dues: pendingDues,
+    next_installment_date: nextDate,
+    nextInstallmentDate: nextDate,
     amount_received: received,
     payment_method:
       paymentMethod ||
@@ -542,9 +561,10 @@ const DEFAULT_TEMPLATES = [
   },
   {
     key: FEE_REMINDER_TEMPLATE_KEY,
-    name: "Fee Reminder",
+    name: "Pending Dues Reminder",
     process: "fee_reminder",
-    description: "Use for pending fee reminder messages.",
+    description:
+      "Strict reminder for students with pending dues (total, paid, pending, next installment).",
     body: DEFAULT_FEE_REMINDER_BODY,
   },
 ];

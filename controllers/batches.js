@@ -394,7 +394,7 @@ export const deleteBatch = async (req, res) => {
 
   const { id } = req.params;
   try {
-    const summary = await deleteBatchCascade(id);
+    const summary = await deleteBatchCascade(id, { req });
     res.status(200).json({
       message:
         "Batch, enrolled students, finance records, and related data deleted successfully",
