@@ -18,6 +18,7 @@ import {
   denyUnlessPlatformSuperAdmin,
   denyUnlessCanDeleteStudent,
   denyUnlessCanShiftStudentBatch,
+  getRequestUserId,
 } from "../utils/lmsAccess.js";
 import { addEmailToQueue } from "../utils/emailQueue.js";
 import dotenv, { populate } from "dotenv";
@@ -56,6 +57,7 @@ import { sendStudentWelcomeWhatsApp, resolveWhatsAppSenderFromReq } from "../uti
 import { deleteStudentCascade } from "../utils/deleteStudentCascade.js";
 import { logActivity } from "../utils/activityLogger.js";
 import StudentDeletionArchive from "../models/studentDeletionArchives.js";
+import StudentBatchShift from "../models/studentBatchShifts.js";
 dotenv.config();
 
 const PENDING_FEE_BLOCK_MESSAGE =
@@ -1105,7 +1107,7 @@ export const getStudentHistory = async (req, res) => {
       "name batch_fee is_active"
     );
 
-    const [fees, enrollments, pendingFeeSlips, activityLogs, refundRequests] =
+    const [fees, enrollments, pendingFeeSlips, activityLogs, refundRequests, batchShifts] =
       await Promise.all([
       Fee.find({ student: id })
         .populate("batch", "name batch_fee is_active")
@@ -1131,6 +1133,11 @@ export const getStudentHistory = async (req, res) => {
         .populate("approved_by", "name email")
         .populate("rejected_by", "name email")
         .populate("refunded_by", "name email"),
+      StudentBatchShift.find({ student: id })
+        .sort({ shifted_at: -1 })
+        .populate("shifted_by", "name email role")
+        .populate("from_batch", "name")
+        .populate("to_batch", "name"),
     ]);
 
     const feeIds = fees.map((fee) => fee._id);
@@ -1291,6 +1298,7 @@ export const getStudentHistory = async (req, res) => {
       fee_records: fees.length,
       payment_events: paymentLogs.length,
       batches_touched: batchHistory.length,
+      batch_shifts: batchShifts.length,
       pending_fee_slips: pendingFeeSlips.length,
       enrollments: enrollments.length,
       activity_events: activityLogs.length,
@@ -1301,6 +1309,7 @@ export const getStudentHistory = async (req, res) => {
       student: refreshedStudent,
       summary,
       batch_history: batchHistory,
+      batch_shifts: batchShifts || [],
       fees: feesWithLogs,
       payment_logs: paymentLogs,
       enrollments,
@@ -1416,6 +1425,47 @@ export const getDeletedStudentArchive = async (req, res) => {
     }
 
     res.status(200).json(archive);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getBatchShifts = async (req, res) => {
+  try {
+    if (denyUnlessCanShiftStudentBatch(req, res)) return;
+
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+    const query = String(req.query.query || "").trim();
+
+    const filter = {};
+    if (query) {
+      const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      filter.$or = [
+        { student_name: regex },
+        { student_phone: regex },
+        { student_email: regex },
+        { from_batch_name: regex },
+        { to_batch_name: regex },
+        { from_roll_number: regex },
+        { to_roll_number: regex },
+        { shifted_by_name: regex },
+      ];
+    }
+
+    const result = await StudentBatchShift.paginate(filter, {
+      page,
+      limit,
+      sort: { shifted_at: -1 },
+      populate: [
+        { path: "student", select: "name phone email roll_number batch is_active" },
+        { path: "shifted_by", select: "name email role" },
+        { path: "from_batch", select: "name" },
+        { path: "to_batch", select: "name" },
+      ],
+    });
+
+    res.status(200).json(result);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -1801,6 +1851,9 @@ export const transferStudentBatch = async (req, res) => {
 
     const previousBatchId = student.batch;
     const oldRollNumber = student.roll_number;
+    const previousBatch = previousBatchId
+      ? await Batch.findById(previousBatchId).select("name")
+      : null;
 
     student.batch = batch;
     
@@ -1813,19 +1866,46 @@ export const transferStudentBatch = async (req, res) => {
 
     await student.save();
 
+    const actorUserId = getRequestUserId(req);
+    const actorUser = actorUserId
+      ? await User.findById(actorUserId).select("name email role")
+      : null;
+
+    await StudentBatchShift.create({
+      student: student._id,
+      student_name: student.name || "",
+      student_phone: student.phone || "",
+      student_email: student.email || "",
+      from_batch: previousBatchId || null,
+      from_batch_name: previousBatch?.name || (previousBatchId ? "Unknown batch" : "Unassigned"),
+      to_batch: batchRecord._id,
+      to_batch_name: batchRecord.name || "",
+      from_roll_number: oldRollNumber || "",
+      to_roll_number: newRollNumber || "",
+      shifted_by: actorUserId || null,
+      shifted_by_name: actorUser?.name || "",
+      shifted_by_email: actorUser?.email || "",
+      shifted_by_role: req.user?.user?.role || actorUser?.role || "",
+      shifted_at: new Date(),
+    });
+
     await logActivity({
       req,
-      action: "update",
+      action: "batch_shift",
       module: "students",
-      description: `Transferred student ${student.name} to batch ${batchRecord.name} and assigned new roll number ${newRollNumber} (was ${oldRollNumber || 'none'})`,
+      description: `Shifted student ${student.name} from ${
+        previousBatch?.name || "Unassigned"
+      } (${oldRollNumber || "no roll"}) to ${batchRecord.name} (${newRollNumber})`,
       targetId: student._id,
       targetType: "Student",
       metadata: {
         previousBatchId,
+        previousBatchName: previousBatch?.name || "",
         newBatchId: batchRecord._id,
+        newBatchName: batchRecord.name,
         oldRollNumber,
-        newRollNumber
-      }
+        newRollNumber,
+      },
     });
 
     const updatedStudent = await Student.findById(id).populate("batch");

@@ -1,12 +1,15 @@
 import Role from "../models/roles.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import { ensureAccountsRole } from "../utils/ensureAccountsRole.js";
 dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET;
 
 export const getRoles = async (req, res) => {
   const { query } = req.query;
   try {
+    await ensureAccountsRole();
+
     const searchQuery = query ? query : "";
     const roles = await Role.paginate(
       {

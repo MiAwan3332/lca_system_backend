@@ -91,7 +91,7 @@ export const isSecrateSuperAdminRole = (req) => {
   );
 };
 
-/** Delete student — only vice-principle, principle, ceo, superadmin, secratesuperadmin. */
+/** Delete / shift student — VP, Principal, CEO, Super Admin, Accounts. */
 export const canDeleteStudentRole = (req) => {
   const role = normalizeRole(getRequestRole(req));
   if (!role) return false;
@@ -105,7 +105,8 @@ export const canDeleteStudentRole = (req) => {
     compact === "superadmin" ||
     compact === "superadmindevelopment" ||
     compact === "secrateadmin" ||
-    compact === "secratesuperadmin"
+    compact === "secratesuperadmin" ||
+    compact === "accounts"
   );
 };
 
@@ -121,7 +122,7 @@ export const denyUnlessCanDeleteStudent = (req, res) => {
   if (canDeleteStudentRole(req)) return false;
   res.status(403).json({
     message:
-      "Only Vice Principle, Principle, CEO, Super Admin, or Secrate Super Admin can delete students",
+      "Only Vice Principle, Principle, CEO, Super Admin, Secrate Super Admin, or Accounts can delete students",
   });
   return true;
 };
@@ -130,7 +131,7 @@ export const denyUnlessCanShiftStudentBatch = (req, res) => {
   if (canDeleteStudentRole(req)) return false;
   res.status(403).json({
     message:
-      "Only Vice Principle, Principle, CEO, Super Admin, or Secrate Super Admin can shift student batch",
+      "Only Vice Principle, Principle, CEO, Super Admin, Secrate Super Admin, or Accounts can shift student batch",
   });
   return true;
 };

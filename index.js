@@ -41,6 +41,7 @@ import whatsappRoutes from './routes/whatsapp.js';
 import { startInstallmentReminderScheduler } from './utils/feeInstallmentReminders.js';
 import { normalizeStoredAdmissionDates } from './utils/admissionDate.js';
 import { startWhatsAppQueueWorker } from './utils/whatsappQueue.js';
+import { ensureAccountsRole } from './utils/ensureAccountsRole.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -95,6 +96,15 @@ mongoose.connect(CONNECTION_URL)
         app.listen(PORT, () => console.log(`Server Running on Port: http://localhost:${PORT}`));
         startInstallmentReminderScheduler();
         startWhatsAppQueueWorker();
+        ensureAccountsRole()
+            .then((role) => {
+                if (role?._id) {
+                    console.log(`Accounts role ready (${role.name})`);
+                }
+            })
+            .catch((error) =>
+                console.error(`Accounts role ensure failed: ${error.message}`)
+            );
         normalizeStoredAdmissionDates()
             .then((updated) => {
                 if (updated > 0) {

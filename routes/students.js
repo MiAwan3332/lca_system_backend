@@ -25,6 +25,7 @@ import {
   getStudentHistory,
   getDeletedStudents,
   getDeletedStudentArchive,
+  getBatchShifts,
 } from '../controllers/students.js';
 import auth from '../middlewares/auth.js';
 
@@ -34,6 +35,7 @@ const router = express.Router();
 router.get('/',auth,getStudents)
 router.get('/deletion-archives', auth, getDeletedStudents);
 router.get('/deletion-archives/:id', auth, getDeletedStudentArchive);
+router.get('/batch-shifts', auth, getBatchShifts);
 router.post('/change-password/:id', auth, changeStudentPassword);
 router.get('/batch/:batchId', auth, getStudentsByBatch);
 router.post('/batch/:batchId/toggle-status', auth, toggleBatchStudentsStatus);
