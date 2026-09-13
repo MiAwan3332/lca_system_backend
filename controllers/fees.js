@@ -1444,7 +1444,7 @@ export const getFinanceReport = async (req, res) => {
         }
 
         const studentFeeSelect =
-            "name _id email paid_fee pending_fee total_fee image roll_number";
+            "name _id email phone paid_fee pending_fee total_fee cash_amount online_amount image roll_number";
         const batchFeeSelect = "name batch_fee";
 
         const transactions = await FeeLog.find(transactionFilter)
@@ -1511,6 +1511,7 @@ export const getFinanceReport = async (req, res) => {
                 action_by: log.action_by?.name || "N/A",
                 student_name: studentDoc?.name || "N/A",
                 student_id: studentDoc?._id?.toString() || "N/A",
+                student_phone: studentDoc?.phone || "",
                 student_image: studentDoc?.image || null,
                 roll_number: studentDoc?.roll_number || null,
                 batch_name: log.fee?.batch?.name || "N/A",
@@ -1534,6 +1535,8 @@ export const getFinanceReport = async (req, res) => {
                         ? Number(log.fee?.amount) || 0
                         : pendingFee,
                 has_pending_dues: pendingFee > 0,
+                student_cash_amount: Number(studentDoc?.cash_amount) || 0,
+                student_online_amount: Number(studentDoc?.online_amount) || 0,
             };
         });
 
@@ -1617,6 +1620,7 @@ export const getFinanceReport = async (req, res) => {
                 action_by: "System",
                 student_name: fee.student?.name || "N/A",
                 student_id: fee.student?._id?.toString() || "N/A",
+                student_phone: fee.student?.phone || "",
                 batch_name: fee.batch?.name || "N/A",
                 program: fee.batch?.name || "N/A",
                 title: null,
@@ -1632,6 +1636,8 @@ export const getFinanceReport = async (req, res) => {
                 pending_amount: pendingFee,
                 fee_pending_amount: Number(fee.amount) || 0,
                 has_pending_dues: true,
+                student_cash_amount: Number(fee.student?.cash_amount) || 0,
+                student_online_amount: Number(fee.student?.online_amount) || 0,
             };
         });
 
@@ -1645,6 +1651,7 @@ export const getFinanceReport = async (req, res) => {
             action_by: expense.approved_by?.name || "N/A",
             student_name: expense.title,
             student_id: "N/A",
+            student_phone: "",
             batch_name: expense.category,
             program: expense.category || "Institutional Expense",
             title: expense.title,
@@ -1660,6 +1667,8 @@ export const getFinanceReport = async (req, res) => {
             pending_amount: 0,
             fee_pending_amount: 0,
             has_pending_dues: false,
+            student_cash_amount: 0,
+            student_online_amount: 0,
         }));
 
         const mergedTransactions = [

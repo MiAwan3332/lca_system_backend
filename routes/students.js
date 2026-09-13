@@ -23,6 +23,8 @@ import {
   toggleStudentStatus,
   toggleBatchStudentsStatus,
   getStudentHistory,
+  getDeletedStudents,
+  getDeletedStudentArchive,
 } from '../controllers/students.js';
 import auth from '../middlewares/auth.js';
 
@@ -30,6 +32,8 @@ const router = express.Router();
 
 //make routes with auth middle ware
 router.get('/',auth,getStudents)
+router.get('/deletion-archives', auth, getDeletedStudents);
+router.get('/deletion-archives/:id', auth, getDeletedStudentArchive);
 router.post('/change-password/:id', auth, changeStudentPassword);
 router.get('/batch/:batchId', auth, getStudentsByBatch);
 router.post('/batch/:batchId/toggle-status', auth, toggleBatchStudentsStatus);

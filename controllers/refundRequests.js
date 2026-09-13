@@ -36,8 +36,14 @@ export const getRefundRequests = async (req, res) => {
     } = req.query;
 
     const filter = {};
-    if (status) {
-      filter.status = status;
+    const statusValue = String(status || "").trim();
+    if (statusValue === "Refunded") {
+      filter.is_refunded = true;
+    } else if (statusValue === "AwaitingRefund") {
+      filter.status = "Approved";
+      filter.is_refunded = { $ne: true };
+    } else if (statusValue) {
+      filter.status = statusValue;
     }
     if (query) {
       filter.$or = [
@@ -58,17 +64,20 @@ export const getRefundRequests = async (req, res) => {
 
     const result = await RefundRequest.paginate(filter, options);
 
-    const [pendingCount, approvedCount, rejectedCount] = await Promise.all([
-      RefundRequest.countDocuments({ status: "Pending" }),
-      RefundRequest.countDocuments({ status: "Approved" }),
-      RefundRequest.countDocuments({ status: "Rejected" }),
-    ]);
+    const [pendingCount, approvedCount, rejectedCount, refundedCount] =
+      await Promise.all([
+        RefundRequest.countDocuments({ status: "Pending" }),
+        RefundRequest.countDocuments({ status: "Approved" }),
+        RefundRequest.countDocuments({ status: "Rejected" }),
+        RefundRequest.countDocuments({ is_refunded: true }),
+      ]);
 
     res.status(200).json({
       ...result,
       pendingCount,
       approvedCount,
       rejectedCount,
+      refundedCount,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

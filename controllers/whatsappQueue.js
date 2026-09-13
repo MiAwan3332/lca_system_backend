@@ -1,6 +1,7 @@
 import Student from "../models/students.js";
 import Qualifier from "../models/qualifiers.js";
 import Batch from "../models/batches.js";
+import Fee from "../models/fees.js";
 import WhatsAppQueuedMessage from "../models/whatsappQueuedMessage.js";
 import {
   buildQualifierTemplateVars,
@@ -19,6 +20,53 @@ import {
 } from "../utils/whatsappQueue.js";
 
 const trimOrEmpty = (value) => String(value ?? "").trim();
+
+const loadNextInstallmentByStudent = async (studentIds = []) => {
+  const ids = (studentIds || []).filter(Boolean);
+  if (!ids.length) return {};
+
+  const pendingFees = await Fee.find({
+    student: { $in: ids },
+    status: "Pending",
+    amount: { $gt: 0 },
+    due_date: { $ne: null, $exists: true, $nin: ["", null] },
+  })
+    .select("student due_date")
+    .sort({ due_date: 1 })
+    .lean();
+
+  const nextByStudent = {};
+  for (const fee of pendingFees) {
+    const sid = fee.student?.toString?.() || String(fee.student);
+    if (!nextByStudent[sid] && fee.due_date) {
+      nextByStudent[sid] = fee.due_date;
+    }
+  }
+  return nextByStudent;
+};
+
+const mapStudentRecipients = async (students, batch) => {
+  const nextByStudent = await loadNextInstallmentByStudent(
+    students.map((student) => student._id)
+  );
+
+  return students.map((student) => {
+    const sid = String(student._id);
+    return {
+      name: student.name || "",
+      phone: student.phone || "",
+      recipient_type: "student",
+      recipient_id: student._id,
+      batch: batch._id,
+      batch_name: batch.name || "",
+      vars: buildStudentTemplateVars({
+        student,
+        batch,
+        nextInstallmentDate: nextByStudent[sid] || null,
+      }),
+    };
+  });
+};
 
 export const listWhatsAppQueue = async (req, res) => {
   try {
@@ -144,23 +192,28 @@ const loadAudienceRecipients = async ({
     return { error: "Selected batch not found" };
   }
 
-  if (audienceKey === "students") {
-    const students = await Student.find({
+  if (audienceKey === "students" || audienceKey === "pending_dues_students") {
+    const studentFilter = {
       batch: batchId,
       is_active: { $ne: false },
-    })
-      .select("name phone cnic roll_number total_fee paid_fee pending_fee admission_date batch")
+    };
+    if (audienceKey === "pending_dues_students") {
+      studentFilter.pending_fee = { $gt: 0 };
+    }
+
+    const students = await Student.find(studentFilter)
+      .select(
+        "name phone cnic roll_number total_fee paid_fee pending_fee admission_date batch"
+      )
       .lean();
 
-    return students.map((student) => ({
-      name: student.name || "",
-      phone: student.phone || "",
-      recipient_type: "student",
-      recipient_id: student._id,
-      batch: batch._id,
-      batch_name: batch.name || "",
-      vars: buildStudentTemplateVars({ student, batch }),
-    }));
+    if (audienceKey === "pending_dues_students" && students.length === 0) {
+      return {
+        error: "No students with pending dues found in this batch",
+      };
+    }
+
+    return mapStudentRecipients(students, batch);
   }
 
   if (audienceKey === "qualifiers") {
@@ -184,7 +237,10 @@ const loadAudienceRecipients = async ({
     }));
   }
 
-  return { error: "Audience must be students or qualifiers" };
+  return {
+    error:
+      "Audience must be students, pending_dues_students, or qualifiers",
+  };
 };
 
 /** Enqueue many WhatsApp messages (processed one-by-one with delay). */

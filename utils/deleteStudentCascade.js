@@ -15,19 +15,41 @@ import QuizAttempt from "../models/quizAttempts.js";
 import CourseQuizAttempt from "../models/courseQuizAttempts.js";
 import InterviewPanel from "../models/interviewPanel.js";
 import AdmissionSlipVerification from "../models/admissionSlipVerification.js";
+import {
+  attachCascadeSummaryToArchive,
+  createStudentDeletionArchive,
+  resolveDeletionActor,
+} from "./studentDeletionArchive.js";
 
 const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
 
 /**
  * Permanently remove a student and all linked finance / LMS / account data.
- * Super Admin only — called from deleteStudent controller.
+ * Archives complete student + finance snapshot and deletion actor first.
+ *
+ * @param {string|ObjectId} studentId
+ * @param {object} [options]
+ * @param {import("express").Request} [options.req]
+ * @param {object} [options.actor] - pre-resolved deletion actor
+ * @param {"student_delete"|"batch_delete"|"other"} [options.deletionSource]
+ * @param {string} [options.deletionReason]
  */
-export const deleteStudentCascade = async (studentId) => {
+export const deleteStudentCascade = async (studentId, options = {}) => {
   if (!studentId || !mongoose.Types.ObjectId.isValid(String(studentId))) {
     throw new Error("Invalid student id");
   }
 
-  const student = await Student.findById(studentId);
+  const {
+    req = null,
+    actor: actorOverride = null,
+    deletionSource = "student_delete",
+    deletionReason = "",
+  } = options;
+
+  const student = await Student.findById(studentId).populate(
+    "batch",
+    "name batch_fee is_active"
+  );
   if (!student) {
     throw new Error("Student not found");
   }
@@ -37,10 +59,18 @@ export const deleteStudentCascade = async (studentId) => {
   const phoneDigits = digitsOnly(student.phone);
   const cnic = String(student.cnic || "").trim();
 
+  const actor = await resolveDeletionActor(req, actorOverride);
+
+  // Snapshot identity + complete finance BEFORE any deletes.
+  const archive = await createStudentDeletionArchive({
+    student,
+    actor,
+    deletionSource,
+    deletionReason,
+  });
+
   const user =
-    (email
-      ? await User.findOne({ email, role: "student" })
-      : null) ||
+    (email ? await User.findOne({ email, role: "student" }) : null) ||
     (email ? await User.findOne({ email }) : null);
 
   const userId = user?._id || null;
@@ -178,9 +208,12 @@ export const deleteStudentCascade = async (studentId) => {
 
   await Student.findByIdAndDelete(id);
 
-  return {
+  const summary = {
     student_id: String(id),
     student_name: student.name,
+    archive_id: archive?._id ? String(archive._id) : null,
+    deleted_by: actor.deleted_by ? String(actor.deleted_by) : null,
+    deleted_by_name: actor.deleted_by_name || "",
     user_deleted: userDeleted,
     finance: {
       fees: feesDeleted.deletedCount || 0,
@@ -203,6 +236,12 @@ export const deleteStudentCascade = async (studentId) => {
       interview_bookings_cleared: interviewBookingsCleared,
     },
   };
+
+  if (archive?._id) {
+    await attachCascadeSummaryToArchive(archive._id, summary);
+  }
+
+  return summary;
 };
 
 export default deleteStudentCascade;

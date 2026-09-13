@@ -49,11 +49,18 @@ const resolveQualifierLoginEmail = (qualifier) => {
 /**
  * Permanently remove a batch, all enrolled students (with finance),
  * and batch-scoped LMS / qualifier / queue data.
+ *
+ * @param {string|ObjectId} batchId
+ * @param {object} [options]
+ * @param {import("express").Request} [options.req]
+ * @param {object} [options.actor]
  */
-export const deleteBatchCascade = async (batchId) => {
+export const deleteBatchCascade = async (batchId, options = {}) => {
   if (!batchId || !mongoose.Types.ObjectId.isValid(String(batchId))) {
     throw new Error("Invalid batch id");
   }
+
+  const { req = null, actor = null } = options;
 
   const batch = await Batch.findById(batchId);
   if (!batch) {
@@ -66,7 +73,12 @@ export const deleteBatchCascade = async (batchId) => {
 
   for (const student of students) {
     try {
-      const summary = await deleteStudentCascade(student._id);
+      const summary = await deleteStudentCascade(student._id, {
+        req,
+        actor,
+        deletionSource: "batch_delete",
+        deletionReason: `Batch deleted: ${batch.name || id}`,
+      });
       studentSummaries.push(summary);
     } catch (error) {
       if (error?.message === "Student not found") {
