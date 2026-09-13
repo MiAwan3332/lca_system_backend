@@ -3,6 +3,14 @@ import FeeLog from "../models/feeLogs.js";
 import Student from "../models/students.js";
 import moment from "moment-timezone";
 import { normalizePaymentEvidenceForStorage } from "./paymentEvidence.js";
+import { isOnlinePaymentMethod } from "./paymentMethods.js";
+
+const logAmount = (log) =>
+  Number(log?.action_amount) || Number(log?.amount) || 0;
+
+/** Online channel for student cash/online totals (matches finance report). */
+const isOnlineChannel = (method) =>
+  isOnlinePaymentMethod(method) || method === "Bank Transfer";
 
 export async function createStudentAdmissionFee({
   studentId,
@@ -493,35 +501,69 @@ export async function syncStudentFeeFromLogs(studentId) {
   if (!student) return;
 
   const fees = await Fee.find({ student: studentId });
-  if (!fees.length) return;
-
   const feeIds = fees.map((item) => item._id);
 
-  const [createdLogs, paidLogs, discountedLogs] = await Promise.all([
-    FeeLog.find({ fee: { $in: feeIds }, action_type: "Created" }),
-    FeeLog.find({ fee: { $in: feeIds }, action_type: "Paid" }),
-    FeeLog.find({ fee: { $in: feeIds }, action_type: "Discounted" }),
-  ]);
+  const logFilter = feeIds.length
+    ? { $or: [{ fee: { $in: feeIds } }, { student: studentId }] }
+    : { student: studentId };
 
-  const totalFee = createdLogs.reduce(
-    (sum, log) => sum + (Number(log.action_amount) || Number(log.amount) || 0),
-    0
-  );
-  const paidFee = paidLogs.reduce(
-    (sum, log) => sum + (Number(log.action_amount) || 0),
-    0
-  );
-  const discountedFee = discountedLogs.reduce(
-    (sum, log) => sum + (Number(log.action_amount) || 0),
-    0
-  );
+  const logs = await FeeLog.find(logFilter);
+
+  let totalFee = 0;
+  let discountedFee = 0;
+  let paidCash = 0;
+  let paidOnline = 0;
+  let refundCash = 0;
+  let refundOnline = 0;
+
+  for (const log of logs) {
+    const amount = logAmount(log);
+    const online = isOnlineChannel(log.payment_method);
+
+    switch (log.action_type) {
+      case "Created":
+        totalFee += amount;
+        break;
+      case "Discounted":
+        discountedFee += amount;
+        break;
+      case "Paid":
+        if (online) paidOnline += amount;
+        else paidCash += amount;
+        break;
+      case "Refund":
+        if (online) refundOnline += amount;
+        else refundCash += amount;
+        break;
+      default:
+        break;
+    }
+  }
+
+  let cashAmount = paidCash - refundCash;
+  let onlineAmount = paidOnline - refundOnline;
+
+  // Prefer deducting the refund channel; spill leftover into the other
+  // so paid_fee always drops by the full refund and cash+online stay consistent.
+  if (onlineAmount < 0) {
+    cashAmount += onlineAmount;
+    onlineAmount = 0;
+  }
+  if (cashAmount < 0) {
+    onlineAmount += cashAmount;
+    cashAmount = 0;
+  }
+
   const pendingFee = fees
     .filter((item) => item.status === "Pending")
     .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
 
   student.total_fee = Math.max(totalFee - discountedFee, 0);
-  student.paid_fee = paidFee;
+  student.cash_amount = Math.max(cashAmount, 0);
+  student.online_amount = Math.max(onlineAmount, 0);
+  student.paid_fee = student.cash_amount + student.online_amount;
   student.pending_fee = Math.max(pendingFee, 0);
 
   await student.save();
+  return student;
 }

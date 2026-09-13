@@ -5,6 +5,7 @@ import {
   approveRefundRequest,
   rejectRefundRequest,
   processRefundRequest,
+  updateRefundPayout,
 } from "../controllers/refundRequests.js";
 import auth from "../middlewares/auth.js";
 
@@ -15,5 +16,6 @@ router.post("/add", auth, createRefundRequest);
 router.post("/approve/:id", auth, approveRefundRequest);
 router.post("/reject/:id", auth, rejectRefundRequest);
 router.post("/process/:id", auth, processRefundRequest);
+router.post("/update-payout/:id", auth, updateRefundPayout);
 
 export default router;

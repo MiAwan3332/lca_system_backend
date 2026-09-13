@@ -6,17 +6,17 @@ import FeeLog from "../models/feeLogs.js";
 import {
   canCreateRefundRequest,
   canDecideRefundRequest,
+  canUpdateRefundPayout,
   getRequestRoleName,
 } from "../utils/refundAccess.js";
 import {
   asUploadedFileArray,
+  getPaymentEvidenceUrls,
   normalizePaymentEvidenceForStorage,
   uploadPaymentEvidenceFiles,
 } from "../utils/paymentEvidence.js";
-import {
-  isOnlinePaymentMethod,
-  requiresPaymentEvidence,
-} from "../utils/paymentMethods.js";
+import { requiresPaymentEvidence } from "../utils/paymentMethods.js";
+import { syncStudentFeeFromLogs } from "../utils/feePayment.js";
 
 const populateFields = [
   {
@@ -404,20 +404,8 @@ export const processRefundRequest = async (req, res) => {
     const actor = await User.findById(req.user.user.id);
     const fee = await Fee.findOne({ student: student._id }).sort({ _id: -1 });
 
-    const currentPaid = Math.round(Math.max(Number(student.paid_fee) || 0, 0));
-    const paidReduction = Math.min(refundAmount, currentPaid);
-    student.paid_fee = Math.max(0, currentPaid - paidReduction);
+    // Soft-deactivate first; channel totals synced from FeeLogs after refund log.
     student.is_active = false;
-
-    const currentCash = Math.round(Math.max(Number(student.cash_amount) || 0, 0));
-    const currentOnline = Math.round(
-      Math.max(Number(student.online_amount) || 0, 0)
-    );
-    if (isOnlinePaymentMethod(paymentMethod)) {
-      student.online_amount = Math.max(0, currentOnline - paidReduction);
-    } else {
-      student.cash_amount = Math.max(0, currentCash - paidReduction);
-    }
     await student.save();
 
     const feeLog = await FeeLog.create({
@@ -435,6 +423,10 @@ export const processRefundRequest = async (req, res) => {
       payment_evidence: refundEvidence || null,
     });
 
+    // Recalc paid_fee + cash_amount / online_amount:
+    // Online refund deducts from online; Cash refund deducts from cash.
+    await syncStudentFeeFromLogs(student._id);
+
     request.refunded_amount = refundAmount;
     request.is_refunded = true;
     request.refunded_by = actor?._id;
@@ -443,6 +435,91 @@ export const processRefundRequest = async (req, res) => {
     request.refund_payment_method = paymentMethod;
     request.refund_evidence = refundEvidence || "";
     await request.save();
+
+    const updated = await RefundRequest.findById(id).populate(populateFields);
+    res.status(200).json(updated);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * Super Admin only — update Cash/Online payout method and screenshot
+ * on an already-processed refund.
+ */
+export const updateRefundPayout = async (req, res) => {
+  try {
+    if (!canUpdateRefundPayout(getRequestRoleName(req))) {
+      return res.status(403).json({
+        message: "Only Super Admin can update refund payout details",
+      });
+    }
+
+    const { id } = req.params;
+    const request = await RefundRequest.findById(id);
+    if (!request) {
+      return res.status(404).json({ message: "Refund request not found" });
+    }
+    if (!request.is_refunded) {
+      return res.status(400).json({
+        message: "Only processed (refunded) requests can be updated here",
+      });
+    }
+
+    const paymentMethod = normalizeRefundPaymentMethod(
+      req.body?.payment_method || req.body?.refund_payment_method
+    );
+    if (paymentMethod !== "Cash" && paymentMethod !== "Online Payment") {
+      return res.status(400).json({
+        message: "Select refund payment method: Cash or Online",
+      });
+    }
+
+    const existingEvidence = getPaymentEvidenceUrls(request.refund_evidence);
+    const evidenceFiles = asUploadedFileArray(req.files?.payment_evidence);
+    let refundEvidence = normalizePaymentEvidenceForStorage(existingEvidence);
+
+    if (requiresPaymentEvidence(paymentMethod)) {
+      if (evidenceFiles.length) {
+        const urls = await uploadPaymentEvidenceFiles(
+          evidenceFiles,
+          request.student
+        );
+        const keepExisting =
+          String(req.body?.replace_evidence || "").toLowerCase() === "true"
+            ? []
+            : existingEvidence;
+        refundEvidence = normalizePaymentEvidenceForStorage([
+          ...keepExisting,
+          ...urls,
+        ]);
+      }
+      if (!getPaymentEvidenceUrls(refundEvidence).length) {
+        return res.status(400).json({
+          message: "Screenshot / receipt is required for online refunds",
+        });
+      }
+    } else {
+      refundEvidence = "";
+    }
+
+    request.refund_payment_method = paymentMethod;
+    request.refund_evidence = refundEvidence || "";
+    await request.save();
+
+    if (request.fee_log) {
+      await FeeLog.findByIdAndUpdate(request.fee_log, {
+        $set: {
+          payment_method: paymentMethod,
+          payment_evidence: refundEvidence || null,
+        },
+      });
+    }
+
+    // Recalc cash vs online after method change on the refund FeeLog.
+    if (request.student) {
+      await syncStudentFeeFromLogs(request.student);
+    }
 
     const updated = await RefundRequest.findById(id).populate(populateFields);
     res.status(200).json(updated);
