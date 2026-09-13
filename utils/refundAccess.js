@@ -31,7 +31,12 @@ export const isSuperAdminRoleName = (role) => {
 
 export const isPrincipalFamilyRoleName = (role) => {
   const compact = compactRole(role);
-  return compact === "principal" || compact === "viceprincipal";
+  return (
+    compact === "principal" ||
+    compact === "principle" ||
+    compact === "viceprincipal" ||
+    compact === "viceprinciple"
+  );
 };
 
 export const isAccountsRoleName = (role) => compactRole(role) === "accounts";

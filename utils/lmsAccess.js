@@ -151,8 +151,11 @@ export const canManageLmsContent = (req) => {
   const compact = role.replace(/\s+/g, "");
   return (
     compact === "principal" ||
+    compact === "principle" ||
     compact === "viceprincipal" ||
-    role === "vice principal"
+    compact === "viceprinciple" ||
+    role === "vice principal" ||
+    role === "vice principle"
   );
 };
 
