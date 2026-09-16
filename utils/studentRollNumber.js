@@ -1,12 +1,20 @@
 import StudentRollCounter from "../models/studentRollCounters.js";
 import Student from "../models/students.js";
+import Batch from "../models/batches.js";
+
+/** Normalize a roll nickname into a safe prefix (letters/digits). */
+export const normalizeRollNickname = (value) =>
+  String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
 
 export const extractBatchCode = (batchName) => {
   const name = String(batchName || "").trim();
   if (!name) return "B";
 
   let code = "B";
-  
+
   // 1. Try to extract the first number
   const numMatch = name.match(/(\d+)/);
   if (numMatch?.[1]) {
@@ -17,10 +25,10 @@ export const extractBatchCode = (batchName) => {
   // (e.g. "Batch 110 Online" -> "B110O", "Batch 110 On Campus" -> "B110OC")
   const words = name.replace(/[^a-zA-Z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
   const extraLetters = words
-    .filter(w => !/^\d+$/.test(w) && w.toLowerCase() !== "batch")
-    .map(w => w[0].toUpperCase())
+    .filter((w) => !/^\d+$/.test(w) && w.toLowerCase() !== "batch")
+    .map((w) => w[0].toUpperCase())
     .join("");
-  
+
   if (extraLetters) {
     code += extraLetters;
   }
@@ -32,6 +40,13 @@ export const extractBatchCode = (batchName) => {
   }
 
   return code;
+};
+
+/** Prefer batch roll nickname; fall back to auto code from batch name. */
+export const resolveBatchCode = ({ rollNickname, batchName } = {}) => {
+  const fromNickname = normalizeRollNickname(rollNickname);
+  if (fromNickname) return fromNickname;
+  return extractBatchCode(batchName);
 };
 
 const escapeRegex = (value) =>
@@ -66,12 +81,30 @@ const syncCounterToAtLeast = async (batchId, minSeq) => {
   }
 };
 
-export const getNextStudentRollNumber = async ({ batchId, batchName }) => {
+export const getNextStudentRollNumber = async ({
+  batchId,
+  batchName,
+  rollNickname,
+} = {}) => {
   if (!batchId) {
     throw new Error("Batch is required to generate roll number");
   }
 
-  const batchCode = extractBatchCode(batchName);
+  let resolvedName = batchName;
+  let resolvedNickname = rollNickname;
+
+  if (!resolvedName || resolvedNickname == null || resolvedNickname === "") {
+    const batch = await Batch.findById(batchId).select("name roll_nickname").lean();
+    if (!resolvedName) resolvedName = batch?.name || "";
+    if (resolvedNickname == null || resolvedNickname === "") {
+      resolvedNickname = batch?.roll_nickname || "";
+    }
+  }
+
+  const batchCode = resolveBatchCode({
+    rollNickname: resolvedNickname,
+    batchName: resolvedName,
+  });
   const maxExistingSeq = await getMaxRollSeqForBatch(batchId, batchCode);
   await syncCounterToAtLeast(batchId, maxExistingSeq);
 
@@ -93,7 +126,7 @@ export const getNextStudentRollNumber = async ({ batchId, batchName }) => {
     }
 
     const candidate = `${batchCode}-${seq}`;
-    
+
     // Ensure the generated roll number is globally unique across all batches
     const existsGlobally = await Student.exists({ roll_number: candidate });
     if (!existsGlobally) {
@@ -112,6 +145,7 @@ export const getNextStudentRollNumber = async ({ batchId, batchName }) => {
 export const backfillMissingRollNumbersForBatch = async ({
   batchId,
   batchName,
+  rollNickname,
 }) => {
   if (!batchId) return [];
 
@@ -128,7 +162,11 @@ export const backfillMissingRollNumbersForBatch = async ({
 
   const assigned = [];
   for (const student of missing) {
-    const rollNumber = await getNextStudentRollNumber({ batchId, batchName });
+    const rollNumber = await getNextStudentRollNumber({
+      batchId,
+      batchName,
+      rollNickname,
+    });
     await Student.updateOne(
       { _id: student._id },
       { $set: { roll_number: rollNumber } }

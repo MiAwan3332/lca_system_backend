@@ -19,6 +19,7 @@ export async function createStudentAdmissionFee({
   payingNow = 0,
   discountAmount = 0,
   discountDescription = "Discount applied on student admission",
+  createdDescription = "Fee assigned on student admission",
   actionUserId,
   paymentMethod,
   paymentEvidence,
@@ -87,7 +88,7 @@ export async function createStudentAdmissionFee({
     action_by: actionUserId,
     fee: newFee._id,
     student: studentId,
-    description: "Fee assigned on student admission",
+    description: createdDescription || "Fee assigned on student admission",
   }).save();
 
   if (discount > 0) {
@@ -152,7 +153,7 @@ export async function createStudentAdmissionFee({
         await updatedFee.save();
       }
     }
-  } else if (discount > 0) {
+  } else {
     await syncStudentFeeFromLogs(studentId);
   }
 
