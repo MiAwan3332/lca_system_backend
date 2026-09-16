@@ -74,6 +74,11 @@ const studentSchema = mongoose.Schema({
     type: String,
     default: "",
   },
+  /** Admission / fee discount reason captured at add or later discounts. */
+  discount_remarks: {
+    type: String,
+    default: "",
+  },
   is_active: {
     type: Boolean,
     default: true,

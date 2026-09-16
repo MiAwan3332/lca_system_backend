@@ -19,6 +19,7 @@ export async function createStudentAdmissionFee({
   payingNow = 0,
   discountAmount = 0,
   discountDescription = "Discount applied on student admission",
+  createdDescription = "Fee assigned on student admission",
   actionUserId,
   paymentMethod,
   paymentEvidence,
@@ -87,7 +88,7 @@ export async function createStudentAdmissionFee({
     action_by: actionUserId,
     fee: newFee._id,
     student: studentId,
-    description: "Fee assigned on student admission",
+    description: createdDescription || "Fee assigned on student admission",
   }).save();
 
   if (discount > 0) {
@@ -152,7 +153,7 @@ export async function createStudentAdmissionFee({
         await updatedFee.save();
       }
     }
-  } else if (discount > 0) {
+  } else {
     await syncStudentFeeFromLogs(studentId);
   }
 
@@ -362,6 +363,18 @@ export async function collectStudentPendingPayment({
       actionUserId,
       nextInstallmentDate,
     });
+
+    const note = String(discountDescription || trimmedRemarks || "").trim();
+    if (note) {
+      const studentDoc = await Student.findById(studentId).select(
+        "discount_remarks"
+      );
+      if (studentDoc) {
+        const existing = String(studentDoc.discount_remarks || "").trim();
+        studentDoc.discount_remarks = existing ? `${existing} | ${note}` : note;
+        await studentDoc.save();
+      }
+    }
   }
 
   let pendingFees = await Fee.find({

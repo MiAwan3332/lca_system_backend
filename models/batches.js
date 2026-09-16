@@ -4,6 +4,11 @@ import mongoosePaginate from "mongoose-paginate-v2";
 const batchesSchema = mongoose.Schema({
   name: String,
   description: String,
+  /** Short code used as student roll-number prefix, e.g. CSS → CSS-1 */
+  roll_nickname: {
+    type: String,
+    default: "",
+  },
   startdate: String,
   enddate: String,
   class_start_time: String,

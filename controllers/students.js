@@ -317,6 +317,10 @@ export const addStudent = async (req, res) => {
       admission_date,
       batch: batch || undefined,
       remarks: remarks || "",
+      discount_remarks:
+        discountAmount > 0
+          ? discountDescription || "Discount applied on student admission"
+          : "",
       total_fee: totalFee,
       paid_fee: payingNow,
       pending_fee: pendingFee,
@@ -617,6 +621,11 @@ const importStudentFromRow = async ({
             total_fee: payableFee,
             paid_fee: validated.paidFee,
             pending_fee: Math.max(payableFee - validated.paidFee, 0),
+            ...(discountAmount > 0
+              ? {
+                  discount_remarks: `Import discount: batch fee ${batchFee} minus sheet total ${sheetTotal}`,
+                }
+              : {}),
           },
         }
       );
@@ -994,6 +1003,7 @@ export const getStudentsByBatch = async (req, res) => {
       });
       
       const historyByStudent = {};
+      const discountRemarksByStudent = {};
       paymentLogs.forEach(log => {
         let sid = log.student?.toString();
         if (!sid && log.fee) {
@@ -1009,6 +1019,16 @@ export const getStudentsByBatch = async (req, res) => {
           if (dateStr) entry += ` on ${dateStr}`;
           
           historyByStudent[sid].push(entry);
+
+          if (log.action_type === "Discounted") {
+            const note = String(log.description || "").trim();
+            if (note) {
+              if (!discountRemarksByStudent[sid]) {
+                discountRemarksByStudent[sid] = [];
+              }
+              discountRemarksByStudent[sid].push(note);
+            }
+          }
         }
       });
       
@@ -1016,6 +1036,10 @@ export const getStudentsByBatch = async (req, res) => {
         const json = doc.toJSON();
         const hist = historyByStudent[json._id.toString()];
         json.finance_history = hist ? hist.join(" | ") : "No transactions";
+        const fromLogs = discountRemarksByStudent[json._id.toString()];
+        if (!String(json.discount_remarks || "").trim() && fromLogs?.length) {
+          json.discount_remarks = [...new Set(fromLogs)].join(" | ");
+        }
         return json;
       });
       
@@ -1305,8 +1329,23 @@ export const getStudentHistory = async (req, res) => {
       is_active: refreshedStudent.is_active !== false,
     };
 
+    const studentPayload = refreshedStudent.toObject
+      ? refreshedStudent.toObject()
+      : { ...refreshedStudent };
+    if (!String(studentPayload.discount_remarks || "").trim()) {
+      const discountNotes = paymentLogs
+        .filter((log) => log.action_type === "Discounted")
+        .map((log) => String(log.description || "").trim())
+        .filter(Boolean);
+      if (discountNotes.length) {
+        studentPayload.discount_remarks = [...new Set(discountNotes)].join(
+          " | "
+        );
+      }
+    }
+
     res.status(200).json({
-      student: refreshedStudent,
+      student: studentPayload,
       summary,
       batch_history: batchHistory,
       batch_shifts: batchShifts || [],
@@ -1810,7 +1849,12 @@ export const checkStudentFields = async (req, res) => {
 
 export const transferStudentBatch = async (req, res) => {
   const { id } = req.params;
-  const { batch } = req.body;
+  const { batch, assign_new_fee, special_selected_options } = req.body;
+  const assignNewFee =
+    assign_new_fee === true ||
+    assign_new_fee === "true" ||
+    assign_new_fee === 1 ||
+    assign_new_fee === "1";
 
   if (denyUnlessCanShiftStudentBatch(req, res)) return;
 
@@ -1837,6 +1881,12 @@ export const transferStudentBatch = async (req, res) => {
     if (batchRecord.is_active === false) {
       return res.status(400).json({ message: "Selected batch is inactive" });
     }
+    if (batchRecord.is_interview_batch === true) {
+      return res.status(400).json({
+        message:
+          "Interview batches cannot be used for students. Choose a class batch.",
+      });
+    }
 
     if (!(await canAccessBatch(req, batch))) {
       return res.status(403).json({ message: "You do not have access to this batch" });
@@ -1847,6 +1897,51 @@ export const transferStudentBatch = async (req, res) => {
       return res
         .status(409)
         .json(await buildPendingFeeBlockPayload(id, pendingAmount));
+    }
+
+    let newFeeAmount = 0;
+    let specialFeeOptions = {};
+    if (assignNewFee) {
+      const unpaidBatch = !batchIsPaid(batchRecord);
+      const isSpecialBatch = batchRecord.is_special_batch === true;
+
+      if (unpaidBatch) {
+        return res.status(400).json({
+          message:
+            "Destination batch has no fee configured. Transfer without assigning a new fee.",
+        });
+      }
+
+      if (isSpecialBatch) {
+        const parsed = parseSpecialFeeOptionsFromBatch(
+          { special_selected_options },
+          batchRecord
+        );
+        if (parsed.error) {
+          return res.status(400).json({ message: parsed.error });
+        }
+        specialFeeOptions = parsed.options;
+        newFeeAmount = parsed.totalFee;
+      } else {
+        newFeeAmount = Number(batchRecord.batch_fee) || 0;
+      }
+
+      if (!(newFeeAmount > 0)) {
+        return res.status(400).json({
+          message: "Destination batch fee must be greater than 0 to assign a new fee",
+        });
+      }
+
+      const existingDestFee = await Fee.findOne({
+        student: id,
+        batch: batchRecord._id,
+      });
+      if (existingDestFee) {
+        return res.status(400).json({
+          message:
+            "A fee record already exists for this student in the destination batch",
+        });
+      }
     }
 
     const previousBatchId = student.batch;
@@ -1864,7 +1959,25 @@ export const transferStudentBatch = async (req, res) => {
     });
     student.roll_number = newRollNumber;
 
+    if (assignNewFee && Object.keys(specialFeeOptions).length > 0) {
+      student.special_fee_options = specialFeeOptions;
+    }
+
     await student.save();
+
+    let assignedFee = null;
+    if (assignNewFee && newFeeAmount > 0) {
+      const actionUserId = req.user?.user?.id;
+      assignedFee = await createStudentAdmissionFee({
+        studentId: student._id,
+        batchId: batchRecord._id,
+        totalFee: newFeeAmount,
+        payingNow: 0,
+        discountAmount: 0,
+        createdDescription: `Fee assigned on batch shift to ${batchRecord.name || "new batch"}`,
+        actionUserId,
+      });
+    }
 
     const actorUserId = getRequestUserId(req);
     const actorUser = actorUserId
@@ -1895,7 +2008,9 @@ export const transferStudentBatch = async (req, res) => {
       module: "students",
       description: `Shifted student ${student.name} from ${
         previousBatch?.name || "Unassigned"
-      } (${oldRollNumber || "no roll"}) to ${batchRecord.name} (${newRollNumber})`,
+      } (${oldRollNumber || "no roll"}) to ${batchRecord.name} (${newRollNumber})${
+        assignNewFee ? ` and assigned new fee of Rs. ${newFeeAmount}` : ""
+      }`,
       targetId: student._id,
       targetType: "Student",
       metadata: {
@@ -1905,11 +2020,21 @@ export const transferStudentBatch = async (req, res) => {
         newBatchName: batchRecord.name,
         oldRollNumber,
         newRollNumber,
+        assign_new_fee: assignNewFee,
+        new_fee_amount: assignNewFee ? newFeeAmount : 0,
+        assigned_fee_id: assignedFee?._id || null,
       },
     });
 
     const updatedStudent = await Student.findById(id).populate("batch");
-    res.status(200).json(updatedStudent);
+    res.status(200).json({
+      ...(typeof updatedStudent.toObject === "function"
+        ? updatedStudent.toObject()
+        : updatedStudent),
+      assign_new_fee: assignNewFee,
+      new_fee_amount: assignNewFee ? newFeeAmount : 0,
+      assigned_fee_id: assignedFee?._id || null,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

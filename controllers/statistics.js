@@ -666,7 +666,15 @@ export const getBatchFinanceStats = async (req, res) => {
       is_interview_batch: { $ne: true },
     };
     if (batch_id) {
-      batchFilter._id = batch_id;
+      const ids = String(batch_id)
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (ids.length === 1) {
+        batchFilter._id = ids[0];
+      } else if (ids.length > 1) {
+        batchFilter._id = { $in: ids };
+      }
     }
 
     const activeBatches = await Batch.find(batchFilter)

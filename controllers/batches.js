@@ -170,6 +170,7 @@ export const addBatch = async (req, res) => {
   const {
     name,
     description,
+    roll_nickname,
     batch_fee,
     batch_type,
     startdate,
@@ -201,6 +202,17 @@ export const addBatch = async (req, res) => {
       return res.status(400).json({ message: parsedFees.error });
     }
 
+    const rollNickname = String(roll_nickname || "")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+    if (!rollNickname) {
+      return res.status(400).json({
+        message:
+          "Roll nickname is required (used as the student roll-number prefix)",
+      });
+    }
+
     if (!isInterviewBatch) {
       if (!class_start_time || !class_end_time) {
         return res.status(400).json({
@@ -218,6 +230,7 @@ export const addBatch = async (req, res) => {
     const newBatch = new Batch({
       name,
       description,
+      roll_nickname: rollNickname,
       batch_fee: !isPaidBatch || isSpecialBatch ? batch_fee || "0" : batch_fee,
       batch_type,
       startdate,
@@ -244,6 +257,7 @@ export const updateBatch = async (req, res) => {
   const {
     name,
     description,
+    roll_nickname,
     batch_fee,
     batch_type,
     startdate,
@@ -319,9 +333,25 @@ export const updateBatch = async (req, res) => {
       });
     }
 
+    const rollNicknameRaw =
+      roll_nickname !== undefined
+        ? roll_nickname
+        : existingBatch.roll_nickname || "";
+    const rollNickname = String(rollNicknameRaw || "")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+    if (!rollNickname) {
+      return res.status(400).json({
+        message:
+          "Roll nickname is required (used as the student roll-number prefix)",
+      });
+    }
+
     const updatePayload = {
       name,
       description,
+      roll_nickname: rollNickname,
       batch_fee: isSpecialBatch ? batch_fee || "0" : batch_fee,
       batch_type,
       startdate,
