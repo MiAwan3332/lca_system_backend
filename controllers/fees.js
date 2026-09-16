@@ -1457,8 +1457,7 @@ export const getFinanceReport = async (req, res) => {
                     { path: "batch", select: batchFeeSelect },
                 ],
             })
-            .sort({ action_date: -1 })
-            .limit(100);
+            .sort({ action_date: -1 });
 
         const approvedExpenseFilter = {
             status: "Approved",
@@ -1482,8 +1481,7 @@ export const getFinanceReport = async (req, res) => {
         const approvedExpenseRecords = await Expense.find(approvedExpenseFilter)
             .populate("created_by", "name email")
             .populate("approved_by", "name email")
-            .sort({ approved_at: -1 })
-            .limit(100);
+            .sort({ approved_at: -1 });
 
         const feeTransactions = transactions.map((log) => {
             const studentDoc = log.fee?.student || log.student;
@@ -1595,8 +1593,7 @@ export const getFinanceReport = async (req, res) => {
             : await Fee.find(pendingFeeFilter)
                   .populate("student", studentFeeSelect)
                   .populate("batch", batchFeeSelect)
-                  .sort({ due_date: 1 })
-                  .limit(100);
+                  .sort({ due_date: 1 });
 
         const pendingDueTransactions = pendingFeeRecords.map((fee) => {
             const paidFee = Number(fee.student?.paid_fee) || 0;
@@ -1675,9 +1672,7 @@ export const getFinanceReport = async (req, res) => {
             ...feeTransactions,
             ...pendingDueTransactions,
             ...expenseTransactions,
-        ]
-            .sort((a, b) => new Date(b.action_date) - new Date(a.action_date))
-            .slice(0, 150);
+        ].sort((a, b) => new Date(b.action_date) - new Date(a.action_date));
 
         res.status(200).json({
             period: hasCustomRange ? effectivePeriod : period,
