@@ -317,6 +317,10 @@ export const addStudent = async (req, res) => {
       admission_date,
       batch: batch || undefined,
       remarks: remarks || "",
+      discount_remarks:
+        discountAmount > 0
+          ? discountDescription || "Discount applied on student admission"
+          : "",
       total_fee: totalFee,
       paid_fee: payingNow,
       pending_fee: pendingFee,
@@ -617,6 +621,11 @@ const importStudentFromRow = async ({
             total_fee: payableFee,
             paid_fee: validated.paidFee,
             pending_fee: Math.max(payableFee - validated.paidFee, 0),
+            ...(discountAmount > 0
+              ? {
+                  discount_remarks: `Import discount: batch fee ${batchFee} minus sheet total ${sheetTotal}`,
+                }
+              : {}),
           },
         }
       );
@@ -994,6 +1003,7 @@ export const getStudentsByBatch = async (req, res) => {
       });
       
       const historyByStudent = {};
+      const discountRemarksByStudent = {};
       paymentLogs.forEach(log => {
         let sid = log.student?.toString();
         if (!sid && log.fee) {
@@ -1009,6 +1019,16 @@ export const getStudentsByBatch = async (req, res) => {
           if (dateStr) entry += ` on ${dateStr}`;
           
           historyByStudent[sid].push(entry);
+
+          if (log.action_type === "Discounted") {
+            const note = String(log.description || "").trim();
+            if (note) {
+              if (!discountRemarksByStudent[sid]) {
+                discountRemarksByStudent[sid] = [];
+              }
+              discountRemarksByStudent[sid].push(note);
+            }
+          }
         }
       });
       
@@ -1016,6 +1036,10 @@ export const getStudentsByBatch = async (req, res) => {
         const json = doc.toJSON();
         const hist = historyByStudent[json._id.toString()];
         json.finance_history = hist ? hist.join(" | ") : "No transactions";
+        const fromLogs = discountRemarksByStudent[json._id.toString()];
+        if (!String(json.discount_remarks || "").trim() && fromLogs?.length) {
+          json.discount_remarks = [...new Set(fromLogs)].join(" | ");
+        }
         return json;
       });
       
@@ -1305,8 +1329,23 @@ export const getStudentHistory = async (req, res) => {
       is_active: refreshedStudent.is_active !== false,
     };
 
+    const studentPayload = refreshedStudent.toObject
+      ? refreshedStudent.toObject()
+      : { ...refreshedStudent };
+    if (!String(studentPayload.discount_remarks || "").trim()) {
+      const discountNotes = paymentLogs
+        .filter((log) => log.action_type === "Discounted")
+        .map((log) => String(log.description || "").trim())
+        .filter(Boolean);
+      if (discountNotes.length) {
+        studentPayload.discount_remarks = [...new Set(discountNotes)].join(
+          " | "
+        );
+      }
+    }
+
     res.status(200).json({
-      student: refreshedStudent,
+      student: studentPayload,
       summary,
       batch_history: batchHistory,
       batch_shifts: batchShifts || [],

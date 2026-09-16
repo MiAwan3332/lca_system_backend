@@ -362,6 +362,18 @@ export async function collectStudentPendingPayment({
       actionUserId,
       nextInstallmentDate,
     });
+
+    const note = String(discountDescription || trimmedRemarks || "").trim();
+    if (note) {
+      const studentDoc = await Student.findById(studentId).select(
+        "discount_remarks"
+      );
+      if (studentDoc) {
+        const existing = String(studentDoc.discount_remarks || "").trim();
+        studentDoc.discount_remarks = existing ? `${existing} | ${note}` : note;
+        await studentDoc.save();
+      }
+    }
   }
 
   let pendingFees = await Fee.find({

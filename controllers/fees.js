@@ -792,6 +792,19 @@ export const discountFee = async (req, res) => {
         await fee.save();
         await syncStudentFeeFromLogs(fee.student);
 
+        if (fee.student) {
+          const student = await Student.findById(fee.student).select(
+            "discount_remarks"
+          );
+          if (student) {
+            const existing = String(student.discount_remarks || "").trim();
+            student.discount_remarks = existing
+              ? `${existing} | ${trimmedDescription}`
+              : trimmedDescription;
+            await student.save();
+          }
+        }
+
         res.status(200).json(fee);
     } catch (error) {
         res.status(500).json({ message: error.message });
