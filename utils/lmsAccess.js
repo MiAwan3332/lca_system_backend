@@ -163,6 +163,9 @@ export const getRequestUserId = (req) => req.user?.user?.id || null;
 
 export const getManagedBatchIds = async (req) => {
   if (isFullAccessRole(req)) return null;
+  // Accounts, Principal, VP, Information Office, and other institution staff
+  // manage students across all batches (e.g. shift batch).
+  if (isInstitutionAdmin(req)) return null;
   if (isTeacherRole(req)) {
     const scope = await getTeacherScope(req);
     return scope?.batchIds || [];
@@ -172,6 +175,7 @@ export const getManagedBatchIds = async (req) => {
 
 export const getManagedCourseIds = async (req) => {
   if (isFullAccessRole(req)) return null;
+  if (isInstitutionAdmin(req)) return null;
   if (isTeacherRole(req)) {
     const scope = await getTeacherScope(req);
     return scope?.courseIds || [];
