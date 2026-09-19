@@ -651,7 +651,7 @@ export const getStatistics = async (req, res) => {
 
 /**
  * Batch-wise fee summary for active batches only:
- * total fee created, discount, received, pending dues.
+ * active students, total fee created, discount, received, refund, pending dues.
  */
 export const getBatchFinanceStats = async (req, res) => {
   try {
@@ -686,35 +686,70 @@ export const getBatchFinanceStats = async (req, res) => {
       return res.status(200).json({
         batches: [],
         totals: {
+          active_students: 0,
           total_fee_created: 0,
           discount: 0,
           received: 0,
+          refund: 0,
           pending: 0,
         },
       });
     }
 
     const activeBatchIds = activeBatches.map((batch) => batch._id);
-    const fees = await Fee.find({ batch: { $in: activeBatchIds } })
-      .select("_id batch")
-      .lean();
+
+    const [activeStudentCounts, fees] = await Promise.all([
+      Student.aggregate([
+        {
+          $match: {
+            batch: { $in: activeBatchIds },
+            is_active: { $ne: false },
+          },
+        },
+        {
+          $group: {
+            _id: "$batch",
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+      Fee.find({ batch: { $in: activeBatchIds } })
+        .select("_id batch")
+        .lean(),
+    ]);
+
+    const studentCountByBatch = new Map(
+      activeStudentCounts.map((row) => [String(row._id), Number(row.count) || 0])
+    );
 
     if (!fees.length) {
-      return res.status(200).json({
-        batches: activeBatches.map((batch) => ({
-          batch_id: String(batch._id),
-          batch_name: batch.name || "Untitled batch",
-          total_fee_created: 0,
-          discount: 0,
-          received: 0,
-          pending: 0,
-        })),
-        totals: {
-          total_fee_created: 0,
-          discount: 0,
-          received: 0,
-          pending: 0,
+      const emptyBatches = activeBatches.map((batch) => ({
+        batch_id: String(batch._id),
+        batch_name: batch.name || "Untitled batch",
+        active_students: studentCountByBatch.get(String(batch._id)) || 0,
+        total_fee_created: 0,
+        discount: 0,
+        received: 0,
+        refund: 0,
+        pending: 0,
+      }));
+      const emptyTotals = emptyBatches.reduce(
+        (acc, row) => {
+          acc.active_students += row.active_students;
+          return acc;
         },
+        {
+          active_students: 0,
+          total_fee_created: 0,
+          discount: 0,
+          received: 0,
+          refund: 0,
+          pending: 0,
+        }
+      );
+      return res.status(200).json({
+        batches: emptyBatches,
+        totals: emptyTotals,
       });
     }
 
@@ -765,6 +800,7 @@ export const getBatchFinanceStats = async (req, res) => {
       byBatch.set(String(batch._id), {
         batch_id: String(batch._id),
         batch_name: batch.name || "Untitled batch",
+        active_students: studentCountByBatch.get(String(batch._id)) || 0,
         created: 0,
         discounted: 0,
         paid: 0,
@@ -803,33 +839,40 @@ export const getBatchFinanceStats = async (req, res) => {
     const batches = Array.from(byBatch.values()).map((bucket) => {
       const total_fee_created = Math.round(bucket.created);
       const discount = Math.round(bucket.discounted);
+      const refund = Math.round(bucket.refunded);
       const received = Math.round(bucket.paid - bucket.refunded);
       const netRecord = Math.round(
         bucket.created - bucket.discounted - bucket.deleted - bucket.refunded
       );
-      const pending = Math.max(netRecord - received, 0);
+      const pending = Math.max(netRecord - Math.max(received, 0), 0);
       return {
         batch_id: bucket.batch_id,
         batch_name: bucket.batch_name,
+        active_students: bucket.active_students || 0,
         total_fee_created,
         discount,
         received: Math.max(received, 0),
+        refund,
         pending,
       };
     });
 
     const totals = batches.reduce(
       (acc, row) => {
+        acc.active_students += row.active_students;
         acc.total_fee_created += row.total_fee_created;
         acc.discount += row.discount;
         acc.received += row.received;
+        acc.refund += row.refund;
         acc.pending += row.pending;
         return acc;
       },
       {
+        active_students: 0,
         total_fee_created: 0,
         discount: 0,
         received: 0,
+        refund: 0,
         pending: 0,
       }
     );
