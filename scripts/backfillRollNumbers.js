@@ -22,13 +22,15 @@ async function main() {
   await mongoose.connect(mongoUri);
   console.log("Connected to MongoDB");
 
-  const batches = await Batch.find({}).select("_id name");
+  const batches = await Batch.find({}).select("_id name roll_nickname batch_type");
   let totalAssigned = 0;
 
   for (const batch of batches) {
     const assigned = await backfillMissingRollNumbersForBatch({
       batchId: batch._id,
       batchName: batch.name,
+      rollNickname: batch.roll_nickname,
+      batchType: batch.batch_type,
     });
 
     if (assigned.length > 0) {

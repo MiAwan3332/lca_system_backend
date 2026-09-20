@@ -9,6 +9,47 @@ export const normalizeRollNickname = (value) =>
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "");
 
+/**
+ * Online → On, On Campus / OnCampus → OC.
+ * Also peeks at batch name when batch_type is empty.
+ */
+export const resolveBatchModeCode = (batchType, batchName = "") => {
+  const typeRaw = String(batchType || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+  const nameRaw = String(batchName || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+
+  const source = typeRaw || nameRaw;
+  if (!source) return "";
+
+  if (
+    typeRaw === "online" ||
+    /^online$/.test(typeRaw) ||
+    (/\bonline\b/.test(source) && !/\bcampus\b/.test(source))
+  ) {
+    return "On";
+  }
+
+  if (
+    typeRaw === "on campus" ||
+    typeRaw === "oncampus" ||
+    /\bon\s*campus\b/.test(source) ||
+    /\boncampus\b/.test(source) ||
+    (/\bcampus\b/.test(source) && !/\bonline\b/.test(source))
+  ) {
+    return "OC";
+  }
+
+  if (/\bonline\b/.test(source)) return "On";
+  return "";
+};
+
 export const extractBatchCode = (batchName) => {
   const name = String(batchName || "").trim();
   if (!name) return "B";
@@ -42,15 +83,61 @@ export const extractBatchCode = (batchName) => {
   return code;
 };
 
-/** Prefer batch roll nickname; fall back to auto code from batch name. */
-export const resolveBatchCode = ({ rollNickname, batchName } = {}) => {
-  const fromNickname = normalizeRollNickname(rollNickname);
-  if (fromNickname) return fromNickname;
-  return extractBatchCode(batchName);
+/**
+ * Roll prefix: {On|OC}-{NICKNAME}
+ * Example: On Campus + MARATHON → OC-MARATHON
+ * Throws if mode or nickname cannot be resolved (required for all batches).
+ */
+export const buildRollNumberPrefix = ({
+  batchType,
+  batchName,
+  rollNickname,
+  strict = true,
+} = {}) => {
+  const mode = resolveBatchModeCode(batchType, batchName);
+  const nick = normalizeRollNickname(rollNickname);
+
+  if (!mode) {
+    if (strict) {
+      throw new Error(
+        "Batch type must be Online or On Campus to generate roll numbers (On-NICK-1 / OC-NICK-1)"
+      );
+    }
+  }
+  if (!nick) {
+    if (strict) {
+      throw new Error(
+        "Batch roll nickname is required to generate roll numbers (e.g. OC-MARATHON-1)"
+      );
+    }
+  }
+
+  if (mode && nick) return `${mode}-${nick}`;
+  if (nick) return nick;
+  return extractBatchCode(batchName || "B");
 };
+
+/** Prefer batch roll nickname; fall back to auto code from batch name. */
+export const resolveBatchCode = ({
+  rollNickname,
+  batchName,
+  batchType,
+} = {}) =>
+  buildRollNumberPrefix({
+    batchType,
+    batchName,
+    rollNickname,
+  });
 
 const escapeRegex = (value) =>
   String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+export const extractRollSequence = (rollNumber) => {
+  const match = String(rollNumber || "").match(/-(\d+)$/);
+  if (!match) return 0;
+  const seq = Number(match[1]);
+  return Number.isFinite(seq) ? seq : 0;
+};
 
 const getMaxRollSeqForBatch = async (batchId, batchCode) => {
   const existing = await Student.find({
@@ -62,10 +149,7 @@ const getMaxRollSeqForBatch = async (batchId, batchCode) => {
 
   let maxSeq = 0;
   for (const student of existing) {
-    const seq = Number(String(student.roll_number).split("-")[1]);
-    if (Number.isFinite(seq)) {
-      maxSeq = Math.max(maxSeq, seq);
-    }
+    maxSeq = Math.max(maxSeq, extractRollSequence(student.roll_number));
   }
   return maxSeq;
 };
@@ -85,6 +169,7 @@ export const getNextStudentRollNumber = async ({
   batchId,
   batchName,
   rollNickname,
+  batchType,
 } = {}) => {
   if (!batchId) {
     throw new Error("Batch is required to generate roll number");
@@ -92,18 +177,32 @@ export const getNextStudentRollNumber = async ({
 
   let resolvedName = batchName;
   let resolvedNickname = rollNickname;
+  let resolvedType = batchType;
 
-  if (!resolvedName || resolvedNickname == null || resolvedNickname === "") {
-    const batch = await Batch.findById(batchId).select("name roll_nickname").lean();
+  if (
+    !resolvedName ||
+    resolvedNickname == null ||
+    resolvedNickname === "" ||
+    resolvedType == null ||
+    resolvedType === ""
+  ) {
+    const batch = await Batch.findById(batchId)
+      .select("name roll_nickname batch_type")
+      .lean();
     if (!resolvedName) resolvedName = batch?.name || "";
     if (resolvedNickname == null || resolvedNickname === "") {
       resolvedNickname = batch?.roll_nickname || "";
     }
+    if (resolvedType == null || resolvedType === "") {
+      resolvedType = batch?.batch_type || "";
+    }
   }
 
-  const batchCode = resolveBatchCode({
-    rollNickname: resolvedNickname,
+  const batchCode = buildRollNumberPrefix({
+    batchType: resolvedType,
     batchName: resolvedName,
+    rollNickname: resolvedNickname,
+    strict: true,
   });
   const maxExistingSeq = await getMaxRollSeqForBatch(batchId, batchCode);
   await syncCounterToAtLeast(batchId, maxExistingSeq);
@@ -146,6 +245,7 @@ export const backfillMissingRollNumbersForBatch = async ({
   batchId,
   batchName,
   rollNickname,
+  batchType,
 }) => {
   if (!batchId) return [];
 
@@ -166,6 +266,7 @@ export const backfillMissingRollNumbersForBatch = async ({
       batchId,
       batchName,
       rollNickname,
+      batchType,
     });
     await Student.updateOne(
       { _id: student._id },
@@ -175,4 +276,145 @@ export const backfillMissingRollNumbersForBatch = async ({
   }
 
   return assigned;
+};
+
+/**
+ * Rebuild every student's roll number in a batch to:
+ *   {On|OC}-{NICKNAME}-{seq}
+ * Sequence is by admission_date then _id.
+ */
+export const rebuildStudentRollNumbersForBatch = async ({
+  batchId,
+  batchName,
+  rollNickname,
+  batchType,
+  dryRun = false,
+} = {}) => {
+  if (!batchId) {
+    return { updated: [], skipped_reason: "missing_batch_id" };
+  }
+
+  let resolvedName = batchName;
+  let resolvedNickname = rollNickname;
+  let resolvedType = batchType;
+
+  if (
+    !resolvedName ||
+    resolvedNickname == null ||
+    resolvedNickname === "" ||
+    resolvedType == null ||
+    resolvedType === ""
+  ) {
+    const batch = await Batch.findById(batchId)
+      .select("name roll_nickname batch_type")
+      .lean();
+    if (!resolvedName) resolvedName = batch?.name || "";
+    if (resolvedNickname == null || resolvedNickname === "") {
+      resolvedNickname = batch?.roll_nickname || "";
+    }
+    if (resolvedType == null || resolvedType === "") {
+      resolvedType = batch?.batch_type || "";
+    }
+  }
+
+  const mode = resolveBatchModeCode(resolvedType, resolvedName);
+  const nick = normalizeRollNickname(resolvedNickname);
+
+  if (!mode) {
+    return {
+      updated: [],
+      skipped_reason: "missing_or_unknown_batch_type",
+      batch_name: resolvedName,
+      batch_type: resolvedType,
+    };
+  }
+  if (!nick) {
+    return {
+      updated: [],
+      skipped_reason: "missing_roll_nickname",
+      batch_name: resolvedName,
+      batch_type: resolvedType,
+    };
+  }
+
+  const prefix = `${mode}-${nick}`;
+  const students = await Student.find({ batch: batchId })
+    .select("_id name roll_number admission_date")
+    .sort({ admission_date: 1, _id: 1 });
+
+  if (!students.length) {
+    if (!dryRun) {
+      await StudentRollCounter.findOneAndUpdate(
+        { batch: batchId },
+        { $set: { seq: 0 } },
+        { upsert: true, setDefaultsOnInsert: true }
+      );
+    }
+    return {
+      updated: [],
+      prefix,
+      batch_name: resolvedName,
+      mode,
+      nickname: nick,
+    };
+  }
+
+  const plan = students.map((student, index) => ({
+    student_id: student._id,
+    name: student.name || "",
+    old_roll_number: student.roll_number || "",
+    new_roll_number: `${prefix}-${index + 1}`,
+  }));
+
+  if (dryRun) {
+    return {
+      updated: plan,
+      dry_run: true,
+      prefix,
+      batch_name: resolvedName,
+      mode,
+      nickname: nick,
+    };
+  }
+
+  // Phase 1: temporary unique rolls to avoid unique collisions while swapping
+  for (const row of plan) {
+    const tempRoll = `__TMP__${String(batchId)}_${String(row.student_id)}`;
+    await Student.updateOne(
+      { _id: row.student_id },
+      { $set: { roll_number: tempRoll } }
+    );
+  }
+
+  // Phase 2: final rolls — ensure global uniqueness
+  for (const row of plan) {
+    const clash = await Student.exists({
+      roll_number: row.new_roll_number,
+      _id: { $ne: row.student_id },
+    });
+    if (clash) {
+      throw new Error(
+        `Roll number ${row.new_roll_number} already exists outside this batch rebuild`
+      );
+    }
+    await Student.updateOne(
+      { _id: row.student_id },
+      { $set: { roll_number: row.new_roll_number } }
+    );
+  }
+
+  await StudentRollCounter.findOneAndUpdate(
+    { batch: batchId },
+    { $set: { seq: plan.length } },
+    { upsert: true, setDefaultsOnInsert: true }
+  );
+
+  return {
+    updated: plan,
+    dry_run: false,
+    prefix,
+    batch_name: resolvedName,
+    mode,
+    nickname: nick,
+  };
 };

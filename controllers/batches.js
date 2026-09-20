@@ -213,6 +213,17 @@ export const addBatch = async (req, res) => {
       });
     }
 
+    const normalizedBatchType = String(batch_type || "").trim();
+    if (!isInterviewBatch) {
+      const typeKey = normalizedBatchType.toLowerCase();
+      if (typeKey !== "online" && typeKey !== "on campus") {
+        return res.status(400).json({
+          message:
+            "Batch type must be Online or On Campus (roll numbers use On-NICK / OC-NICK)",
+        });
+      }
+    }
+
     if (!isInterviewBatch) {
       if (!class_start_time || !class_end_time) {
         return res.status(400).json({
@@ -232,7 +243,7 @@ export const addBatch = async (req, res) => {
       description,
       roll_nickname: rollNickname,
       batch_fee: !isPaidBatch || isSpecialBatch ? batch_fee || "0" : batch_fee,
-      batch_type,
+      batch_type: normalizedBatchType,
       startdate,
       enddate,
       class_start_time: isInterviewBatch ? "" : class_start_time,
@@ -348,12 +359,25 @@ export const updateBatch = async (req, res) => {
       });
     }
 
+    const nextBatchType =
+      batch_type !== undefined ? batch_type : existingBatch.batch_type || "";
+    const normalizedBatchType = String(nextBatchType || "").trim();
+    if (!isInterviewBatch) {
+      const typeKey = normalizedBatchType.toLowerCase();
+      if (typeKey !== "online" && typeKey !== "on campus") {
+        return res.status(400).json({
+          message:
+            "Batch type must be Online or On Campus (roll numbers use On-NICK / OC-NICK)",
+        });
+      }
+    }
+
     const updatePayload = {
       name,
       description,
       roll_nickname: rollNickname,
       batch_fee: isSpecialBatch ? batch_fee || "0" : batch_fee,
-      batch_type,
+      batch_type: normalizedBatchType,
       startdate,
       enddate,
       class_start_time: nextStartTime || "",
