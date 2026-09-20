@@ -1124,7 +1124,7 @@ export const getStudentHistory = async (req, res) => {
 
     const student = await Student.findById(id).populate(
       "batch",
-      "name batch_fee is_active"
+      "name batch_fee is_active class_start_time class_end_time batch_type roll_nickname"
     );
     if (!student) {
       return res.status(404).json({ message: "Student not found" });
@@ -1134,7 +1134,7 @@ export const getStudentHistory = async (req, res) => {
 
     const refreshedStudent = await Student.findById(id).populate(
       "batch",
-      "name batch_fee is_active"
+      "name batch_fee is_active class_start_time class_end_time batch_type roll_nickname"
     );
 
     const [fees, enrollments, pendingFeeSlips, activityLogs, refundRequests, batchShifts] =
