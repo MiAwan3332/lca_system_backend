@@ -223,6 +223,8 @@ export const addStudent = async (req, res) => {
       rollNumber = await getNextStudentRollNumber({
         batchId: batchRecord._id,
         batchName: batchRecord.name,
+        rollNickname: batchRecord.roll_nickname,
+        batchType: batchRecord.batch_type,
       });
     }
 
@@ -502,6 +504,8 @@ const importStudentFromRow = async ({
   const rollNumber = await getNextStudentRollNumber({
     batchId: batchRecord._id,
     batchName: batchRecord.name,
+    rollNickname: batchRecord.roll_nickname,
+    batchType: batchRecord.batch_type,
   });
 
   if (!rollNumber) {
@@ -731,6 +735,8 @@ export const bulkImportStudents = async (req, res) => {
     results.backfilled_roll_numbers = await backfillMissingRollNumbersForBatch({
       batchId: batchRecord._id,
       batchName: batchRecord.name,
+      rollNickname: batchRecord.roll_nickname,
+      batchType: batchRecord.batch_type,
     });
 
     res.status(200).json({
@@ -1955,7 +1961,9 @@ export const transferStudentBatch = async (req, res) => {
     // Assign new roll number for the new batch
     const newRollNumber = await getNextStudentRollNumber({
       batchId: batchRecord._id,
-      batchName: batchRecord.name
+      batchName: batchRecord.name,
+      rollNickname: batchRecord.roll_nickname,
+      batchType: batchRecord.batch_type,
     });
     student.roll_number = newRollNumber;
 
