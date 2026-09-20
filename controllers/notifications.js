@@ -72,14 +72,38 @@ export const getNotifications = async (req, res) => {
       is_read: false,
     });
 
-    const notifications = await Notification.paginate(filter, {
-      page: parseInt(req.query.page, 10) || 1,
-      limit: parseInt(req.query.limit, 10) || 20,
-      sort: { createdAt: -1 },
-    });
+    // Server-side pagination only — default 10 rows, never the full inbox
+    const pageNum = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limitNum = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit, 10) || 10)
+    );
+    const skip = (pageNum - 1) * limitNum;
+
+    const [totalDocs, docs] = await Promise.all([
+      Notification.countDocuments(filter),
+      Notification.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+    ]);
+
+    const totalPages = Math.max(1, Math.ceil(totalDocs / limitNum) || 1);
+    const hasPrevPage = pageNum > 1;
+    const hasNextPage = pageNum < totalPages && totalDocs > 0;
 
     res.status(200).json({
-      ...notifications,
+      docs,
+      totalDocs,
+      limit: limitNum,
+      totalPages,
+      page: pageNum,
+      pagingCounter: skip + 1,
+      hasPrevPage,
+      hasNextPage,
+      prevPage: hasPrevPage ? pageNum - 1 : null,
+      nextPage: hasNextPage ? pageNum + 1 : null,
       unreadCount,
       scope: "related",
     });

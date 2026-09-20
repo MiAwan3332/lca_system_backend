@@ -1,6 +1,16 @@
 import ActivityLog from "../models/activityLogs.js";
 import { denyUnlessInstitutionAdmin } from "../utils/lmsAccess.js";
 
+const clampInt = (value, fallback, min, max) => {
+  const parsed = parseInt(value, 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+};
+
+/**
+ * Server-side pagination only — never returns the full collection.
+ * Default: page=1, limit=10. Client can raise limit (capped at 100).
+ */
 export const getActivityLogs = async (req, res) => {
   if (denyUnlessInstitutionAdmin(req, res)) return;
 
@@ -41,7 +51,7 @@ export const getActivityLogs = async (req, res) => {
     }
 
     if (query) {
-      const regex = { $regex: query, $options: "i" };
+      const regex = { $regex: String(query), $options: "i" };
       filter.$or = [
         { description: regex },
         { actor_name: regex },
@@ -52,18 +62,40 @@ export const getActivityLogs = async (req, res) => {
       ];
     }
 
-    const logs = await ActivityLog.paginate(filter, {
-      page: parseInt(page, 10) || 1,
-      limit: parseInt(limit, 10) || 20,
-      sort: { created_at: -1 },
-      populate: [
-        { path: "actor_user", select: "name email role" },
-        { path: "actor_student", select: "name email roll_number" },
-        { path: "actor_teacher", select: "name email" },
-      ],
-    });
+    const pageNum = clampInt(page, 1, 1, 100000);
+    const limitNum = clampInt(limit, 10, 1, 100);
+    const skip = (pageNum - 1) * limitNum;
 
-    res.status(200).json(logs);
+    const [totalDocs, docs] = await Promise.all([
+      ActivityLog.countDocuments(filter),
+      ActivityLog.find(filter)
+        .sort({ created_at: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .populate([
+          { path: "actor_user", select: "name email role" },
+          { path: "actor_student", select: "name email roll_number" },
+          { path: "actor_teacher", select: "name email" },
+        ])
+        .lean(),
+    ]);
+
+    const totalPages = Math.max(1, Math.ceil(totalDocs / limitNum) || 1);
+    const hasPrevPage = pageNum > 1;
+    const hasNextPage = pageNum < totalPages && totalDocs > 0;
+
+    res.status(200).json({
+      docs,
+      totalDocs,
+      limit: limitNum,
+      totalPages,
+      page: pageNum,
+      pagingCounter: skip + 1,
+      hasPrevPage,
+      hasNextPage,
+      prevPage: hasPrevPage ? pageNum - 1 : null,
+      nextPage: hasNextPage ? pageNum + 1 : null,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
