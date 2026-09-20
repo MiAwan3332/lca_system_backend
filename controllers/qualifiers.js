@@ -841,6 +841,7 @@ export const updateQualifier = async (req, res) => {
     }
     if (class_type !== undefined) {
       const normalizedClassType = normalizeClassType(class_type);
+      // Empty is allowed (clear / unset). Only reject invalid non-empty values.
       if (normalizedClassType === null) {
         return res.status(400).json({
           message: "Class type must be Online or On Campus",
@@ -950,11 +951,19 @@ export const updateQualifier = async (req, res) => {
         qualifier.is_active = parseIsActive(is_active, qualifier.is_active);
       }
       if (batch !== undefined) {
-        const batchResult = await resolveInterviewBatch(batch);
-        if (batchResult.error) {
-          return res.status(400).json({ message: batchResult.error });
+        const nextBatchId = trimOrEmpty(batch);
+        const currentBatchId = String(qualifier.batch || "");
+        // Keep existing assignment without re-checking active/interview flags so
+        // staff can still update other fields when the batch was later deactivated.
+        if (nextBatchId && nextBatchId === currentBatchId) {
+          // no-op
+        } else {
+          const batchResult = await resolveInterviewBatch(batch);
+          if (batchResult.error) {
+            return res.status(400).json({ message: batchResult.error });
+          }
+          qualifier.batch = batchResult.batch._id;
         }
-        qualifier.batch = batchResult.batch._id;
       } else if (!qualifier.batch) {
         return res.status(400).json({
           message: "Interview batch is required",
