@@ -30,6 +30,13 @@ const qualifierSchema = mongoose.Schema(
       default: "",
       trim: true,
     },
+    /** CSS or PMS program */
+    exam_type: {
+      type: String,
+      default: "",
+      trim: true,
+      enum: ["", "CSS", "PMS"],
+    },
     /** Online or On Campus */
     class_type: {
       type: String,

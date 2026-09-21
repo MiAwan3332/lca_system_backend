@@ -345,6 +345,27 @@ export const addStudent = async (req, res) => {
 
     await newStudent.save();
 
+    // Ensure roll number is persisted (same defensive check as import flow)
+    if (!newStudent.roll_number && rollNumber) {
+      await Student.updateOne(
+        { _id: newStudent._id },
+        { $set: { roll_number: rollNumber } }
+      );
+      newStudent.roll_number = rollNumber;
+    } else if (!newStudent.roll_number && batchRecord) {
+      const assignedRoll = await getNextStudentRollNumber({
+        batchId: batchRecord._id,
+        batchName: batchRecord.name,
+        rollNickname: batchRecord.roll_nickname,
+        batchType: batchRecord.batch_type,
+      });
+      await Student.updateOne(
+        { _id: newStudent._id },
+        { $set: { roll_number: assignedRoll } }
+      );
+      newStudent.roll_number = assignedRoll;
+    }
+
     const imageFile = req.files?.image;
     if (imageFile) {
       const filesStorageUrl = process.env.FILES_STORAGE_URL;

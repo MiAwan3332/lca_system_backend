@@ -34,6 +34,15 @@ const QUALIFIER_ROLE = "qualifier";
 const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
 
 const ALLOWED_CLASS_TYPES = new Set(["Online", "On Campus"]);
+const ALLOWED_EXAM_TYPES = new Set(["CSS", "PMS"]);
+
+const normalizeExamType = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const upper = raw.toUpperCase();
+  if (ALLOWED_EXAM_TYPES.has(upper)) return upper;
+  return null;
+};
 
 /** Mongo filter approximating a fully updated qualifier profile. */
 const buildProfileUpdatedMongoFilter = () => ({
@@ -167,6 +176,8 @@ const asSingleFile = (fileField) => {
 
 const trimOrEmpty = (value) => String(value || "").trim();
 
+const MAX_OPTIONAL_SUBJECTS = 6;
+
 const parseOptionalSubjects = (value) => {
   if (value === undefined || value === null) return null;
   let list = value;
@@ -257,6 +268,7 @@ export const addQualifier = async (req, res) => {
     email,
     cnic,
     css_pms_roll_no,
+    exam_type,
     class_type,
     city,
     province,
@@ -270,6 +282,10 @@ export const addQualifier = async (req, res) => {
     total_fee: totalFeeBody,
     discount_amount,
     discount_description,
+    optional_subjects,
+    no_of_attempts,
+    latest_degree,
+    education_background,
   } = req.body || {};
   const photoFile = asSingleFile(req.files?.photo || req.files?.image);
 
@@ -288,6 +304,37 @@ export const addQualifier = async (req, res) => {
     if (normalizedClassType === null) {
       return res.status(400).json({
         message: "Class type must be Online or On Campus",
+      });
+    }
+
+    const normalizedExamType = normalizeExamType(exam_type);
+    if (normalizedExamType === null) {
+      return res.status(400).json({
+        message: "Exam type must be CSS or PMS",
+      });
+    }
+
+    const trimmedProvince = trimOrEmpty(province);
+    if (trimmedProvince && !isPakistanProvince(trimmedProvince)) {
+      return res.status(400).json({ message: "Select a valid Pakistan province" });
+    }
+
+    const parsedEducation = parseEducationBackgroundPayload(education_background);
+    const parsedSubjects = parseOptionalSubjects(optional_subjects);
+    if (parsedSubjects && parsedSubjects.length > MAX_OPTIONAL_SUBJECTS) {
+      return res.status(400).json({
+        message: `Select at most ${MAX_OPTIONAL_SUBJECTS} optional subjects`,
+      });
+    }
+    const parsedAttempts = parseNoOfAttempts(no_of_attempts);
+    if (
+      no_of_attempts !== undefined &&
+      no_of_attempts !== null &&
+      String(no_of_attempts).trim() !== "" &&
+      parsedAttempts === null
+    ) {
+      return res.status(400).json({
+        message: "No. of attempts must be a non-negative number",
       });
     }
 
@@ -339,12 +386,17 @@ export const addQualifier = async (req, res) => {
       email: loginEmail,
       cnic: trimOrEmpty(cnic),
       css_pms_roll_no: trimOrEmpty(css_pms_roll_no),
+      exam_type: normalizedExamType,
       class_type: normalizedClassType,
       city: trimOrEmpty(city),
-      province: trimOrEmpty(province),
+      province: trimmedProvince,
       father_name: trimOrEmpty(father_name),
       father_phone: trimOrEmpty(father_phone),
       description: trimOrEmpty(description),
+      latest_degree: trimOrEmpty(latest_degree),
+      education_background: parsedEducation || [],
+      optional_subjects: parsedSubjects || [],
+      no_of_attempts: parsedAttempts !== null ? parsedAttempts : 0,
       batch: batchResult.batch._id,
       total_fee: totalFee,
       discount_amount: discountAmount,
@@ -485,6 +537,10 @@ const importQualifierFromRow = async ({
   if (normalizedClassType === null) {
     throw new Error("Class type must be Online or On Campus");
   }
+  const normalizedExamType = normalizeExamType(row?.exam_type);
+  if (normalizedExamType === null) {
+    throw new Error("Exam type must be CSS or PMS");
+  }
 
   const qualifier = await new Qualifier({
     name: trimmedName,
@@ -492,6 +548,7 @@ const importQualifierFromRow = async ({
     email: loginEmail,
     cnic: trimOrEmpty(row?.cnic),
     css_pms_roll_no: trimOrEmpty(row?.css_pms_roll_no),
+    exam_type: normalizedExamType,
     class_type: normalizedClassType,
     city: trimOrEmpty(row?.city),
     province: trimOrEmpty(row?.province),
@@ -776,6 +833,7 @@ export const updateQualifier = async (req, res) => {
     email,
     cnic,
     css_pms_roll_no,
+    exam_type,
     class_type,
     city,
     province,
@@ -838,6 +896,15 @@ export const updateQualifier = async (req, res) => {
     }
     if (css_pms_roll_no !== undefined) {
       qualifier.css_pms_roll_no = trimOrEmpty(css_pms_roll_no);
+    }
+    if (exam_type !== undefined) {
+      const normalizedExamType = normalizeExamType(exam_type);
+      if (normalizedExamType === null) {
+        return res.status(400).json({
+          message: "Exam type must be CSS or PMS",
+        });
+      }
+      qualifier.exam_type = normalizedExamType;
     }
     if (class_type !== undefined) {
       const normalizedClassType = normalizeClassType(class_type);
@@ -919,6 +986,11 @@ export const updateQualifier = async (req, res) => {
 
     const parsedSubjects = parseOptionalSubjects(optional_subjects);
     if (parsedSubjects !== null) {
+      if (parsedSubjects.length > MAX_OPTIONAL_SUBJECTS) {
+        return res.status(400).json({
+          message: `Select at most ${MAX_OPTIONAL_SUBJECTS} optional subjects`,
+        });
+      }
       if (isSelfQualifier && parsedSubjects.length === 0) {
         return res.status(400).json({
           message: "Select at least one optional subject",
