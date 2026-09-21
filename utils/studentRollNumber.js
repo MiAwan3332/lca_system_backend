@@ -86,7 +86,8 @@ export const extractBatchCode = (batchName) => {
 /**
  * Roll prefix: {On|OC}-{NICKNAME}
  * Example: On Campus + MARATHON → OC-MARATHON
- * Throws if mode or nickname cannot be resolved (required for all batches).
+ * If nickname is missing, falls back to an auto code from the batch name
+ * so admission slips always get a roll number.
  */
 export const buildRollNumberPrefix = ({
   batchType,
@@ -95,7 +96,7 @@ export const buildRollNumberPrefix = ({
   strict = true,
 } = {}) => {
   const mode = resolveBatchModeCode(batchType, batchName);
-  const nick = normalizeRollNickname(rollNickname);
+  let nick = normalizeRollNickname(rollNickname);
 
   if (!mode) {
     if (strict) {
@@ -103,6 +104,10 @@ export const buildRollNumberPrefix = ({
         "Batch type must be Online or On Campus to generate roll numbers (On-NICK-1 / OC-NICK-1)"
       );
     }
+  }
+  if (!nick) {
+    // Prefer configured nickname; otherwise derive from batch name (e.g. B110…)
+    nick = normalizeRollNickname(extractBatchCode(batchName));
   }
   if (!nick) {
     if (strict) {

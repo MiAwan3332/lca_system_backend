@@ -366,6 +366,13 @@ export const addStudent = async (req, res) => {
       newStudent.roll_number = assignedRoll;
     }
 
+    if (batchRecord && !String(newStudent.roll_number || "").trim()) {
+      return res.status(500).json({
+        message:
+          "Student was created but roll number could not be assigned. Set batch type (Online / On Campus) and roll nickname, then try again.",
+      });
+    }
+
     const imageFile = req.files?.image;
     if (imageFile) {
       const filesStorageUrl = process.env.FILES_STORAGE_URL;
@@ -426,6 +433,30 @@ export const addStudent = async (req, res) => {
     // await addEmailToQueue(email, name, randomPassword);
 
     const savedStudent = await Student.findById(newStudent._id).populate("batch");
+
+    // Final guard: never return a student without a roll number when batch is set
+    if (
+      savedStudent?.batch &&
+      !String(savedStudent.roll_number || "").trim()
+    ) {
+      const batchDoc =
+        savedStudent.batch && typeof savedStudent.batch === "object"
+          ? savedStudent.batch
+          : batchRecord;
+      if (batchDoc?._id) {
+        const assignedRoll = await getNextStudentRollNumber({
+          batchId: batchDoc._id,
+          batchName: batchDoc.name,
+          rollNickname: batchDoc.roll_nickname,
+          batchType: batchDoc.batch_type,
+        });
+        await Student.updateOne(
+          { _id: savedStudent._id },
+          { $set: { roll_number: assignedRoll } }
+        );
+        savedStudent.roll_number = assignedRoll;
+      }
+    }
 
     let whatsappWelcome = { sent: false, skipped: true };
     try {
@@ -1385,6 +1416,64 @@ export const getStudentHistory = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+/** Assign a roll number if the student is missing one (used before admission slip print). */
+export const ensureStudentRollNumber = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const student = await Student.findById(id).populate(
+      "batch",
+      "name roll_nickname batch_type"
+    );
+    if (!student) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    const existing = String(student.roll_number || "").trim();
+    if (existing) {
+      return res.status(200).json({
+        roll_number: existing,
+        assigned: false,
+        student,
+      });
+    }
+
+    const batchDoc =
+      student.batch && typeof student.batch === "object"
+        ? student.batch
+        : student.batch
+          ? await Batch.findById(student.batch).select(
+              "name roll_nickname batch_type"
+            )
+          : null;
+
+    if (!batchDoc?._id) {
+      return res.status(400).json({
+        message: "Student has no batch; cannot assign a roll number",
+      });
+    }
+
+    const rollNumber = await getNextStudentRollNumber({
+      batchId: batchDoc._id,
+      batchName: batchDoc.name,
+      rollNickname: batchDoc.roll_nickname,
+      batchType: batchDoc.batch_type,
+    });
+
+    student.roll_number = rollNumber;
+    await student.save();
+
+    return res.status(200).json({
+      roll_number: rollNumber,
+      assigned: true,
+      student,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || "Could not assign roll number",
+    });
   }
 };
 

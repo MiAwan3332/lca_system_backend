@@ -26,6 +26,7 @@ import {
   getDeletedStudents,
   getDeletedStudentArchive,
   getBatchShifts,
+  ensureStudentRollNumber,
 } from '../controllers/students.js';
 import auth from '../middlewares/auth.js';
 
@@ -43,6 +44,7 @@ router.post('/bulk-import', auth, bulkImportStudents);
 router.post('/toggle-status/:id', auth, toggleStudentStatus);
 router.get('/payment-logs/:id', auth, getStudentPaymentLogs);
 router.get('/history/:id', auth, getStudentHistory);
+router.post('/ensure-roll/:id', auth, ensureStudentRollNumber);
 router.post('/transfer-batch/:id', auth, transferStudentBatch);
 router.get('/pending-fee-slip/:id', auth, getPendingFeeSlip);
 router.post('/pending-fee-slip/:id', auth, getOrCreatePendingFeeSlip);
