@@ -11,7 +11,9 @@ export const normalizeRollNickname = (value) =>
 
 /**
  * Online → On, On Campus / OnCampus → OC.
- * Also peeks at batch name when batch_type is empty.
+ * Checks batch_type first, then always falls back to batch name
+ * (so a name like "LCA On-Campus MARATHON" still resolves even if
+ * batch_type is a custom value such as "Marathon").
  */
 export const resolveBatchModeCode = (batchType, batchName = "") => {
   const typeRaw = String(batchType || "")
@@ -25,29 +27,29 @@ export const resolveBatchModeCode = (batchType, batchName = "") => {
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ");
 
-  const source = typeRaw || nameRaw;
-  if (!source) return "";
+  const detect = (source) => {
+    if (!source) return "";
+    if (
+      source === "online" ||
+      /^online$/.test(source) ||
+      (/\bonline\b/.test(source) && !/\bcampus\b/.test(source))
+    ) {
+      return "On";
+    }
+    if (
+      source === "on campus" ||
+      source === "oncampus" ||
+      /\bon\s*campus\b/.test(source) ||
+      /\boncampus\b/.test(source) ||
+      (/\bcampus\b/.test(source) && !/\bonline\b/.test(source))
+    ) {
+      return "OC";
+    }
+    if (/\bonline\b/.test(source)) return "On";
+    return "";
+  };
 
-  if (
-    typeRaw === "online" ||
-    /^online$/.test(typeRaw) ||
-    (/\bonline\b/.test(source) && !/\bcampus\b/.test(source))
-  ) {
-    return "On";
-  }
-
-  if (
-    typeRaw === "on campus" ||
-    typeRaw === "oncampus" ||
-    /\bon\s*campus\b/.test(source) ||
-    /\boncampus\b/.test(source) ||
-    (/\bcampus\b/.test(source) && !/\bonline\b/.test(source))
-  ) {
-    return "OC";
-  }
-
-  if (/\bonline\b/.test(source)) return "On";
-  return "";
+  return detect(typeRaw) || detect(nameRaw) || "";
 };
 
 export const extractBatchCode = (batchName) => {
@@ -99,11 +101,13 @@ export const buildRollNumberPrefix = ({
   let nick = normalizeRollNickname(rollNickname);
 
   if (!mode) {
-    if (strict) {
-      throw new Error(
-        "Batch type must be Online or On Campus to generate roll numbers (On-NICK-1 / OC-NICK-1)"
-      );
+    // Last-resort mode so roll assignment never hard-fails for admission slips
+    if (!strict) {
+      return nick || extractBatchCode(batchName || "B");
     }
+    throw new Error(
+      "Batch type must be Online or On Campus to generate roll numbers (On-NICK-1 / OC-NICK-1)"
+    );
   }
   if (!nick) {
     // Prefer configured nickname; otherwise derive from batch name (e.g. B110…)
@@ -115,6 +119,7 @@ export const buildRollNumberPrefix = ({
         "Batch roll nickname is required to generate roll numbers (e.g. OC-MARATHON-1)"
       );
     }
+    nick = "B";
   }
 
   if (mode && nick) return `${mode}-${nick}`;
@@ -134,9 +139,6 @@ export const resolveBatchCode = ({
     rollNickname,
   });
 
-const escapeRegex = (value) =>
-  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
 export const extractRollSequence = (rollNumber) => {
   const match = String(rollNumber || "").match(/-(\d+)$/);
   if (!match) return 0;
@@ -144,32 +146,51 @@ export const extractRollSequence = (rollNumber) => {
   return Number.isFinite(seq) ? seq : 0;
 };
 
-const getMaxRollSeqForBatch = async (batchId, batchCode) => {
-  const existing = await Student.find({
+/**
+ * Find the highest roll sequence already used in this batch.
+ * Prefers rolls matching the current prefix (e.g. OC-MARATHON-5);
+ * if none match yet, uses the highest trailing number from any roll in the batch.
+ */
+const getLatestRollSeqForBatch = async (batchId, batchCode) => {
+  const students = await Student.find({
     batch: batchId,
-    roll_number: { $regex: `^${escapeRegex(batchCode)}-\\d+$` },
+    roll_number: { $exists: true, $nin: [null, ""] },
   })
     .select("roll_number")
     .lean();
 
-  let maxSeq = 0;
-  for (const student of existing) {
-    maxSeq = Math.max(maxSeq, extractRollSequence(student.roll_number));
+  const prefix = String(batchCode || "").toUpperCase();
+  let maxForPrefix = 0;
+  let maxAny = 0;
+
+  for (const student of students) {
+    const roll = String(student.roll_number || "").trim();
+    if (!roll || roll.startsWith("__TMP__")) continue;
+    const seq = extractRollSequence(roll);
+    if (seq < 1) continue;
+    maxAny = Math.max(maxAny, seq);
+    if (prefix && roll.toUpperCase().startsWith(`${prefix}-`)) {
+      maxForPrefix = Math.max(maxForPrefix, seq);
+    }
   }
-  return maxSeq;
+
+  return maxForPrefix > 0 ? maxForPrefix : maxAny;
 };
 
+/** Keep the batch counter at least as high as the latest used sequence. */
 const syncCounterToAtLeast = async (batchId, minSeq) => {
-  const counter = await StudentRollCounter.findOne({ batch: batchId });
-  if (!counter || Number(counter.seq) < minSeq) {
-    await StudentRollCounter.findOneAndUpdate(
-      { batch: batchId },
-      { $set: { seq: minSeq } },
-      { upsert: true, setDefaultsOnInsert: true }
-    );
-  }
+  const floor = Math.max(0, Number(minSeq) || 0);
+  await StudentRollCounter.findOneAndUpdate(
+    { batch: batchId },
+    { $max: { seq: floor } },
+    { upsert: true, setDefaultsOnInsert: true }
+  );
 };
 
+/**
+ * Next roll = (latest existing sequence for this batch) + 1.
+ * Example: latest OC-MARATHON-5 → OC-MARATHON-6
+ */
 export const getNextStudentRollNumber = async ({
   batchId,
   batchName,
@@ -207,16 +228,22 @@ export const getNextStudentRollNumber = async ({
     batchType: resolvedType,
     batchName: resolvedName,
     rollNickname: resolvedNickname,
-    strict: true,
+    strict: false,
   });
-  const maxExistingSeq = await getMaxRollSeqForBatch(batchId, batchCode);
-  await syncCounterToAtLeast(batchId, maxExistingSeq);
+
+  if (!batchCode) {
+    throw new Error("Could not build roll number prefix for this batch");
+  }
+
+  // Always re-read the latest used number, then assign the next one
+  const latestSeq = await getLatestRollSeqForBatch(batchId, batchCode);
+  await syncCounterToAtLeast(batchId, latestSeq);
 
   let rollNumber = null;
   let attempts = 0;
 
   while (!rollNumber && attempts < 100) {
-    attempts++;
+    attempts += 1;
 
     const updatedCounter = await StudentRollCounter.findOneAndUpdate(
       { batch: batchId },
