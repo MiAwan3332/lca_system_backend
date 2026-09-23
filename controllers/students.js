@@ -1040,7 +1040,7 @@ export const getStudentsByBatch = async (req, res) => {
         page: parseInt(req.query.page),
         limit: parseInt(req.query.limit),
         populate: ["batch"],
-        sort: { name: 1, roll_number: 1, _id: 1 },
+        sort: { roll_number: 1 },
       });
 
     // Generate finance history if exporting (large limit)
