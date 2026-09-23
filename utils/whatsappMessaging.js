@@ -64,6 +64,12 @@ export const WHATSAPP_PROCESSES = [
     description: "For pending fee reminders (use when sending reminders).",
   },
   {
+    key: "fee_overdue",
+    label: "Fee Overdue",
+    description:
+      "For students with overdue installments (past due date, still pending).",
+  },
+  {
     key: "custom",
     label: "Custom (manual)",
     description: "Not sent automatically — for tests or future use.",
@@ -94,6 +100,10 @@ export const WHATSAPP_TEMPLATE_TAGS = [
   { tag: "{{pending_dues}}", label: "Pending dues (alias)", sample: "30,000" },
   { tag: "{{next_installment_date}}", label: "Next installment date", sample: "15 Sep 2026" },
   { tag: "{{nextInstallmentDate}}", label: "Next installment date (alias)", sample: "15 Sep 2026" },
+  { tag: "{{due_date}}", label: "Overdue installment due date", sample: "20 Sep 2026" },
+  { tag: "{{overdue_days}}", label: "Days overdue", sample: "3" },
+  { tag: "{{overdue_amount}}", label: "Overdue amount", sample: "25,000" },
+  { tag: "{{overdue_message}}", label: "Overdue summary line", sample: "Overdue by 3 days" },
   { tag: "{{amount_received}}", label: "Amount just received", sample: "10,000" },
   { tag: "{{payment_method}}", label: "Payment method", sample: "Cash" },
   { tag: "{{password}}", label: "Portal password", sample: "lca@123456" },
@@ -107,6 +117,7 @@ export const PANELIST_WELCOME_TEMPLATE_KEY = "panelist_welcome";
 export const QUALIFIER_WELCOME_TEMPLATE_KEY = "qualifier_welcome";
 export const FEE_PAYMENT_TEMPLATE_KEY = "fee_payment_receipt";
 export const FEE_REMINDER_TEMPLATE_KEY = "fee_reminder";
+export const FEE_OVERDUE_TEMPLATE_KEY = "fee_overdue_reminder";
 
 export const DEFAULT_STUDENT_WELCOME_BODY = `Assalam o Alaikum {{name}}!
 
@@ -232,6 +243,20 @@ Clear your pending dues immediately. Late payment may result in your LCA account
 
 — {{academy_name}} Accounts`;
 
+export const DEFAULT_FEE_OVERDUE_BODY = `Assalam o Alaikum {{name}}!
+
+*Fee Overdue*
+
+{{name}} ({{batch}}) — Rs. {{overdue_amount}} is overdue by {{overdue_days}} day(s). Due date: {{due_date}}.
+
+Due date: {{due_date}} · {{overdue_message}}
+
+Please clear this overdue amount as soon as possible. Late payment may result in your LCA account being stuck/blocked from academy activities until dues are cleared.
+
+If you have already paid, please share the payment proof with Accounts.
+
+— {{academy_name}} Accounts`;
+
 const formatTime12Hour = (value) => {
   if (value == null || value === "") return "";
   const raw = String(value).trim();
@@ -314,6 +339,9 @@ export const buildStudentTemplateVars = ({
   paymentMethod = "",
   amountReceived = null,
   nextInstallmentDate = null,
+  dueDate = null,
+  overdueDays = null,
+  overdueAmount = null,
 } = {}) => {
   const portalUrl = (
     process.env.FRONTEND_URL ||
@@ -343,6 +371,23 @@ export const buildStudentTemplateVars = ({
     nextInstallmentDate ?? student?.next_installment_date ?? student?.due_date
   );
   const pendingDues = formatCurrencyPlain(student?.pending_fee);
+  const resolvedDueDate = formatInstallmentDate(
+    dueDate ?? student?.due_date ?? nextInstallmentDate
+  );
+  const days =
+    overdueDays != null && Number.isFinite(Number(overdueDays))
+      ? Math.max(0, Number(overdueDays))
+      : 0;
+  const overdueAmt =
+    overdueAmount != null
+      ? formatCurrencyPlain(overdueAmount)
+      : pendingDues;
+  const overdueMessage =
+    days <= 0
+      ? "Not overdue"
+      : days === 1
+        ? "Overdue by 1 day"
+        : `Overdue by ${days} days`;
 
   return {
     name: student?.name || "",
@@ -369,6 +414,10 @@ export const buildStudentTemplateVars = ({
     pending_dues: pendingDues,
     next_installment_date: nextDate,
     nextInstallmentDate: nextDate,
+    due_date: resolvedDueDate,
+    overdue_days: String(days),
+    overdue_amount: overdueAmt,
+    overdue_message: overdueMessage,
     amount_received: received,
     payment_method:
       paymentMethod ||
@@ -566,6 +615,14 @@ const DEFAULT_TEMPLATES = [
     description:
       "Strict reminder for students with pending dues (total, paid, pending, next installment).",
     body: DEFAULT_FEE_REMINDER_BODY,
+  },
+  {
+    key: FEE_OVERDUE_TEMPLATE_KEY,
+    name: "Fee Overdue Reminder",
+    process: "fee_overdue",
+    description:
+      "WhatsApp alert for students whose installment due date has passed (matches Overdue notifications).",
+    body: DEFAULT_FEE_OVERDUE_BODY,
   },
 ];
 
@@ -969,6 +1026,9 @@ export default {
   USER_WELCOME_TEMPLATE_KEY,
   PANELIST_WELCOME_TEMPLATE_KEY,
   QUALIFIER_WELCOME_TEMPLATE_KEY,
+  FEE_PAYMENT_TEMPLATE_KEY,
+  FEE_REMINDER_TEMPLATE_KEY,
+  FEE_OVERDUE_TEMPLATE_KEY,
   ensureDefaultWhatsAppTemplates,
   getActiveTemplateForProcess,
   renderWhatsAppTemplate,

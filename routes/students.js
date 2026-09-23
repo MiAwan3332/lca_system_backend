@@ -27,6 +27,7 @@ import {
   getDeletedStudentArchive,
   getBatchShifts,
   ensureStudentRollNumber,
+  fillNullStudentField,
 } from '../controllers/students.js';
 import auth from '../middlewares/auth.js';
 
@@ -41,6 +42,7 @@ router.post('/change-password/:id', auth, changeStudentPassword);
 router.get('/batch/:batchId', auth, getStudentsByBatch);
 router.post('/batch/:batchId/toggle-status', auth, toggleBatchStudentsStatus);
 router.post('/bulk-import', auth, bulkImportStudents);
+router.post('/fill-null-field', auth, fillNullStudentField);
 router.post('/toggle-status/:id', auth, toggleStudentStatus);
 router.get('/payment-logs/:id', auth, getStudentPaymentLogs);
 router.get('/history/:id', auth, getStudentHistory);

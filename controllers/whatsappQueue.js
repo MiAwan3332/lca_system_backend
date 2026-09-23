@@ -3,6 +3,7 @@ import Qualifier from "../models/qualifiers.js";
 import Batch from "../models/batches.js";
 import Fee from "../models/fees.js";
 import WhatsAppQueuedMessage from "../models/whatsappQueuedMessage.js";
+import moment from "moment-timezone";
 import {
   buildQualifierTemplateVars,
   buildStudentTemplateVars,
@@ -19,6 +20,7 @@ import {
   WHATSAPP_QUEUE_DELAY_MS,
 } from "../utils/whatsappQueue.js";
 
+const TZ = "Asia/Karachi";
 const trimOrEmpty = (value) => String(value ?? "").trim();
 
 const loadNextInstallmentByStudent = async (studentIds = []) => {
@@ -63,6 +65,85 @@ const mapStudentRecipients = async (students, batch) => {
         student,
         batch,
         nextInstallmentDate: nextByStudent[sid] || null,
+      }),
+    };
+  });
+};
+
+/** One WhatsApp recipient per student with at least one overdue pending fee. */
+const loadOverdueStudentRecipients = async (batchId = "") => {
+  const filter = {
+    status: "Pending",
+    amount: { $gt: 0 },
+    due_date: { $exists: true, $ne: "", $nin: [null] },
+  };
+  if (batchId) {
+    filter.batch = batchId;
+  }
+
+  const fees = await Fee.find(filter)
+    .populate({
+      path: "student",
+      select:
+        "name phone cnic roll_number total_fee paid_fee pending_fee admission_date batch is_active",
+    })
+    .populate("batch", "name class_start_time class_end_time")
+    .lean();
+
+  const today = moment.tz(TZ).startOf("day");
+  const byStudent = new Map();
+
+  for (const fee of fees) {
+    const student = fee.student;
+    if (!student?._id || !trimOrEmpty(student.phone)) continue;
+    if (student.is_active === false) continue;
+
+    const dueDate = moment.tz(fee.due_date, TZ).startOf("day");
+    if (!dueDate.isValid()) continue;
+    const daysUntil = dueDate.diff(today, "days");
+    if (daysUntil >= 0) continue;
+
+    const overdueDays = Math.abs(daysUntil);
+    const amount = Number(fee.amount) || 0;
+    const sid = String(student._id);
+    const batch = fee.batch || null;
+    const existing = byStudent.get(sid);
+
+    if (!existing) {
+      byStudent.set(sid, {
+        student,
+        batch,
+        overdue_amount: amount,
+        due_date: fee.due_date,
+        overdue_days: overdueDays,
+      });
+      continue;
+    }
+
+    existing.overdue_amount += amount;
+    if (overdueDays > existing.overdue_days) {
+      existing.overdue_days = overdueDays;
+      existing.due_date = fee.due_date;
+      if (batch) existing.batch = batch;
+    }
+  }
+
+  return Array.from(byStudent.values()).map((row) => {
+    const batch = row.batch || { name: "N/A" };
+    return {
+      name: row.student.name || "",
+      phone: row.student.phone || "",
+      recipient_type: "student",
+      recipient_id: row.student._id,
+      batch: batch._id || row.student.batch || null,
+      batch_name: batch.name || "",
+      vars: buildStudentTemplateVars({
+        student: row.student,
+        batch,
+        nextInstallmentDate: row.due_date,
+        dueDate: row.due_date,
+        overdueDays: row.overdue_days,
+        overdueAmount: row.overdue_amount,
       }),
     };
   });
@@ -181,6 +262,18 @@ const loadAudienceRecipients = async ({
   const audienceKey = trimOrEmpty(audience).toLowerCase();
   const batchId = trimOrEmpty(batch_id);
 
+  if (audienceKey === "overdue_students") {
+    const recipientsList = await loadOverdueStudentRecipients(batchId);
+    if (!recipientsList.length) {
+      return {
+        error: batchId
+          ? "No overdue students found in this batch"
+          : "No overdue students found",
+      };
+    }
+    return recipientsList;
+  }
+
   if (!audienceKey || !batchId) {
     return { error: "Select an audience and batch, or provide recipients" };
   }
@@ -239,7 +332,7 @@ const loadAudienceRecipients = async ({
 
   return {
     error:
-      "Audience must be students, pending_dues_students, or qualifiers",
+      "Audience must be students, pending_dues_students, overdue_students, or qualifiers",
   };
 };
 

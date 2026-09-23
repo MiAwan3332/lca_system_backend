@@ -16,6 +16,7 @@ import {
   canAccessBatch,
   isFullAccessRole,
   denyUnlessPlatformSuperAdmin,
+  denyUnlessStrictSuperAdmin,
   denyUnlessCanDeleteStudent,
   denyUnlessCanShiftStudentBatch,
   getRequestUserId,
@@ -38,6 +39,7 @@ import {
   buildAdmissionDateFilter,
   normalizeAdmissionDate,
 } from "../utils/admissionDate.js";
+import { isPakistanProvince } from "../utils/pakistanProvinces.js";
 import {
   createStudentAdmissionFee,
   syncStudentFeeFromLogs,
@@ -1038,7 +1040,7 @@ export const getStudentsByBatch = async (req, res) => {
         page: parseInt(req.query.page),
         limit: parseInt(req.query.limit),
         populate: ["batch"],
-        sort: { _id: -1 },
+        sort: { name: 1, roll_number: 1, _id: 1 },
       });
 
     // Generate finance history if exporting (large limit)
@@ -2606,6 +2608,139 @@ export const toggleBatchStudentsStatus = async (req, res) => {
       batch_name: batch.name,
       is_active: nextStatus,
       modified_count: result.modifiedCount,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const FILLABLE_NULL_STUDENT_FIELDS = {
+  province: "Province",
+  city: "City",
+  father_name: "Father name",
+  father_phone: "Father phone",
+  latest_degree: "Latest degree",
+  university: "University",
+  completion_year: "Completion year",
+  marks_cgpa: "Marks / CGPA",
+  date_of_birth: "Date of birth",
+};
+
+const buildNullOrEmptyFieldFilter = (field) => ({
+  $or: [
+    { [field]: null },
+    { [field]: { $exists: false } },
+    { [field]: "" },
+  ],
+});
+
+/** Fill one profile field for all students where that field is null/empty. */
+export const fillNullStudentField = async (req, res) => {
+  try {
+    if (denyUnlessStrictSuperAdmin(req, res)) return;
+
+    if (isStudentRole(req)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const {
+      field,
+      value,
+      batch_id,
+      preview,
+    } = req.body || {};
+
+    const fieldKey = String(field || "").trim();
+    if (!FILLABLE_NULL_STUDENT_FIELDS[fieldKey]) {
+      return res.status(400).json({
+        message:
+          "Select a valid field (province, city, father name, etc.).",
+      });
+    }
+
+    const isPreview =
+      preview === true || preview === "true" || preview === 1 || preview === "1";
+    const trimmedValue = String(value ?? "").trim();
+
+    if (!isPreview && !trimmedValue) {
+      return res.status(400).json({
+        message: "Enter a value to apply to empty records.",
+      });
+    }
+
+    if (
+      trimmedValue &&
+      fieldKey === "province" &&
+      !isPakistanProvince(trimmedValue)
+    ) {
+      return res.status(400).json({
+        message: "Select a valid Pakistan province",
+      });
+    }
+
+    const filter = {
+      ...buildNullOrEmptyFieldFilter(fieldKey),
+    };
+
+    const batchId = batch_id ? String(batch_id).trim() : "";
+    if (batchId) {
+      if (!(await canAccessBatch(req, batchId))) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      filter.batch = batchId;
+    } else if (isTeacherRole(req)) {
+      return res.status(400).json({
+        message: "Teachers must select a batch to fill empty fields.",
+      });
+    }
+
+    const matchedCount = await Student.countDocuments(filter);
+
+    if (isPreview) {
+      const students = await Student.find(filter)
+        .select(
+          "name phone roll_number city province father_name father_phone latest_degree university completion_year marks_cgpa date_of_birth batch"
+        )
+        .populate("batch", "name")
+        .sort({ name: 1 })
+        .limit(1000)
+        .lean();
+
+      return res.status(200).json({
+        field: fieldKey,
+        field_label: FILLABLE_NULL_STUDENT_FIELDS[fieldKey],
+        value: trimmedValue || null,
+        batch_id: batchId || null,
+        matched_count: matchedCount,
+        students,
+        preview: true,
+      });
+    }
+
+    if (matchedCount === 0) {
+      return res.status(200).json({
+        field: fieldKey,
+        field_label: FILLABLE_NULL_STUDENT_FIELDS[fieldKey],
+        value: trimmedValue,
+        batch_id: batchId || null,
+        matched_count: 0,
+        modified_count: 0,
+        message: "No students found with an empty value for this field.",
+      });
+    }
+
+    const result = await Student.updateMany(filter, {
+      $set: { [fieldKey]: trimmedValue },
+    });
+
+    return res.status(200).json({
+      field: fieldKey,
+      field_label: FILLABLE_NULL_STUDENT_FIELDS[fieldKey],
+      value: trimmedValue,
+      batch_id: batchId || null,
+      matched_count: matchedCount,
+      modified_count: result.modifiedCount,
+      message: `Updated ${result.modifiedCount} student(s) with empty ${FILLABLE_NULL_STUDENT_FIELDS[fieldKey]}.`,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

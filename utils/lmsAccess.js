@@ -28,8 +28,17 @@ const FULL_ACCESS_ROLES = [
   "ceo",
 ];
 
-export const getRequestRole = (req) =>
-  req.user?.user?.role?.toLowerCase?.() || "";
+export const getRequestRole = (req) => {
+  const raw = req.user?.user?.role;
+  if (raw && typeof raw === "object") {
+    return String(raw.name || raw.role || raw.title || "")
+      .trim()
+      .toLowerCase();
+  }
+  return String(raw || "")
+    .trim()
+    .toLowerCase();
+};
 
 const normalizeRole = (role) =>
   String(role || "")
@@ -77,6 +86,32 @@ export const isPlatformSuperAdminRole = (req) => {
   );
 };
 
+/** Super Admin, Super Admin Development, Secrate Super Admin, or Secrate Admin. */
+export const isStrictSuperAdminRole = (req) => {
+  const role = normalizeRole(getRequestRole(req));
+  if (!role) return false;
+  const compact = role.replace(/\s+/g, "");
+  if (
+    compact === "superadmin" ||
+    compact === "superadmindevelopment" ||
+    compact === "superadmindev" ||
+    compact === "secratesuperadmin" ||
+    compact === "secrateadmin"
+  ) {
+    return true;
+  }
+  if (compact.includes("superadmin") && compact.includes("development")) {
+    return true;
+  }
+  if (compact.includes("secrate") && compact.includes("superadmin")) {
+    return true;
+  }
+  if (compact.includes("secrate") && compact.includes("admin")) {
+    return true;
+  }
+  return compact === "superadmin";
+};
+
 /** Secret platform owner — can see/manage all superadmin accounts in Users. */
 export const isSecrateSuperAdminRole = (req) => {
   const role = normalizeRole(getRequestRole(req));
@@ -114,6 +149,15 @@ export const denyUnlessPlatformSuperAdmin = (req, res) => {
   if (isPlatformSuperAdminRole(req)) return false;
   res.status(403).json({
     message: "Only Super Admin can perform this action",
+  });
+  return true;
+};
+
+export const denyUnlessStrictSuperAdmin = (req, res) => {
+  if (isStrictSuperAdminRole(req)) return false;
+  res.status(403).json({
+    message:
+      "Only Super Admin, Super Admin Development, Secrate Super Admin, or Secrate Admin can perform this action",
   });
   return true;
 };
