@@ -8,7 +8,7 @@ import {
   deleteFile,
   uploadFile,
 } from "../utils/fileStorage.js";
-import { denyUnlessInstitutionAdmin } from "../utils/lmsAccess.js";
+import { denyUnlessInstitutionAdmin, denyUnlessStrictSuperAdmin, canAccessBatch } from "../utils/lmsAccess.js";
 import {
   sendQualifierWelcomeWhatsApp,
   resolveWhatsAppSenderFromReq,
@@ -709,6 +709,7 @@ export const getQualifiers = async (req, res) => {
     city,
     batch,
     class_type,
+    exam_type,
     profile_updated,
   } = req.query;
   try {
@@ -760,14 +761,13 @@ export const getQualifiers = async (req, res) => {
         filter.class_type = normalizedClassFilter;
       }
 
-      if (batch && String(batch).trim()) {
-        filter.batch = String(batch).trim();
+      const normalizedExamFilter = normalizeExamType(exam_type);
+      if (normalizedExamFilter) {
+        filter.exam_type = normalizedExamFilter;
       }
 
-      if (is_active === "true" || is_active === true) {
-        filter.is_active = true;
-      } else if (is_active === "false" || is_active === false) {
-        filter.is_active = false;
+      if (batch && String(batch).trim()) {
+        filter.batch = String(batch).trim();
       }
 
       const profileFlag = String(profile_updated || "").trim().toLowerCase();
@@ -775,6 +775,55 @@ export const getQualifiers = async (req, res) => {
         Object.assign(filter, buildProfileUpdatedMongoFilter());
       } else if (profileFlag === "false" || profileFlag === "not_updated") {
         filter.$nor = [buildProfileUpdatedMongoFilter()];
+      }
+    }
+
+    // Status counts ignore active/inactive so Total / Active / Inactive chips stay accurate
+    const countBaseFilter = { ...filter };
+    // Exam counts ignore CSS/PMS filter so All / CSS / PMS chips stay accurate
+    const examCountBase = { ...filter };
+    delete examCountBase.exam_type;
+    if (!isQualifierRole(req)) {
+      if (is_active === "true" || is_active === true) {
+        examCountBase.is_active = { $ne: false };
+      } else if (is_active === "false" || is_active === false) {
+        examCountBase.is_active = false;
+      }
+    }
+
+    const [
+      totalCount,
+      activeCount,
+      inactiveCount,
+      examTotalCount,
+      cssCount,
+      pmsCount,
+    ] = await Promise.all([
+      Qualifier.countDocuments(countBaseFilter),
+      Qualifier.countDocuments({
+        ...countBaseFilter,
+        is_active: { $ne: false },
+      }),
+      Qualifier.countDocuments({
+        ...countBaseFilter,
+        is_active: false,
+      }),
+      Qualifier.countDocuments(examCountBase),
+      Qualifier.countDocuments({
+        ...examCountBase,
+        exam_type: "CSS",
+      }),
+      Qualifier.countDocuments({
+        ...examCountBase,
+        exam_type: "PMS",
+      }),
+    ]);
+
+    if (!isQualifierRole(req)) {
+      if (is_active === "true" || is_active === true) {
+        filter.is_active = { $ne: false };
+      } else if (is_active === "false" || is_active === false) {
+        filter.is_active = false;
       }
     }
 
@@ -793,9 +842,24 @@ export const getQualifiers = async (req, res) => {
       };
     });
 
+    const payload =
+      typeof qualifiers.toJSON === "function"
+        ? qualifiers.toJSON()
+        : { ...qualifiers };
+
     res.status(200).json({
-      ...qualifiers,
+      ...payload,
       docs,
+      status_counts: {
+        total: totalCount,
+        active: activeCount,
+        inactive: inactiveCount,
+      },
+      exam_type_counts: {
+        total: examTotalCount,
+        css: cssCount,
+        pms: pmsCount,
+      },
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -1190,6 +1254,155 @@ export const deleteQualifier = async (req, res) => {
     }
 
     res.status(200).json({ message: "Qualifier deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const FILLABLE_NULL_QUALIFIER_FIELDS = {
+  exam_type: "CSS/PMS",
+  class_type: "Mode (Online / On Campus)",
+  province: "Province",
+  city: "City",
+  father_name: "Father name",
+  father_phone: "Father phone",
+  css_pms_roll_no: "CSS/PMS Roll No",
+  cnic: "CNIC",
+  latest_degree: "Latest degree",
+};
+
+const buildNullOrEmptyQualifierFieldFilter = (field) => {
+  // CSS/PMS: treat anything other than CSS or PMS as empty
+  if (field === "exam_type") {
+    return { exam_type: { $nin: ["CSS", "PMS"] } };
+  }
+  // Mode: treat anything other than Online / On Campus as empty
+  if (field === "class_type") {
+    return { class_type: { $nin: ["Online", "On Campus"] } };
+  }
+  return {
+    $or: [
+      { [field]: null },
+      { [field]: { $exists: false } },
+      { [field]: "" },
+      { [field]: { $regex: /^\s*$/ } },
+    ],
+  };
+};
+
+/** Fill one profile field for all qualifiers where that field is null/empty. */
+export const fillNullQualifierField = async (req, res) => {
+  if (denyUnlessStrictSuperAdmin(req, res)) return;
+
+  try {
+    const { field, value, batch_id, preview } = req.body || {};
+
+    const fieldKey = String(field || "").trim();
+    if (!FILLABLE_NULL_QUALIFIER_FIELDS[fieldKey]) {
+      return res.status(400).json({
+        message:
+          "Select a valid field (CSS/PMS, province, city, mode, etc.).",
+      });
+    }
+
+    const isPreview =
+      preview === true ||
+      preview === "true" ||
+      preview === 1 ||
+      preview === "1";
+    const trimmedValue = String(value ?? "").trim();
+
+    if (!isPreview && !trimmedValue) {
+      return res.status(400).json({
+        message: "Enter a value to apply to empty records.",
+      });
+    }
+
+    let normalizedValue = trimmedValue;
+    if (trimmedValue) {
+      if (fieldKey === "exam_type") {
+        const exam = normalizeExamType(trimmedValue);
+        if (!exam) {
+          return res.status(400).json({
+            message: "Exam type must be CSS or PMS",
+          });
+        }
+        normalizedValue = exam;
+      } else if (fieldKey === "class_type") {
+        const classType = normalizeClassType(trimmedValue);
+        if (!classType) {
+          return res.status(400).json({
+            message: "Class type must be Online or On Campus",
+          });
+        }
+        normalizedValue = classType;
+      } else if (fieldKey === "province" && !isPakistanProvince(trimmedValue)) {
+        return res.status(400).json({
+          message: "Select a valid Pakistan province",
+        });
+      }
+    }
+
+    const filter = {
+      ...buildNullOrEmptyQualifierFieldFilter(fieldKey),
+    };
+
+    const batchId = batch_id ? String(batch_id).trim() : "";
+    if (batchId) {
+      if (!(await canAccessBatch(req, batchId))) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      filter.batch = batchId;
+    }
+
+    const matchedCount = await Qualifier.countDocuments(filter);
+
+    if (isPreview) {
+      const qualifiers = await Qualifier.find(filter)
+        .select(
+          "name phone css_pms_roll_no exam_type class_type city province father_name father_phone cnic latest_degree batch"
+        )
+        .populate("batch", "name is_interview_batch")
+        .sort({ name: 1 })
+        .limit(1000)
+        .lean();
+
+      return res.status(200).json({
+        field: fieldKey,
+        field_label: FILLABLE_NULL_QUALIFIER_FIELDS[fieldKey],
+        value: normalizedValue || null,
+        batch_id: batchId || null,
+        matched_count: matchedCount,
+        qualifiers,
+        preview: true,
+      });
+    }
+
+    if (matchedCount === 0) {
+      return res.status(200).json({
+        field: fieldKey,
+        field_label: FILLABLE_NULL_QUALIFIER_FIELDS[fieldKey],
+        value: normalizedValue,
+        batch_id: batchId || null,
+        matched_count: 0,
+        modified_count: 0,
+        message: "No qualifiers found with an empty value for this field.",
+      });
+    }
+
+    const result = await Qualifier.updateMany(filter, {
+      $set: { [fieldKey]: normalizedValue },
+    });
+
+    return res.status(200).json({
+      field: fieldKey,
+      field_label: FILLABLE_NULL_QUALIFIER_FIELDS[fieldKey],
+      value: normalizedValue,
+      batch_id: batchId || null,
+      matched_count: matchedCount,
+      modified_count: result.modifiedCount,
+      message: `Updated ${result.modifiedCount} qualifier(s) with empty ${FILLABLE_NULL_QUALIFIER_FIELDS[fieldKey]}.`,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

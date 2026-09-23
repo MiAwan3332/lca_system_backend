@@ -9,6 +9,7 @@ import {
   getQualifiers,
   toggleQualifierStatus,
   updateQualifier,
+  fillNullQualifierField,
 } from "../controllers/qualifiers.js";
 
 const router = express.Router();
@@ -17,6 +18,7 @@ router.get("/", auth, getQualifiers);
 router.get("/:id", auth, getQualifier);
 router.post("/add", auth, addQualifier);
 router.post("/bulk-import", auth, bulkImportQualifiers);
+router.post("/fill-null-field", auth, fillNullQualifierField);
 router.post("/update/:id", auth, updateQualifier);
 router.post("/toggle-status/:id", auth, toggleQualifierStatus);
 router.post("/change-password/:id", auth, changeQualifierPassword);

@@ -34,23 +34,26 @@ const findTemplate = async (keyOrId) => {
 const sampleVars = () => ({
   ...buildStudentTemplateVars({
     student: {
-      name: "Ali Khan",
+      name: "Mirza Sameed Ahmad Baig",
       phone: "03001234567",
       cnic: "35202-1234567-1",
       roll_number: "CSS-001",
       admission_date: new Date(),
       total_fee: 50000,
-      paid_fee: 20000,
-      pending_fee: 30000,
+      paid_fee: 25000,
+      pending_fee: 25000,
     },
     batch: {
-      name: "CSS Morning 2026",
+      name: "LCA On-Campus MARATHON-110 TEST SESSION CSS-2027",
       class_start_time: "09:00",
       class_end_time: "13:00",
     },
     password: "lca@123456",
     paymentMethod: "Cash",
     amountReceived: 10000,
+    dueDate: "2026-09-20",
+    overdueDays: 3,
+    overdueAmount: 25000,
   }),
   ...buildUserTemplateVars({
     user: {
