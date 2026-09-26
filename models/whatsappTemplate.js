@@ -8,6 +8,7 @@ import mongoose from "mongoose";
  * - qualifier_welcome: when a qualifier is added
  * - fee_payment: when a fee payment is recorded
  * - fee_reminder: pending fee reminders (manual / future automation)
+ * - fee_overdue: overdue installment reminders (past due date, still pending)
  * - custom: not auto-sent by the system
  */
 const whatsappTemplateSchema = mongoose.Schema(
@@ -39,6 +40,7 @@ const whatsappTemplateSchema = mongoose.Schema(
         "qualifier_welcome",
         "fee_payment",
         "fee_reminder",
+        "fee_overdue",
         "custom",
       ],
       default: "custom",
