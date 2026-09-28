@@ -54,6 +54,7 @@ import path from "path";
 import {
   getNextStudentRollNumber,
   backfillMissingRollNumbersForBatch,
+  extractRollSequence,
 } from "../utils/studentRollNumber.js";
 import { sendStudentWelcomeWhatsApp, resolveWhatsAppSenderFromReq } from "../utils/whatsappMessaging.js";
 import { deleteStudentCascade } from "../utils/deleteStudentCascade.js";
@@ -1043,6 +1044,27 @@ export const getStudentsByBatch = async (req, res) => {
         sort: { roll_number: 1, name: 1, _id: 1 },
       });
 
+    // Natural roll order: OC-Marathon-1, 2, 3…10 (by trailing digits), not lexical.
+    const compareByRollSeq = (a, b) => {
+      const rollA = String(a?.roll_number || "").trim();
+      const rollB = String(b?.roll_number || "").trim();
+      if (!rollA && rollB) return 1;
+      if (rollA && !rollB) return -1;
+      const seqA = extractRollSequence(rollA);
+      const seqB = extractRollSequence(rollB);
+      if (seqA !== seqB) return seqA - seqB;
+      if (rollA !== rollB) {
+        return rollA.localeCompare(rollB, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      }
+      const nameA = String(a?.name || "").trim().toLowerCase();
+      const nameB = String(b?.name || "").trim().toLowerCase();
+      if (nameA !== nameB) return nameA.localeCompare(nameB);
+      return String(a?._id || "").localeCompare(String(b?._id || ""));
+    };
+    students.docs = [...students.docs].sort(compareByRollSeq);
     // Generate finance history if exporting (large limit)
     if (parseInt(req.query.limit) > 1000 && students.docs.length > 0) {
       const studentIds = students.docs.map(s => s._id);
