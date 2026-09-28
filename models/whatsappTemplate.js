@@ -49,7 +49,7 @@ const whatsappTemplateSchema = mongoose.Schema(
     body: {
       type: String,
       required: true,
-      trim: true,
+      trim: true, 
     },
     is_active: {
       type: Boolean,
