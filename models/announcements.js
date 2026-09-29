@@ -23,6 +23,7 @@ const announcementSchema = mongoose.Schema(
 );
 
 announcementSchema.plugin(mongoosePaginate);
+announcementSchema.index({ batches: 1, createdAt: -1 });
 
 const Announcement = mongoose.model("Announcement", announcementSchema);
 export default Announcement;

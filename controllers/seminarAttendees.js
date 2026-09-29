@@ -1,8 +1,16 @@
 import Attendee from "../models/seminarAttendees.js";
+import { getPagination } from "../utils/pagination.js";
 
 export const getAttendees = async (req, res) => {
   try {
-    const attendees = await Attendee.find().populate("seminar");
+    const { page, limit } = getPagination(req.query);
+    const attendees = await Attendee.paginate({}, {
+      page,
+      limit,
+      sort: { _id: -1 },
+      populate: ["seminar"],
+      lean: true,
+    });
     res.status(200).json(attendees);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -71,10 +79,13 @@ export const deleteAttendee = async (req, res) => {
 export const getAttendeesBySeminar = async (req, res) => {
   const { id } = req.params;
   try {
+    const { page, limit } = getPagination(req.query);
     const attendees = await Attendee.paginate({ seminar: id }, {
-      page: parseInt(req.query.page),
-      limit: parseInt(req.query.limit),
+      page,
+      limit,
       populate: ["seminar"],
+      sort: { _id: -1 },
+      lean: true,
     });
     res.status(200).json(attendees);
   } catch (error) {

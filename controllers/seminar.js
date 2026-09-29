@@ -92,21 +92,20 @@ export const getTodaySeminars = async (req, res) => {
 
 
 export const getSeminarAttendeesCount = async (req, res) => {
-  const seminars = await Seminar.find()
-    .populate({
-      path: "seminarAttendees",
-      select: "_id",
-      options: { limit: 1 },
-      strictPopulate: false,
-    })
-    .lean({ virtuals: true })
-    .exec();
+  const seminars = await Seminar.find().select("name").limit(100).lean();
+  const counts = await Attendee.aggregate([
+    { $match: { seminar: { $in: seminars.map((seminar) => seminar._id) } } },
+    { $group: { _id: "$seminar", count: { $sum: 1 } } },
+  ]);
+  const countsBySeminar = new Map(
+    counts.map((item) => [String(item._id), item.count])
+  );
 
   const seminarsWithCount = seminars.map((seminar) => {
     return {
       _id: seminar._id,
       name: seminar.name,
-      count: seminarAttendees.seminar?.length,
+      count: countsBySeminar.get(String(seminar._id)) || 0,
     };
   });
 
@@ -140,6 +139,7 @@ export const getSeminarsWithAttendeeCounts = async (req, res) => {
           attendeeCount: 1,
         },
       },
+      { $limit: 100 },
     ]);
 
     return res.status(200).json(seminarsWithAttendeeCounts);
@@ -151,11 +151,22 @@ export const getSeminarsWithAttendeeCounts = async (req, res) => {
 
 export const getallSeminarwithAttendees = async (req, res) => {
   try {
-    const seminars = await Seminar.find().populate("seminarAttendees");
+    const seminars = await Seminar.find()
+      .sort({ date: -1 })
+      .limit(100)
+      .lean();
+    const seminarIds = seminars.map((seminar) => seminar._id);
+    const counts = await Attendee.aggregate([
+      { $match: { seminar: { $in: seminarIds } } },
+      { $group: { _id: "$seminar", count: { $sum: 1 } } },
+    ]);
+    const countsBySeminar = new Map(
+      counts.map((item) => [String(item._id), item.count])
+    );
 
     const seminarWithAttendeesCount = seminars.map((seminar) => ({
       seminar: seminar,
-      count: seminar.seminarAttendees.length,
+      count: countsBySeminar.get(String(seminar._id)) || 0,
     }));
 
     res.status(200).json(seminarWithAttendeesCount);

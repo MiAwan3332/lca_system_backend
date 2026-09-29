@@ -38,6 +38,8 @@ const panelistSchema = mongoose.Schema(
 );
 
 panelistSchema.plugin(mongoosePaginate);
+panelistSchema.index({ is_active: 1, createdAt: -1 });
+panelistSchema.index({ phone: 1 });
 
 const Panelist = mongoose.model("Panelist", panelistSchema);
 export default Panelist;

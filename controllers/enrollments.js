@@ -2,10 +2,15 @@ import Enrollment from "../models/enrollments.js";
 import Student from "../models/students.js";
 import moment from "moment";
 import Batches from "../models/batches.js";
+import { paginateQuery } from "../utils/pagination.js";
 
 export const getEnrollments = async (req, res) => {
   try {
-    const enrollments = await Enrollment.find();
+    const enrollments = await paginateQuery({
+      model: Enrollment,
+      query: req.query,
+      sort: { _id: -1 },
+    });
     res.status(200).json(enrollments);
   } catch (error) {
     res.status(404).json({ message: error.message });

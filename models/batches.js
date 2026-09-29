@@ -70,6 +70,8 @@ const batchesSchema = mongoose.Schema({
 });
 
 batchesSchema.plugin(mongoosePaginate);
+batchesSchema.index({ is_active: 1, is_interview_batch: 1, _id: -1 });
+batchesSchema.index({ batch_type: 1, is_active: 1 });
 
 const Batch = mongoose.model("Batch", batchesSchema);
 export default Batch;

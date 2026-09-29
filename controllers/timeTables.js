@@ -15,6 +15,7 @@ import jwt from "jsonwebtoken";
 import fs from "fs";
 import dotenv from "dotenv";
 import moment from "moment-timezone";
+import { buildPaginationResponse, getPagination } from "../utils/pagination.js";
 dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -162,13 +163,13 @@ export const getTimeTableByStudentId = async (req, res) => {
 
 export const getAllTimeTables = async (req, res) => {
   try {
-      const { batch_id, course_id, teacher_id } = req.query;
+      const { batch_id, course_id, teacher_id, start_date, end_date } = req.query;
       let filter = {};
 
       if (isStudentRole(req)) {
         const student = await resolveStudentRecord(req);
         if (!student?.batch) {
-          return res.status(200).json([]);
+          return res.status(200).json(buildPaginationResponse({ docs: [], totalDocs: 0, page: 1, limit: 10 }));
         }
         filter.batch = student.batch._id || student.batch;
       }
@@ -177,7 +178,7 @@ export const getAllTimeTables = async (req, res) => {
         const scope = await getTeacherScope(req);
         const teacherId = await resolveTeacherId(req);
         if (!scope?.batchIds?.length || !teacherId) {
-          return res.status(200).json([]);
+          return res.status(200).json(buildPaginationResponse({ docs: [], totalDocs: 0, page: 1, limit: 10 }));
         }
         filter.batch = { $in: scope.batchIds };
         filter.course = { $in: scope.courseIds };
@@ -187,10 +188,28 @@ export const getAllTimeTables = async (req, res) => {
       if (batch_id) filter.batch = batch_id;
       if (course_id) filter.course = course_id;
       if (teacher_id) filter.teacher = teacher_id;
+      if (start_date || end_date) {
+        filter.day = {};
+        if (start_date) filter.day.$gte = start_date;
+        if (end_date) filter.day.$lte = end_date;
+      }
 
-      const timeTables = await TimeTable.find(filter).populate("batch").populate("course").populate("teacher");
+      const { page, limit, skip } = getPagination(req.query, {
+        defaultLimit: 50,
+      });
+      const [totalDocs, docs] = await Promise.all([
+        TimeTable.countDocuments(filter),
+        TimeTable.find(filter)
+          .sort({ day: 1, start_time: 1 })
+          .skip(skip)
+          .limit(limit)
+          .populate("batch")
+          .populate("course")
+          .populate("teacher")
+          .lean(),
+      ]);
 
-      res.status(200).json(timeTables);
+      res.status(200).json(buildPaginationResponse({ docs, totalDocs, page, limit }));
 
   } catch (error) {
       res.status(500).json({ message: error.message });

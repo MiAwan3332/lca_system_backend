@@ -66,6 +66,7 @@ const courseQuizSchema = mongoose.Schema(
 );
 
 courseQuizSchema.plugin(mongoosePaginate);
+courseQuizSchema.index({ batch: 1, course: 1, status: 1, createdAt: -1 });
 
 const CourseQuiz = mongoose.model("CourseQuiz", courseQuizSchema);
 export default CourseQuiz;

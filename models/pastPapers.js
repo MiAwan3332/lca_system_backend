@@ -5,6 +5,7 @@ const pastPapersSchema = mongoose.Schema({
     year: { type: String, required: true },
     courseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true },
 });
+pastPapersSchema.index({ courseId: 1, year: 1 });
 
 
 const pastPapers = mongoose.model("pastPapers", pastPapersSchema);

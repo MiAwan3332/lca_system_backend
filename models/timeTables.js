@@ -25,5 +25,6 @@ const timetableSchema = mongoose.Schema({
     },
     google_synced_at: Date,
 });
+timetableSchema.index({ day: 1, batch: 1, course: 1, teacher: 1 });
 const TimeTable = mongoose.model('TimeTable', timetableSchema);
 export default TimeTable;

@@ -15,6 +15,8 @@ const userSchema = mongoose.Schema({
 });
 
 userSchema.plugin(mongoosePaginate);
+userSchema.index({ email: 1 });
+userSchema.index({ role: 1, _id: -1 });
 
 const User = mongoose.model("User", userSchema);
 export default User;

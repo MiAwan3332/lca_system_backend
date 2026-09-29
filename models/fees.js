@@ -20,6 +20,8 @@ const feeSchema = mongoose.Schema({
 });
 
 feeSchema.plugin(mongoosePaginate);
+feeSchema.index({ student: 1, status: 1, due_date: 1 });
+feeSchema.index({ batch: 1, status: 1, due_date: 1 });
 
 const Fee = mongoose.model("Fee", feeSchema);
 export default Fee;

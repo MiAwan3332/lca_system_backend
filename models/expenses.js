@@ -51,6 +51,8 @@ const expenseSchema = mongoose.Schema(
 );
 
 expenseSchema.plugin(mongoosePaginate);
+expenseSchema.index({ status: 1, category: 1, expense_date: -1 });
+expenseSchema.index({ createdAt: -1 });
 
 const Expense = mongoose.model("Expense", expenseSchema);
 export default Expense;

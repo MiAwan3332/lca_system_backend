@@ -9,6 +9,7 @@ const seminarSchema = mongoose.Schema({
 });
 
 seminarSchema.plugin(mongoosePaginate);
+seminarSchema.index({ date: -1 });
 
 const Seminar = mongoose.model("Seminar", seminarSchema);
 export default Seminar;

@@ -105,6 +105,7 @@ export const listWhatsAppTemplates = async (_req, res) => {
   try {
     await ensureDefaultWhatsAppTemplates();
     const templates = await WhatsAppTemplate.find()
+      .limit(100)
       .sort({ process: 1, name: 1 })
       .lean();
     res.status(200).json({
