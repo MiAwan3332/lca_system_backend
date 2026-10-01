@@ -14,6 +14,8 @@ const teacherSchema = mongoose.Schema({
 });
 
 teacherSchema.plugin(mongoosePaginate);
+teacherSchema.index({ user: 1 });
+teacherSchema.index({ email: 1 });
 
 const Teacher = mongoose.model("Teacher", teacherSchema);
 export default Teacher;

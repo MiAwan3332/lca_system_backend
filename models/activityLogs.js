@@ -57,6 +57,13 @@ const activityLogSchema = mongoose.Schema(
 
 activityLogSchema.index({ created_at: -1 });
 activityLogSchema.index({ actor_email: 1, created_at: -1 });
+activityLogSchema.index({ actor_student: 1, created_at: -1 });
+activityLogSchema.index({ actor_teacher: 1, created_at: -1 });
+activityLogSchema.index({ actor_user: 1, created_at: -1 });
+activityLogSchema.index({ target_id: 1, target_type: 1, created_at: -1 });
+activityLogSchema.index({ actor_category: 1, created_at: -1 });
+activityLogSchema.index({ module: 1, created_at: -1 });
+activityLogSchema.index({ action: 1, created_at: -1 });
 
 activityLogSchema.plugin(mongoosePaginate);
 

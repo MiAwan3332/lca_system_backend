@@ -15,6 +15,7 @@ const attendeeSchema = mongoose.Schema({
 });
 
 attendeeSchema.plugin(mongoosePaginate);
+attendeeSchema.index({ seminar: 1, _id: -1 });
 
 const Attendee = mongoose.model("Attendee", attendeeSchema);
 export default Attendee;

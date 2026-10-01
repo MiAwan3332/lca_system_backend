@@ -73,6 +73,7 @@ const assignmentSchema = mongoose.Schema(
 );
 
 assignmentSchema.plugin(mongoosePaginate);
+assignmentSchema.index({ batch: 1, course: 1, status: 1, createdAt: -1 });
 
 const Assignment = mongoose.model("Assignment", assignmentSchema);
 export default Assignment;

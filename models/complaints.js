@@ -41,6 +41,8 @@ const complaintSchema = mongoose.Schema(
 );
 
 complaintSchema.plugin(mongoosePaginate);
+complaintSchema.index({ submitted_by: 1, status: 1, createdAt: -1 });
+complaintSchema.index({ target_role: 1, status: 1, createdAt: -1 });
 
 const Complaint = mongoose.model("Complaint", complaintSchema);
 export default Complaint;

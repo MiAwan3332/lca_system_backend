@@ -86,6 +86,10 @@ const studentSchema = mongoose.Schema({
 });
 
 studentSchema.plugin(mongoosePaginate);
+studentSchema.index({ batch: 1, is_active: 1, _id: -1 });
+studentSchema.index({ pending_fee: 1, batch: 1 });
+studentSchema.index({ email: 1 });
+studentSchema.index({ phone: 1 });
 
 const Student = mongoose.model("Student", studentSchema);
 export default Student;

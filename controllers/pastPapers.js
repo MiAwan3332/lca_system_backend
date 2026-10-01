@@ -1,5 +1,6 @@
 import PastPapers from "../models/pastPapers.js";
 import dotenv from "dotenv";
+import { paginateQuery } from "../utils/pagination.js";
 dotenv.config();
 
 export const createPastPaper = async (req, res) => {
@@ -56,7 +57,12 @@ export const updatePastPaper = async (req, res) => {
 
 export const getAllPastPapers = async (req, res) => {
   try {
-    const pastPapers = await PastPapers.find().sort({ createdAt: -1 });
+    const pastPapers = await paginateQuery({
+      model: PastPapers,
+      query: req.query,
+      sort: { _id: -1 },
+      populate: "courseId",
+    });
     res.status(200).json(pastPapers);
   } catch (error) {
     res.status(500).json({ message: error.message });

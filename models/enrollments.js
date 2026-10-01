@@ -21,6 +21,7 @@ const enrollmentSchema = mongoose.Schema({
     },
   ],
 });
+enrollmentSchema.index({ student: 1, batch: 1 });
 const Enrollment = mongoose.model("Enrollment", enrollmentSchema);
 
 export default Enrollment;

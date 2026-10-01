@@ -9,6 +9,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 
 let s3Client = null;
 
@@ -29,6 +30,11 @@ const getS3Client = () => {
       region: process.env.S3_REGION || 'eu2',
       endpoint: process.env.S3_ENDPOINT,
       forcePathStyle: true,
+      maxAttempts: 3,
+      requestHandler: new NodeHttpHandler({
+        connectionTimeout: Number(process.env.S3_CONNECTION_TIMEOUT_MS) || 5000,
+        socketTimeout: Number(process.env.S3_SOCKET_TIMEOUT_MS) || 30000,
+      }),
       credentials: {
         accessKeyId: process.env.S3_ACCESS_KEY_ID,
         secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,

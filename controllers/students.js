@@ -1,4 +1,5 @@
 import Student from "../models/students.js";
+import mongoose from "mongoose";
 import Batch from "../models/batches.js";
 import User from "../models/users.js";
 import {
@@ -61,6 +62,7 @@ import { deleteStudentCascade } from "../utils/deleteStudentCascade.js";
 import { logActivity } from "../utils/activityLogger.js";
 import StudentDeletionArchive from "../models/studentDeletionArchives.js";
 import StudentBatchShift from "../models/studentBatchShifts.js";
+import { buildPaginationResponse, getPagination } from "../utils/pagination.js";
 dotenv.config();
 
 const PENDING_FEE_BLOCK_MESSAGE =
@@ -168,6 +170,8 @@ export const addStudent = async (req, res) => {
   let payingNow = Number(req.body.paying_now) || 0;
   const paymentMethod = req.body.payment_method;
   const nextInstallmentDate = req.body.next_installment_date;
+  let createdUserId = null;
+  let createdStudentId = null;
 
   try {
     if (!name?.trim()) {
@@ -313,6 +317,7 @@ export const addStudent = async (req, res) => {
     });
 
     await newUser.save();
+    createdUserId = newUser._id;
 
     const newStudent = new Student({
       roll_number: rollNumber,
@@ -347,6 +352,7 @@ export const addStudent = async (req, res) => {
     });
 
     await newStudent.save();
+    createdStudentId = newStudent._id;
 
     // Ensure roll number is persisted (same defensive check as import flow)
     if (!newStudent.roll_number && rollNumber) {
@@ -370,10 +376,11 @@ export const addStudent = async (req, res) => {
     }
 
     if (batchRecord && !String(newStudent.roll_number || "").trim()) {
-      return res.status(500).json({
-        message:
-          "Student was created but roll number could not be assigned. Set batch type (Online / On Campus) and roll nickname, then try again.",
-      });
+      const rollError = new Error(
+        "Roll number could not be assigned. Set batch type (Online / On Campus) and roll nickname, then try again."
+      );
+      rollError.status = 500;
+      throw rollError;
     }
 
     const imageFile = req.files?.image;
@@ -408,11 +415,12 @@ export const addStudent = async (req, res) => {
         paymentEvidence = normalizePaymentEvidenceForStorage(urls);
       } catch (evidenceError) {
         console.error("Payment evidence upload failed:", evidenceError);
-        return res.status(400).json({
-          message:
-            evidenceError?.message ||
-            "Could not upload online payment evidence. Please try again.",
-        });
+        const uploadError = new Error(
+          evidenceError?.message ||
+            "Could not upload online payment evidence. Please try again."
+        );
+        uploadError.status = 400;
+        throw uploadError;
       }
     }
 
@@ -486,7 +494,33 @@ export const addStudent = async (req, res) => {
 
     res.status(200).json(payload);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    if (createdStudentId || createdUserId) {
+      try {
+        if (createdStudentId) {
+          await Promise.all([
+            FeeLog.deleteMany({ student: createdStudentId }),
+            Fee.deleteMany({ student: createdStudentId }),
+            PendingFeeSlip.deleteMany({ student: createdStudentId }),
+            RefundRequest.deleteMany({ student: createdStudentId }),
+            Enrollment.deleteMany({ student: createdStudentId }),
+          ]);
+          await Student.findByIdAndDelete(createdStudentId);
+        }
+        if (createdUserId) {
+          await User.findByIdAndDelete(createdUserId);
+        }
+      } catch (rollbackError) {
+        console.error(
+          `Student creation rollback failed (${req.requestId || "no-request-id"}):`,
+          rollbackError
+        );
+      }
+    }
+
+    res.status(error.status || 500).json({
+      message: error.message,
+      requestId: req.requestId || null,
+    });
   }
 };
 
@@ -2507,29 +2541,42 @@ export const getStudentsByBatchesGraph = async (req, res) => {
     const { batch_id, start_date, end_date } = req.query;
     const batches = batch_id
       ? await Batch.find({ _id: batch_id }).select("name").lean()
-      : await Batch.find().select("name").sort({ name: 1 }).lean();
+      : await Batch.find().select("name").sort({ name: 1 }).limit(500).lean();
 
-    const studentCounts = await Promise.all(
-      batches.map(async (batch) => {
-        const query = { batch: batch._id };
-        applyAdmissionDateFilter(query, start_date, end_date);
-
-        const [total, active, inactive] = await Promise.all([
-          Student.countDocuments(query),
-          Student.countDocuments({ ...query, is_active: { $ne: false } }),
-          Student.countDocuments({ ...query, is_active: false }),
-        ]);
-
-        return {
-          batch: batch.name,
-          batch_id: String(batch._id),
-          total,
-          active,
-          inactive,
-          count: total,
-        };
-      })
+    const match = {};
+    if (batch_id) match.batch = new mongoose.Types.ObjectId(batch_id);
+    applyAdmissionDateFilter(match, start_date, end_date);
+    const groupedCounts = await Student.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: "$batch",
+          total: { $sum: 1 },
+          active: {
+            $sum: { $cond: [{ $ne: ["$is_active", false] }, 1, 0] },
+          },
+          inactive: {
+            $sum: { $cond: [{ $eq: ["$is_active", false] }, 1, 0] },
+          },
+        },
+      },
+    ]);
+    const countsByBatch = new Map(
+      groupedCounts.map((item) => [String(item._id), item])
     );
+
+    const studentCounts = batches.map((batch) => {
+      const counts = countsByBatch.get(String(batch._id)) || {};
+      const total = counts.total || 0;
+      return {
+        batch: batch.name,
+        batch_id: String(batch._id),
+        total,
+        active: counts.active || 0,
+        inactive: counts.inactive || 0,
+        count: total,
+      };
+    });
 
     res.json(studentCounts);
   } catch (error) {
@@ -2541,11 +2588,31 @@ export const getStudentsByBatchesGraph = async (req, res) => {
 export const getStudentsContacts = async (req, res) => {
   const { query } = req.query;
   try {
-    const searchQuery = query ? query : "";
-    const students = await Student.find();
-    // Extracting phone numbers from students
-    const studentPhones = students.map(student => student.phone);
-    res.status(200).json({ total: studentPhones.length, phones: studentPhones });
+    const searchQuery = String(query || "").trim();
+    const filter = searchQuery
+      ? {
+          $or: [
+            { name: { $regex: searchQuery, $options: "i" } },
+            { phone: { $regex: searchQuery, $options: "i" } },
+          ],
+        }
+      : {};
+    const { page, limit, skip } = getPagination(req.query);
+    const [totalDocs, students] = await Promise.all([
+      Student.countDocuments(filter),
+      Student.find(filter).select("phone").skip(skip).limit(limit).lean(),
+    ]);
+    const pagination = buildPaginationResponse({
+      docs: students.map((student) => student.phone).filter(Boolean),
+      totalDocs,
+      page,
+      limit,
+    });
+    res.status(200).json({
+      ...pagination,
+      total: totalDocs,
+      phones: pagination.docs,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

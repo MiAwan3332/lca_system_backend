@@ -45,7 +45,7 @@ export const getQuizSubjects = async (req, res) => {
       return acc;
     }, {});
 
-    let courses = await Course.find().sort({ name: 1 });
+    let courses = await Course.find().sort({ name: 1 }).limit(100).lean();
 
     if (allowedCourseIds !== null) {
       courses = courses.filter((course) =>

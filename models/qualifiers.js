@@ -132,6 +132,9 @@ const qualifierSchema = mongoose.Schema(
 );
 
 qualifierSchema.plugin(mongoosePaginate);
+qualifierSchema.index({ batch: 1, is_active: 1, createdAt: -1 });
+qualifierSchema.index({ phone: 1 });
+qualifierSchema.index({ email: 1 });
 
 const Qualifier = mongoose.model("Qualifier", qualifierSchema);
 export default Qualifier;
