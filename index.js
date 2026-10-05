@@ -143,7 +143,6 @@ mongoose.connect(CONNECTION_URL)
             .catch((error) => console.error(`Admission date normalization failed: ${error.message}`));
     })
     .catch((error) => console.error(`Error connecting to the database: ${error.message}`));
-    .catch((error) => console.error(`Error connecting to the database: ${error.message}`));
 
 const shutdown = (signal) => {
     console.log(`${signal} received; draining HTTP requests`);
