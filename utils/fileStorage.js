@@ -10,6 +10,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
+import { retryUpload } from './uploadRetry.js';
 
 let s3Client = null;
 
@@ -30,6 +31,7 @@ const getS3Client = () => {
       region: process.env.S3_REGION || 'eu2',
       endpoint: process.env.S3_ENDPOINT,
       forcePathStyle: true,
+      requestChecksumCalculation: 'WHEN_REQUIRED',
       maxAttempts: 3,
       requestHandler: new NodeHttpHandler({
         connectionTimeout: Number(process.env.S3_CONNECTION_TIMEOUT_MS) || 5000,
@@ -87,15 +89,38 @@ const uploadObject = async (filePath) => {
 
   const contentType = mime.lookup(filePath) || 'application/octet-stream';
 
-  await client.send(
-    new PutObjectCommand({
-      Bucket: process.env.S3_BUCKET,
-      Key: toObjectKey(filePath),
-      Body: fs.createReadStream(filePath),
-      ContentType: contentType,
-      ACL: process.env.S3_OBJECT_ACL || 'public-read',
-    })
-  );
+  const size = (await fs.promises.stat(filePath)).size;
+  const key = toObjectKey(filePath);
+  // A consumed file stream cannot be replayed by the SDK; reopen it for each attempt.
+  await retryUpload({
+    attempts: Number(process.env.S3_UPLOAD_MAX_ATTEMPTS) || 3,
+    deadlineMs: Number(process.env.S3_UPLOAD_DEADLINE_MS) || 60000,
+    attemptTimeoutMs: Number(process.env.S3_UPLOAD_ATTEMPT_TIMEOUT_MS) || 15000,
+    run: async ({ signal }) => {
+      const body = fs.createReadStream(filePath);
+      try {
+        return await client.send(new PutObjectCommand({
+          Bucket: process.env.S3_BUCKET,
+          Key: key,
+          Body: body,
+          ContentLength: size,
+          ContentType: contentType,
+          ACL: process.env.S3_OBJECT_ACL || 'public-read',
+        }), { abortSignal: signal });
+      } finally {
+        body.destroy();
+      }
+    },
+    onAttempt: ({ attempt, durationMs, error, result }) => {
+      const metadata = (error || result)?.$metadata;
+      console.log(JSON.stringify({
+        event: 's3_upload', level: error ? 'error' : 'info',
+        endpoint: process.env.S3_ENDPOINT, key, bytes: size, attempt, durationMs,
+        status: metadata?.httpStatusCode, storageRequestId: metadata?.requestId,
+        errorName: error?.name, errorCode: error?.code, message: error?.message,
+      }));
+    },
+  });
 };
 
 export const serveStoredPublicFile = async (req, res, next) => {
