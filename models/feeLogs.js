@@ -2,6 +2,8 @@ import mongoose from "mongoose";
 import mongoosePaginate from "mongoose-paginate-v2";
 
 const feeLogSchema = mongoose.Schema({
+    evidence_status: { type: String, enum: ['pending', 'complete', 'failed'], default: 'complete' },
+    creation_worker_epoch: { type: Number, default: 0 },
     amount: Number,
     action_amount: Number,
     action_date: Date,

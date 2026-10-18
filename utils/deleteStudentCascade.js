@@ -1,4 +1,6 @@
 import mongoose from "mongoose";
+import { tombstoneCreation } from './creationService.js';
+import CreationRequest from '../models/creationRequests.js';
 import Student from "../models/students.js";
 import User from "../models/users.js";
 import Fee from "../models/fees.js";
@@ -53,6 +55,9 @@ export const deleteStudentCascade = async (studentId, options = {}) => {
   if (!student) {
     throw new Error("Student not found");
   }
+  if (student.creation_pending) throw new Error('Student creation must finish before deletion. Inspect its processing status.');
+  const creation = await CreationRequest.findOne({ kind: 'student', recordId: student._id }).select('state');
+  if (creation && !['complete', 'deleted'].includes(creation.state)) throw new Error('The creation journal must finish recovery before this student can be deleted.');
 
   const id = student._id;
   const email = String(student.email || "").trim();
@@ -207,6 +212,7 @@ export const deleteStudentCascade = async (studentId, options = {}) => {
   }
 
   await Student.findByIdAndDelete(id);
+  await tombstoneCreation('student', id);
 
   const summary = {
     student_id: String(id),

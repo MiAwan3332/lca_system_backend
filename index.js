@@ -7,7 +7,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import fileUpload from 'express-fileupload';
+import creationUploads from './middlewares/creationUploads.js';
 import usersRoutes from './routes/users.js';
 import coursesRoutes from './routes/courses.js';
 import teachersRoutes from './routes/teachers.js';
@@ -46,6 +46,9 @@ import { startWhatsAppQueueWorker } from './utils/whatsappQueue.js';
 import { ensureAccountsRole } from './utils/ensureAccountsRole.js';
 import { enforcePaginationBounds } from './utils/pagination.js';
 import { errorHandler, requestObservability } from './utils/requestObservability.js';
+import { startCreationWorker, stopCreationWorker, getCreationMetrics } from './utils/creationService.js';
+import auth from './middlewares/auth.js';
+import { flushCreationAudit } from './utils/creationAudit.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -58,10 +61,9 @@ const allowedOrigins = String(process.env.CORS_ORIGINS || "")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-app.use(bodyParser.json({ limit: "30mb", extended: true }));
-app.use(bodyParser.urlencoded({ limit: "30mb", extended: true }));
-app.use(fileUpload());
+app.use(requestObservability);
 app.use(cors({
+  exposedHeaders: ['x-request-id', 'Idempotency-Key'],
   origin(origin, callback) {
     if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
       return callback(null, true);
@@ -69,8 +71,12 @@ app.use(cors({
     return callback(new Error("Origin is not allowed by CORS"));
   },
 }));
-app.use(requestObservability);
+app.use(bodyParser.json({ limit: "30mb", extended: true }));
+app.use(bodyParser.urlencoded({ limit: "30mb", extended: true }));
+app.use(creationUploads);
 app.use(enforcePaginationBounds);
+app.get('/operations/creation-metrics', auth, getCreationMetrics);
+app.get('/operations/creation-capabilities', auth, (_req, res) => res.set('Cache-Control', 'no-store').json({ protocol: 2 }));
 app.get("/", (req, res) => res.send("Express on Vercel"));
 app.get("/health/live", (_req, res) => res.status(200).json({ status: "ok" }));
 app.get("/health/ready", (_req, res) => {
@@ -80,6 +86,7 @@ app.get("/health/ready", (_req, res) => {
     database: databaseReady ? "connected" : "disconnected",
   });
 });
+app.use(`/public/${process.env.S3_KEY_PREFIX || 'files'}`, express.static(process.env.FILES_STORAGE_PATH || join(__dirname, 'public')));
 app.use('/public', express.static(join(__dirname, 'public')), serveStoredPublicFile);
 app.use('/users', usersRoutes);
 app.use('/courses', coursesRoutes);
@@ -121,7 +128,8 @@ const PORT = process.env.PORT || 5001;
 let server;
 
 mongoose.connect(CONNECTION_URL)
-    .then(() => {
+    .then(async () => {
+        await startCreationWorker();
         server = app.listen(PORT, () => console.log(`Server Running on Port: http://localhost:${PORT}`));
         startInstallmentReminderScheduler();
         startWhatsAppQueueWorker();
@@ -142,7 +150,11 @@ mongoose.connect(CONNECTION_URL)
             })
             .catch((error) => console.error(`Admission date normalization failed: ${error.message}`));
     })
-    .catch((error) => console.error(`Error connecting to the database: ${error.message}`));
+    .catch(async (error) => {
+        console.error(`Backend startup failed: ${error.message}`);
+        await mongoose.disconnect();
+        process.exitCode = 1;
+    });
 
 const shutdown = (signal) => {
     console.log(`${signal} received; draining HTTP requests`);
@@ -155,7 +167,9 @@ const shutdown = (signal) => {
 
     const closeDatabase = async () => {
         try {
+            await stopCreationWorker();
             await mongoose.disconnect();
+            await flushCreationAudit();
             process.exit(0);
         } catch (error) {
             console.error(`Database shutdown failed: ${error.message}`);

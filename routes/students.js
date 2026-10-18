@@ -30,6 +30,7 @@ import {
   fillNullStudentField,
 } from '../controllers/students.js';
 import auth from '../middlewares/auth.js';
+import { claimCreation, getCreationByKey, getCreationStatus, retryCreation } from '../utils/creationService.js';
 
 const router = express.Router();
 
@@ -50,8 +51,11 @@ router.post('/ensure-roll/:id', auth, ensureStudentRollNumber);
 router.post('/transfer-batch/:id', auth, transferStudentBatch);
 router.get('/pending-fee-slip/:id', auth, getPendingFeeSlip);
 router.post('/pending-fee-slip/:id', auth, getOrCreatePendingFeeSlip);
+router.get('/by-key/:key', auth, getCreationByKey('student'));
+router.get('/:id/processing', auth, getCreationStatus('student'));
+router.post('/:id/processing/retry', auth, retryCreation('student'));
 router.get('/:id',auth,getStudent)
-router.post('/add',auth,addStudent);
+router.post('/add',auth,claimCreation('student'),addStudent);
 router.post('/update/:id',auth,updateStudent);
 router.delete('/delete/:id',auth,deleteStudent);
 router.get('/qrcode/:id',auth,getQrCode);

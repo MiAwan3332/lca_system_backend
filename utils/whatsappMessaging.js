@@ -557,11 +557,11 @@ const isSessionReady = (session) => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export const findReadyWhatsAppSession = async () => {
+export const findReadyWhatsAppSession = async (options = {}) => {
   if (!isOpenWaConfigured()) return null;
 
   const { defaultSessionName } = getOpenWaConfig();
-  const payload = await openWaRequest("GET", "/api/sessions");
+  const payload = await openWaRequest("GET", "/api/sessions", options);
   const sessions = normalizeSessions(payload);
   const ready = sessions.filter(isSessionReady);
   if (!ready.length) return null;
@@ -697,30 +697,31 @@ const isOpenWaPacingLimit = (error) => {
 const openWaPacingMessage =
   "WhatsApp gateway send pacing is enabled on OpenWA (default 20 messages on day 1). LCA does not set this limit. On the OpenWA server set SEND_PACING_ENABLED=false and restart, or raise SEND_PACING_WARMUP_SCHEDULE.";
 
-const sendTextWithRetry = async (sessionId, chatId, text) => {
+const sendTextWithRetry = async (sessionId, chatId, text, background = false) => {
   let lastError;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  const maxAttempts = background ? 1 : 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       return await openWaRequest(
         "POST",
         `/api/sessions/${sessionId}/messages/send-text`,
         {
           body: { chatId, text },
-          timeoutMs: 45000,
+          timeoutMs: background ? 15000 : 45000,
         }
       );
     } catch (error) {
       lastError = error;
       if (isOpenWaPacingLimit(error)) throw error;
       const retryable = [409, 429, 504].includes(error.status);
-      if (!retryable || attempt === 3) throw error;
+      if (!retryable || attempt === maxAttempts) throw error;
       await sleep(1500 * attempt);
     }
   }
   throw lastError;
 };
 
-export const sendWhatsAppText = async ({ phone, text, sessionId } = {}) => {
+export const sendWhatsAppText = async ({ phone, text, sessionId, background = false } = {}) => {
   if (!isOpenWaConfigured()) {
     return { sent: false, skipped: true, reason: "OpenWA is not configured" };
   }
@@ -741,9 +742,9 @@ export const sendWhatsAppText = async ({ phone, text, sessionId } = {}) => {
 
   let session = null;
   if (sessionId) {
-    session = await openWaRequest("GET", `/api/sessions/${sessionId}`);
+    session = await openWaRequest("GET", `/api/sessions/${sessionId}`, background ? { timeoutMs: 15000 } : {});
   } else {
-    session = await findReadyWhatsAppSession();
+    session = await findReadyWhatsAppSession(background ? { timeoutMs: 15000 } : {});
   }
 
   const id = session?.id || session?._id;
@@ -759,7 +760,7 @@ export const sendWhatsAppText = async ({ phone, text, sessionId } = {}) => {
   try {
     const results = [];
     for (const chunk of chunks) {
-      const result = await sendTextWithRetry(id, chatId, chunk);
+      const result = await sendTextWithRetry(id, chatId, chunk, background);
       results.push(result);
     }
 
@@ -798,6 +799,8 @@ export const sendWhatsAppForProcess = async ({
   created_by = null,
   created_by_name = "",
   immediate = false,
+  background = false,
+  historyId = null,
 } = {}) => {
   try {
     const processKey = String(process || "").trim();
@@ -823,7 +826,33 @@ export const sendWhatsAppForProcess = async ({
     const text = renderWhatsAppTemplate(template.body, vars);
 
     if (immediate) {
-      const outcome = await sendWhatsAppText({ phone, text });
+      let history;
+      if (background && historyId) {
+        const { default: Message } = await import('../models/whatsappQueuedMessage.js');
+        history = await Message.findOneAndUpdate({ _id: historyId }, { $setOnInsert: {
+          managed_by: 'creation', phone, message: vars.password ? text.split(String(vars.password)).join('[redacted]') : text,
+          status: 'sending', recipient_name, source, process: processKey, template_key: template.key,
+          template_name: template.name, batch, batch_name, recipient_type, recipient_id, campaign_id,
+          created_by, created_by_name,
+        } }, { upsert: true, new: true, runValidators: true });
+        if (history.status === 'sent') return { sent: true, replayed: true };
+        if (history.status === 'cancelled') return { sent: false, skipped: true, reason: 'Cancelled' };
+        history.status = 'sending';
+        await history.save();
+      }
+      let outcome;
+      try {
+        outcome = await sendWhatsAppText({ phone, text, background });
+      } catch (error) {
+        if (history) { history.status = 'failed'; history.error = 'Send failed; retry from the record processing panel'; await history.save(); }
+        throw error;
+      }
+      if (history) {
+        history.status = outcome.sent ? 'sent' : 'failed';
+        history.sent_at = outcome.sent ? new Date() : null;
+        history.error = outcome.sent ? '' : 'Send skipped or unavailable; inspect record processing status';
+        await history.save();
+      }
       return {
         ...outcome,
         queued: false,
@@ -877,6 +906,9 @@ export const sendWhatsAppForProcess = async ({
 };
 
 export const sendStudentWelcomeWhatsApp = async ({
+  immediate = false,
+  background = false,
+  historyId = null,
   student,
   batch,
   password,
@@ -894,6 +926,9 @@ export const sendStudentWelcomeWhatsApp = async ({
   });
   return sendWhatsAppForProcess({
     process: "student_admission",
+    immediate,
+    background,
+    historyId,
     phone: student?.phone,
     vars,
     recipient_name: student?.name || "",
@@ -909,6 +944,9 @@ export const sendStudentWelcomeWhatsApp = async ({
 };
 
 export const sendUserWelcomeWhatsApp = async ({
+  immediate = false,
+  background = false,
+  historyId = null,
   user,
   password,
   campaign_id = "",
@@ -918,6 +956,9 @@ export const sendUserWelcomeWhatsApp = async ({
   const vars = buildUserTemplateVars({ user, password });
   return sendWhatsAppForProcess({
     process: "user_welcome",
+    immediate,
+    background,
+    historyId,
     phone: user?.phone,
     vars,
     recipient_name: user?.name || "",

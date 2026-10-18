@@ -1,4 +1,7 @@
 import User from "../models/users.js";
+import CreationRequest from '../models/creationRequests.js';
+import { DEFAULT_STAFF_PASSWORD } from '../utils/creationDefaults.js';
+import { prepareCreation, commitCreation, creationResponse, tombstoneCreation } from '../utils/creationService.js';
 import Student from "../models/students.js";
 import Teacher from "../models/teachers.js";
 import Qualifier from "../models/qualifiers.js";
@@ -403,6 +406,7 @@ export const login = async (req, res) => {
     if (!user) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
+    if (user.creation_pending) return res.status(503).json({ message: 'Account creation is still processing. Please try again shortly.' });
 
     // Check if the password is correct
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
@@ -578,6 +582,7 @@ export const adminlogin = async (req, res) => {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
+    if (user.creation_pending) return res.status(503).json({ message: 'Account creation is still processing. Please try again shortly.' });
     // Check if the password is correct
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
     if (!isPasswordCorrect) {
@@ -710,6 +715,7 @@ export const getUsers = async (req, res) => {
 
     const users = await User.paginate(
       {
+        creation_pending: { $ne: true },
         $and: [
           {
             $or: [
@@ -761,7 +767,7 @@ export const addUser = async (req, res) => {
     if (user) {
       return res.status(400).json({ message: "User already exists" });
     }
-    const randomPassword = "lcaadmin@123456";
+    const randomPassword = DEFAULT_STAFF_PASSWORD;
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(randomPassword, saltRounds);
     const newUser = new User({
@@ -772,34 +778,17 @@ export const addUser = async (req, res) => {
       role: trimmedRole,
       avatar: DEFAULT_AVATAR,
     });
-    await newUser.save();
-
-    const userPayload =
-      typeof newUser.toObject === "function" ? newUser.toObject() : newUser;
-
-    let whatsappWelcome = { sent: false, skipped: true };
-    try {
-      whatsappWelcome = await sendUserWelcomeWhatsApp({
-        user: userPayload,
-        password: randomPassword,
-        ...(await resolveWhatsAppSenderFromReq(req)),
-      });
-      if (!whatsappWelcome?.sent) {
-        console.error("WhatsApp welcome not sent after user add:", whatsappWelcome);
-      }
-    } catch (whatsappError) {
-      console.error("WhatsApp welcome failed after user add:", whatsappError);
-      whatsappWelcome = {
-        sent: false,
-        error: whatsappError?.message || "WhatsApp welcome failed",
-      };
-    }
-
-    res.status(200).json({
-      message: "User added successfully",
-      whatsapp_welcome: whatsappWelcome,
-    });
+    const { _id, ...userPlan } = newUser.toObject();
+    const prepared = await prepareCreation(req.creationRequest, { user: userPlan });
+    await commitCreation(prepared);
+    res.status(201).json(await creationResponse(prepared));
   } catch (error) {
+    const durable = req.creationRequest && await CreationRequest.findById(req.creationRequest._id).catch(() => null);
+    if (!durable) return res.status(202).json({ idempotency_key: req.creationRequest?.key, submission_status: 'unknown', processing_status: 'pending' });
+    if (durable?.state === 'committing' || durable?.state === 'complete') {
+      const payload = await creationResponse(durable).catch(() => ({ idempotency_key: durable.key, submission_status: 'unknown', processing_status: 'pending' }));
+      return res.status(202).json(payload);
+    }
     res.status(500).json({ message: error.message });
   }
 };
@@ -842,7 +831,11 @@ export const deleteUser = async (req, res) => {
     if (!user) {
       return res.status(400).json({ message: "User does not exist" });
     }
+    if (user.creation_pending) return res.status(409).json({ message: 'Account creation must finish before deletion. Inspect its processing status.' });
+    const creation = user.creation_request ? await CreationRequest.findById(user.creation_request).select('state') : null;
+    if (creation && !['complete', 'deleted'].includes(creation.state)) return res.status(409).json({ message: 'Creation recovery must finish before account deletion.' });
     await User.findByIdAndDelete(id);
+    await tombstoneCreation('user', id);
     res.status(200).json("User deleted successfully");
   } catch (error) {
     res.status(500).json({ message: error.message });

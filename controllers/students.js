@@ -1,4 +1,7 @@
 import Student from "../models/students.js";
+import { stageCreationFiles, prepareCreation, commitCreation, creationResponse } from '../utils/creationService.js';
+import CreationRequest from '../models/creationRequests.js';
+import { DEFAULT_STUDENT_PASSWORD } from '../utils/creationDefaults.js';
 import mongoose from "mongoose";
 import Batch from "../models/batches.js";
 import User from "../models/users.js";
@@ -98,7 +101,6 @@ const buildPendingFeeBlockPayload = async (studentId, pendingAmount) => {
 
 // const crypto = require("crypto");
 
-const DEFAULT_STUDENT_PASSWORD = "lca@123456";
 
 const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
 
@@ -132,7 +134,7 @@ const findStudentByPhoneDigits = async (phone) => {
  * Numbers that exist only in Deleted Students archive may be re-added.
  * Orphan student login users left after older deletes are cleaned up.
  */
-const assertPhoneAvailableForNewStudent = async (phone) => {
+const assertPhoneAvailableForNewStudent = async (phone, allowOrphanCleanup = true) => {
   const existingByPhone = await findStudentByPhoneDigits(phone);
   if (existingByPhone) {
     throw new Error(
@@ -152,7 +154,7 @@ const assertPhoneAvailableForNewStudent = async (phone) => {
   if (existingUser) {
     const role = String(existingUser.role || "").toLowerCase();
     // Leftover login from a deleted student — allow re-create.
-    if (role === "student") {
+    if (role === "student" && allowOrphanCleanup) {
       await User.findByIdAndDelete(existingUser._id);
     } else {
       throw new Error("A login account already exists for this phone");
@@ -170,8 +172,6 @@ export const addStudent = async (req, res) => {
   let payingNow = Number(req.body.paying_now) || 0;
   const paymentMethod = req.body.payment_method;
   const nextInstallmentDate = req.body.next_installment_date;
-  let createdUserId = null;
-  let createdStudentId = null;
 
   try {
     if (!name?.trim()) {
@@ -180,10 +180,15 @@ export const addStudent = async (req, res) => {
     if (!phone?.trim()) {
       return res.status(400).json({ message: "Phone number is required" });
     }
+    for (const field of ['paying_now', 'discount_amount']) {
+      if (req.body[field] !== undefined && req.body[field] !== '' && !Number.isFinite(Number(req.body[field]))) {
+        return res.status(400).json({ message: 'Payment and discount amounts must be valid numbers' });
+      }
+    }
 
     let email;
     try {
-      email = await assertPhoneAvailableForNewStudent(phone);
+      email = await assertPhoneAvailableForNewStudent(phone, false);
     } catch (err) {
       return res.status(400).json({ message: err.message });
     }
@@ -292,6 +297,9 @@ export const addStudent = async (req, res) => {
           message: "Next installment date is required for partial payment",
         });
       }
+      if (!moment(nextInstallmentDate, moment.ISO_8601, true).isValid()) {
+        return res.status(400).json({ message: 'Next installment date must be a valid date' });
+      }
       if (moment(nextInstallmentDate).isBefore(moment(), "day")) {
         return res.status(400).json({
           message: "Next installment date must be today or in the future",
@@ -303,7 +311,7 @@ export const addStudent = async (req, res) => {
 
     // Generate a random password
     // const randomPassword = crypto.randomBytes(4).toString("hex"); 
-    const randomPassword = "lca@123456";
+    const randomPassword = DEFAULT_STUDENT_PASSWORD;
 
     // Hash the password
     const saltRounds = 10;
@@ -315,9 +323,6 @@ export const addStudent = async (req, res) => {
       password: hashedPassword, // Save the hashed password
       role: "student", // Assign the role
     });
-
-    await newUser.save();
-    createdUserId = newUser._id;
 
     const newStudent = new Student({
       roll_number: rollNumber,
@@ -351,30 +356,6 @@ export const addStudent = async (req, res) => {
       image: "",
     });
 
-    await newStudent.save();
-    createdStudentId = newStudent._id;
-
-    // Ensure roll number is persisted (same defensive check as import flow)
-    if (!newStudent.roll_number && rollNumber) {
-      await Student.updateOne(
-        { _id: newStudent._id },
-        { $set: { roll_number: rollNumber } }
-      );
-      newStudent.roll_number = rollNumber;
-    } else if (!newStudent.roll_number && batchRecord) {
-      const assignedRoll = await getNextStudentRollNumber({
-        batchId: batchRecord._id,
-        batchName: batchRecord.name,
-        rollNickname: batchRecord.roll_nickname,
-        batchType: batchRecord.batch_type,
-      });
-      await Student.updateOne(
-        { _id: newStudent._id },
-        { $set: { roll_number: assignedRoll } }
-      );
-      newStudent.roll_number = assignedRoll;
-    }
-
     if (batchRecord && !String(newStudent.roll_number || "").trim()) {
       const rollError = new Error(
         "Roll number could not be assigned. Set batch type (Online / On Campus) and roll nickname, then try again."
@@ -383,142 +364,30 @@ export const addStudent = async (req, res) => {
       throw rollError;
     }
 
-    const imageFile = req.files?.image;
-    if (imageFile) {
-      const filesStorageUrl = process.env.FILES_STORAGE_URL;
-      const filesStoragePath = process.env.FILES_STORAGE_PATH;
-      const fileExt = path.extname(imageFile.name) || ".jpg";
-      const fileName = `avatar_${newStudent._id}${fileExt}`;
-      await uploadFile(imageFile, fileName, `${filesStoragePath}/students/avatars`);
-      const webpFileName = `avatar_${newStudent._id}.jpeg`;
-      await compressImage(
-        `${filesStoragePath}/students/avatars/${fileName}`,
-        `${filesStoragePath}/students/avatars/${webpFileName}`,
-        50
-      );
-      newStudent.image = `${filesStorageUrl}/files/students/avatars/${webpFileName}`;
-      await newStudent.save();
-    }
-
-    await generateQrCode(newStudent._id);
-
-    let paymentEvidence = "";
-    if (
-      payingNow > 0 &&
-      (paymentMethod === "Online" || paymentMethod === "Online Payment")
-    ) {
-      try {
-        const urls = await uploadPaymentEvidenceFiles(
-          req.files?.payment_evidence,
-          newStudent._id
-        );
-        paymentEvidence = normalizePaymentEvidenceForStorage(urls);
-      } catch (evidenceError) {
-        console.error("Payment evidence upload failed:", evidenceError);
-        const uploadError = new Error(
-          evidenceError?.message ||
-            "Could not upload online payment evidence. Please try again."
-        );
-        uploadError.status = 400;
-        throw uploadError;
-      }
-    }
-
-    if (batch && grossFee > 0) {
-      const actionUserId = req.user?.user?.id;
-      await createStudentAdmissionFee({
-        studentId: newStudent._id,
-        batchId: batch,
-        totalFee: grossFee,
-        payingNow,
-        discountAmount,
-        discountDescription,
-        actionUserId,
-        paymentMethod: payingNow > 0 ? paymentMethod : undefined,
-        paymentEvidence,
-        nextInstallmentDate: isPartialPayment ? nextInstallmentDate : undefined,
-      });
-    }
-
-    // Send welcome email to the student with the random password
-    // await addEmailToQueue(email, name, randomPassword);
-
-    const savedStudent = await Student.findById(newStudent._id).populate("batch");
-
-    // Final guard: never return a student without a roll number when batch is set
-    if (
-      savedStudent?.batch &&
-      !String(savedStudent.roll_number || "").trim()
-    ) {
-      const batchDoc =
-        savedStudent.batch && typeof savedStudent.batch === "object"
-          ? savedStudent.batch
-          : batchRecord;
-      if (batchDoc?._id) {
-        const assignedRoll = await getNextStudentRollNumber({
-          batchId: batchDoc._id,
-          batchName: batchDoc.name,
-          rollNickname: batchDoc.roll_nickname,
-          batchType: batchDoc.batch_type,
-        });
-        await Student.updateOne(
-          { _id: savedStudent._id },
-          { $set: { roll_number: assignedRoll } }
-        );
-        savedStudent.roll_number = assignedRoll;
-      }
-    }
-
-    let whatsappWelcome = { sent: false, skipped: true };
-    try {
-      whatsappWelcome = await sendStudentWelcomeWhatsApp({
-        student: savedStudent,
-        batch: savedStudent?.batch || batchRecord,
-        password: randomPassword,
-        paymentMethod: payingNow > 0 ? paymentMethod : "Pay Later",
-        ...(await resolveWhatsAppSenderFromReq(req)),
-      });
-    } catch (whatsappError) {
-      console.error("WhatsApp welcome failed after student add:", whatsappError);
-      whatsappWelcome = {
-        sent: false,
-        error: whatsappError?.message || "WhatsApp welcome failed",
-      };
-    }
-
-    const payload =
-      typeof savedStudent.toObject === "function"
-        ? savedStudent.toObject()
-        : { ...savedStudent };
-    payload.whatsapp_welcome = whatsappWelcome;
-
-    res.status(200).json(payload);
+    const request = req.creationRequest;
+    const assets = await stageCreationFiles(request, req.files,
+      payingNow > 0 && ["Online", "Online Payment"].includes(paymentMethod));
+    const { _id: unusedUserId, ...userPlan } = newUser.toObject();
+    const { _id: unusedStudentId, ...studentPlan } = newStudent.toObject();
+    const prepared = await prepareCreation(request, {
+      user: userPlan, student: studentPlan, assets,
+      fee: batch ? { batchId: batch, totalFee: grossFee, payingNow, discountAmount, discountDescription,
+        paymentMethod, nextInstallmentDate: isPartialPayment ? nextInstallmentDate : undefined } : null,
+    });
+    await commitCreation(prepared);
+    res.status(201).json(await creationResponse(prepared));
   } catch (error) {
-    if (createdStudentId || createdUserId) {
-      try {
-        if (createdStudentId) {
-          await Promise.all([
-            FeeLog.deleteMany({ student: createdStudentId }),
-            Fee.deleteMany({ student: createdStudentId }),
-            PendingFeeSlip.deleteMany({ student: createdStudentId }),
-            RefundRequest.deleteMany({ student: createdStudentId }),
-            Enrollment.deleteMany({ student: createdStudentId }),
-          ]);
-          await Student.findByIdAndDelete(createdStudentId);
-        }
-        if (createdUserId) {
-          await User.findByIdAndDelete(createdUserId);
-        }
-      } catch (rollbackError) {
-        console.error(
-          `Student creation rollback failed (${req.requestId || "no-request-id"}):`,
-          rollbackError
-        );
-      }
+    const durable = req.creationRequest && await CreationRequest.findById(req.creationRequest._id).catch(() => null);
+    if (!durable) return res.status(202).json({ idempotency_key: req.creationRequest?.key, submission_status: 'unknown', processing_status: 'pending' });
+    if (durable?.state === 'committing' || durable?.state === 'complete') {
+      // A DB acknowledgement may be lost after a successful write. Never delete committed data.
+      const payload = await creationResponse(durable).catch(() => ({ idempotency_key: durable.key, submission_status: 'unknown', processing_status: 'pending' }));
+      return res.status(202).json(payload);
     }
 
     res.status(error.status || 500).json({
       message: error.message,
+      ...(error.code === 'CREATION_NOT_COMMITTED' ? { code: error.code } : {}),
       requestId: req.requestId || null,
     });
   }
@@ -885,7 +754,7 @@ export const getStudents = async (req, res) => {
 
     const rawQuery = query ? query.trim() : "";
     const searchQuery = rawQuery ? escapeRegex(rawQuery) : "";
-    const filter = {};
+    const filter = { creation_pending: { $ne: true } };
 
     if (searchQuery) {
       const regex = { $regex: searchQuery, $options: "i" };
@@ -1069,7 +938,8 @@ export const getStudentsByBatch = async (req, res) => {
 
     const students = await Student.paginate(
       { 
-        batch: batchId 
+        batch: batchId,
+        creation_pending: { $ne: true },
       },
       {
         page: parseInt(req.query.page),
