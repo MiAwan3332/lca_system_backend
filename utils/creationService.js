@@ -17,6 +17,7 @@ import { creationAudit, creationContext, creationStep } from './creationAudit.js
 import { isPlatformSuperAdminRole } from './lmsAccess.js';
 import { recentRequestMetrics } from './requestObservability.js';
 import { alertChannelConfigured, notifyOperationalAlert } from './operationalAlerts.js';
+import { errorDiagnostic } from './operationalDiagnostics.js';
 import { identityForRequest, pendingStudentDues } from './studentIdentity.js';
 import Enrollment from '../models/enrollments.js';
 import StudentBatchShift from '../models/studentBatchShifts.js';
@@ -378,7 +379,9 @@ async function performJob(request, job) {
     ? sendStudentWelcomeWhatsApp({ ...options, student: record, batch, password,
       paymentMethod: request.plan.fee?.logs.find((log) => log.action_type === 'Paid')?.payment_method || 'Pay Later' })
     : sendUserWelcomeWhatsApp({ ...options, user: record, password }));
-  if (!result?.sent && (!result?.skipped || /session|pacing|limit/i.test(result?.reason || ''))) throw new Error('WhatsApp send failed');
+  if (!result?.sent && (!result?.skipped || /session|pacing|limit/i.test(result?.reason || ''))) {
+    throw Object.assign(new Error(result?.reason || result?.error || 'WhatsApp send failed'), { code: 'OPENWA_SEND_UNAVAILABLE' });
+  }
   // Missing templates/configuration is visible, not incorrectly reported as delivered.
   return result.sent ? 'sent' : 'skipped';
 }
@@ -428,12 +431,14 @@ export async function processCreationOnce({ perform = performJob, afterClaim = a
           await assertWorkerLease(request);
           job.state = 'complete';
           job.error = null;
+          job.diagnostic = undefined;
         } catch (error) {
           if (error.code === 'CREATION_LEASE_LOST') throw error;
           job.state = job.attempts >= 5 ? 'failed' : 'pending';
           job.error = safeError(error);
+          job.diagnostic = errorDiagnostic(error);
           job.nextRun = new Date(Date.now() + Math.min(300000, 5000 * 2 ** (job.attempts - 1)));
-          creationAudit('creation_job_failed', { job: job.name.split(':')[0], attempt: job.attempts, errorType: error.name });
+          creationAudit('creation_job_failed', { job: job.name.split(':')[0], attempt: job.attempts, diagnostic: job.diagnostic });
         }
         await CreationRequest.updateOne({ _id: request._id, leaseToken: token }, { $set: { [`jobs.${index}`]: job.toObject() } });
       }
@@ -470,7 +475,7 @@ export async function processCreationOnce({ perform = performJob, afterClaim = a
   } catch (error) {
     await CreationRequest.updateOne({ _id: request._id, leaseToken: token }, { $inc: { attempts: 1 }, $set: {
       ...(request.attempts >= 7 && request.state !== 'complete' ? { state: 'failed' } : {}),
-      error: safeError(error), leaseUntil: new Date(0), nextRun: new Date(Date.now() + 30000) } });
+      error: safeError(error), diagnostic: errorDiagnostic(error), leaseUntil: new Date(0), nextRun: new Date(Date.now() + 30000) } });
     creationAudit('creation_worker_failed', { creationId: String(request._id), errorType: error.name });
   } finally { clearInterval(heartbeat); }
 }
@@ -492,13 +497,13 @@ export async function startCreationWorker() {
         const metrics = await creationMetrics();
         if (metrics.failed || metrics.stuck) {
           creationAudit('creation_queue_alert', { level: 'error', ...metrics });
-          await notifyOperationalAlert('creation-queue', { failed: metrics.failed, stuck: metrics.stuck, pending: metrics.pending });
         }
+        await notifyOperationalAlert('creation-queue', { failed: metrics.failed, stuck: metrics.stuck, pending: metrics.pending });
         const http = metrics.httpLastFiveMinutes;
         if (http.gatewayTimeouts || http.disconnected >= 5 || (http.requests >= 20 && http.serverErrors / http.requests >= 0.05)) {
           creationAudit('http_error_rate_alert', { level: 'error', ...http });
-          await notifyOperationalAlert('http-errors', http);
         }
+        await notifyOperationalAlert('http-errors', http);
       }
     } catch (error) { creationAudit('creation_worker_unavailable', { errorType: error.name }); }
     if (!stopping) timer = setTimeout(() => { active = tick(); }, 1000);

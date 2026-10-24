@@ -426,6 +426,29 @@ try {
     await mongoose.disconnect(); await mongoose.connect(uri);
     assert.equal((await notifyOperationalAlert('verify', { failed: 1 }, { send })).deferred, true); assert.equal(sent, 1);
   });
+  await record('detailed queue email identifies record and job; unchanged incidents are suppressed durably', async () => {
+    const { notifyOperationalAlert } = await import('../utils/operationalAlerts.js');
+    const { default: Alert } = await import('../models/operationalAlerts.js');
+    const actor = await User.findOne().lean();
+    await Request.create({ actor: actor._id, recordId: actor._id, kind: 'user', key: 'diagnostic-verification-key', fingerprint: 'test',
+      state: 'complete', finalized: true, jobs: [{ name: 'welcome', state: 'failed', attempts: 5,
+        error: 'Send failed', diagnostic: { message: 'OpenWA session unavailable', code: 'OPENWA_SEND_UNAVAILABLE' } }] });
+    const mails = [];
+    const send = async (mail) => { mails.push(mail); };
+    const counts = { failed: 1, stuck: 0, pending: 0 };
+    assert.equal((await notifyOperationalAlert('creation-queue', counts, { send })).delivered, true);
+    assert.ok(mails[0].text.includes('coreCommitted'));
+    assert.ok(mails[0].text.includes('OPENWA_SEND_UNAVAILABLE'));
+    assert.ok(mails[0].text.includes('recordId'));
+    assert.ok(!mails[0].text.includes(actor.password));
+    await Alert.updateOne({ _id: 'creation-queue' }, { $set: { nextAttempt: new Date(0) } });
+    await mongoose.disconnect(); await mongoose.connect(uri);
+    assert.equal((await notifyOperationalAlert('creation-queue', counts, { send })).unchanged, true);
+    assert.equal(mails.length, 1);
+    assert.equal((await notifyOperationalAlert('creation-queue', { failed: 0, stuck: 0, pending: 0 }, { send })).delivered, true);
+    assert.ok(mails[1].subject.includes('RESOLVED'));
+    assert.equal((await notifyOperationalAlert('creation-queue', { failed: 0, stuck: 0, pending: 0 }, { send })).healthy, true);
+  });
   console.log(JSON.stringify({ passed: results.length, mongoVersion: build.version, replicaSet: false, externalServicesCalled: false, artifacts: temp }));
 } finally {
   for (const process of children) if (process.exitCode === null && !process.killed) process.kill('SIGKILL');

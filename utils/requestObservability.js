@@ -1,7 +1,17 @@
 import crypto from "crypto";
 import { creationAudit } from './creationAudit.js';
+import { errorDiagnostic } from './operationalDiagnostics.js';
 
 const windows = new Map();
+const failures = [];
+export function recentRequestFailures() {
+  while (failures.length && failures[0].time < Date.now() - 300000) failures.shift();
+  return failures.slice(-20);
+}
+const captureFailure = (entry) => {
+  failures.push({ time: Date.now(), ...entry });
+  if (failures.length > 100) failures.shift();
+};
 export function recentRequestMetrics() {
   const cutoff = Math.floor(Date.now() / 60000) - 4;
   const result = { requests: 0, serverErrors: 0, gatewayTimeouts: 0, disconnected: 0 };
@@ -25,9 +35,12 @@ export const requestObservability = (req, res, next) => {
     const minute = Math.floor(Date.now() / 60000);
     const counts = windows.get(minute) || { requests: 0, serverErrors: 0, gatewayTimeouts: 0, disconnected: 0 };
     counts.requests++;
-    if (res.statusCode >= 500) counts.serverErrors++;
+    const queueHealthWarning = res.statusCode === 503 && req.path === '/operations/creation-metrics';
+    if (res.statusCode >= 500 && !queueHealthWarning) counts.serverErrors++;
     if (res.statusCode === 504) counts.gatewayTimeouts++;
     windows.set(minute, counts);
+    if (res.statusCode >= 500 && !queueHealthWarning) captureFailure({ requestId, method: req.method, path: req.route?.path || req.path.split('?')[0],
+      status: res.statusCode, durationMs, userId: req.user?.user?.id, diagnostic: req.operationalError });
     recentRequestMetrics();
     if (res.statusCode >= 400 || durationMs >= 2000 || /^\/(students|users)\/add\/?$/.test(req.path)) {
       creationAudit('http_request', {
@@ -47,6 +60,8 @@ export const requestObservability = (req, res, next) => {
     const counts = windows.get(minute) || { requests: 0, serverErrors: 0, gatewayTimeouts: 0, disconnected: 0 };
     counts.disconnected++;
     windows.set(minute, counts);
+    captureFailure({ requestId, method: req.method, path: req.route?.path || req.path.split('?')[0],
+      status: 'disconnected', durationMs: Date.now() - startedAt });
     creationAudit('http_disconnected', { requestId, method: req.method, path: req.path, durationMs: Date.now() - startedAt });
   });
 
@@ -54,14 +69,15 @@ export const requestObservability = (req, res, next) => {
 };
 
 export const errorHandler = (error, req, res, _next) => {
+  req.operationalError = errorDiagnostic(error);
   console.error(
     JSON.stringify({
       level: "error",
       event: "unhandled_request_error",
       requestId: req.requestId || null,
       method: req.method,
-      path: req.originalUrl,
-      message: error?.message || "Unknown error",
+      path: req.route?.path || req.path.split('?')[0],
+      diagnostic: req.operationalError,
     })
   );
 

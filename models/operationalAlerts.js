@@ -8,5 +8,7 @@ const schema = new mongoose.Schema({
   lastSent: Date,
   attempts: { type: Number, default: 0 },
   error: String,
+  fingerprint: String,
+  active: { type: Boolean, default: false },
 }, { timestamps: true });
 export default mongoose.model('OperationalAlert', schema);

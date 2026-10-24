@@ -22,6 +22,7 @@ const schema = new mongoose.Schema({
     nextRun: { type: Date, default: Date.now },
     result: String,
     error: String,
+    diagnostic: mongoose.Schema.Types.Mixed,
   }],
   attempts: { type: Number, default: 0 },
   nextRun: { type: Date, default: Date.now },
@@ -29,6 +30,7 @@ const schema = new mongoose.Schema({
   leaseToken: String,
   leaseEpoch: { type: Number, default: 0 },
   error: String,
+  diagnostic: mongoose.Schema.Types.Mixed,
 }, { timestamps: true });
 schema.index({ actor: 1, kind: 1, key: 1 }, { unique: true });
 schema.index({ actor: 1, kind: 1, aliases: 1 }, { unique: true });

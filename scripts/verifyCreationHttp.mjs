@@ -199,7 +199,8 @@ try {
   assert.equal(race.filter((item) => item.status === 201).length, 1, JSON.stringify(race));
   assert.equal(race.filter((item) => item.status === 409).length, 1);
   assert.equal(await Student.countDocuments(), studentsBeforeRace);
-  const report = await fetch(`${base}/fees/report?period=daily&date=${new Date().toISOString().slice(0, 10)}`, { headers });
+  const reportDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
+  const report = await fetch(`${base}/fees/report?period=daily&date=${reportDate}`, { headers });
   const finance = await report.json();
   assert.equal(report.status, 200, JSON.stringify(finance));
   const historical = finance.transactions.filter((item) => item.student_id === result.record_id && item.batch_id === String(batch2._id));
