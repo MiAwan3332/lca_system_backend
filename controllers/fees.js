@@ -1,4 +1,8 @@
 import Fee from "../models/fees.js";
+import FeeReceipt from '../models/feeReceipts.js';
+import { feeStatement, batchFeeStatements } from '../utils/feeStatement.js';
+import Enrollment from '../models/enrollments.js';
+import StudentBatchShift from '../models/studentBatchShifts.js';
 import FeeLog from "../models/feeLogs.js";
 import Expense from "../models/expenses.js";
 import User from "../models/users.js";
@@ -712,6 +716,20 @@ export const collectPendingFee = async (req, res) => {
             console.error("Activity log failed for pending fee collection:", logError);
         }
 
+        const receiptStudent = await Student.findById(studentId).populate('batch').lean();
+        const receiptTotals = await feeStatement(studentId, receiptStudent.batch ? [receiptStudent.batch._id] : undefined);
+        const receiptPayload = { ...receiptTotals, name: receiptStudent.name, phone: receiptStudent.phone,
+            cnic: receiptStudent.cnic, rollNumber: receiptStudent.roll_number, batchName: receiptStudent.batch?.name || 'Unassigned',
+            payingNow: result.amount_paid, discountAmount: result.discount_applied, outstandingBalance: result.outstanding_before,
+            paymentOption: option, paymentMethod: result.payment_method, nextInstallmentDate: result.next_installment_date,
+            authorizedBy: actionUser?.name || '', photoUrl: receiptStudent.image || '',
+            classStartTime: receiptStudent.batch?.class_start_time || '', classEndTime: receiptStudent.batch?.class_end_time || '' };
+        let receipt = null;
+        try { receipt = await FeeReceipt.create({ student: studentId, created_by: actionUser?._id, payload: receiptPayload }); }
+        catch {
+            // A receipt failure must not report an already-recorded payment as failed.
+            console.error(JSON.stringify({ event: 'receipt_snapshot_failed', requestId: req.requestId }));
+        }
         const whatsappPayment = await notifyFeePaymentWhatsApp({
             studentId,
             amountReceived: result.amount_paid || paymentAmount,
@@ -722,6 +740,8 @@ export const collectPendingFee = async (req, res) => {
         res.status(200).json({
             message: "Payment recorded successfully",
             ...result,
+            receipt: { ...receiptPayload, receiptId: receipt ? String(receipt._id) : null },
+            receipt_saved: Boolean(receipt),
             payment_evidence: paymentEvidence || "",
             whatsapp_payment: whatsappPayment,
         });
@@ -1457,7 +1477,7 @@ export const getFinanceReport = async (req, res) => {
         }
 
         const studentFeeSelect =
-            "name _id email phone paid_fee pending_fee total_fee cash_amount online_amount image roll_number";
+            "name _id email phone paid_fee pending_fee total_fee cash_amount online_amount image roll_number batch";
         const batchFeeSelect = "name batch_fee";
 
         const transactions = await FeeLog.find(transactionFilter)
@@ -1496,19 +1516,29 @@ export const getFinanceReport = async (req, res) => {
             .populate("approved_by", "name email")
             .sort({ approved_at: -1 });
 
+        const reportStudentIds = [...new Set(transactions.map((log) => String((log.fee?.student || log.student)?._id || '')).filter(Boolean))];
+        const statements = await batchFeeStatements(reportStudentIds);
+        const enrollments = await Enrollment.find({ student: { $in: reportStudentIds } }).select('student batch roll_number').lean();
+        const historicalRolls = new Map(enrollments.filter((item) => item.roll_number).map((item) => [`${item.student}:${item.batch}`, item.roll_number]));
+        const shifts = await StudentBatchShift.find({ student: { $in: reportStudentIds } }).select('student from_batch from_roll_number to_batch to_roll_number').sort({ shifted_at: 1 }).lean();
+        for (const shift of shifts) {
+            if (shift.from_roll_number) historicalRolls.set(`${shift.student}:${shift.from_batch}`, shift.from_roll_number);
+            if (shift.to_roll_number) historicalRolls.set(`${shift.student}:${shift.to_batch}`, shift.to_roll_number);
+        }
         const feeTransactions = transactions.map((log) => {
             const studentDoc = log.fee?.student || log.student;
-            const paidFee = Number(studentDoc?.paid_fee) || 0;
+            const statement = statements.get(`${studentDoc?._id}:${log.fee?.batch?._id}`);
+            const paidFee = statement?.paidFee ?? (Number(studentDoc?.paid_fee) || 0);
             const pendingFee =
                 studentDoc?.pending_fee != null && studentDoc?.pending_fee !== ""
-                    ? Number(studentDoc.pending_fee) || 0
+                    ? (statement?.remainingAfter ?? (Number(studentDoc.pending_fee) || 0))
                     : log.fee?.status === "Pending"
                       ? Number(log.fee?.amount) || 0
                       : 0;
-            const totalBatchFee =
+            const totalBatchFee = statement?.totalFee ?? (
                 Number(studentDoc?.total_fee) ||
                 Number(log.fee?.batch?.batch_fee) ||
-                0;
+                0);
             const nextInstallmentDate =
                 pendingFee > 0 ? log.fee?.due_date || null : null;
 
@@ -1522,9 +1552,11 @@ export const getFinanceReport = async (req, res) => {
                 action_by: log.action_by?.name || "N/A",
                 student_name: studentDoc?.name || "N/A",
                 student_id: studentDoc?._id?.toString() || "N/A",
+                batch_id: log.fee?.batch?._id?.toString() || null,
                 student_phone: studentDoc?.phone || "",
                 student_image: studentDoc?.image || null,
-                roll_number: studentDoc?.roll_number || null,
+                roll_number: historicalRolls.get(`${studentDoc?._id}:${log.fee?.batch?._id}`) ||
+                    (String(studentDoc?.batch) === String(log.fee?.batch?._id) ? studentDoc?.roll_number : null),
                 batch_name: log.fee?.batch?.name || "N/A",
                 program: log.fee?.batch?.name || "N/A",
                 title: null,

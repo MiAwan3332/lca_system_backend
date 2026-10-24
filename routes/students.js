@@ -30,12 +30,19 @@ import {
   fillNullStudentField,
 } from '../controllers/students.js';
 import auth from '../middlewares/auth.js';
+import { lookupStudentIdentity } from '../utils/studentIdentity.js';
+import { editPaymentEvidence, listEvidencePayments } from '../utils/paymentEvidenceEdit.js';
+import { latestFeeReceipt } from '../utils/feeReceiptRead.js';
 import { claimCreation, getCreationByKey, getCreationStatus, retryCreation } from '../utils/creationService.js';
 
 const router = express.Router();
 
 //make routes with auth middle ware
 router.get('/',auth,getStudents)
+router.post('/identity/lookup', auth, lookupStudentIdentity);
+router.post('/:id/payment-evidence/:logId', auth, editPaymentEvidence);
+router.get('/:id/evidence-payments', auth, listEvidencePayments);
+router.get('/:id/last-payment-receipt', auth, latestFeeReceipt);
 router.get('/deletion-archives', auth, getDeletedStudents);
 router.get('/deletion-archives/:id', auth, getDeletedStudentArchive);
 router.get('/batch-shifts', auth, getBatchShifts);

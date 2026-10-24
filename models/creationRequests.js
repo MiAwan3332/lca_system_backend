@@ -9,6 +9,8 @@ const schema = new mongoose.Schema({
   fingerprint: { type: String, required: true },
   recordId: { type: mongoose.Schema.Types.ObjectId, required: true },
   requestId: String,
+  operation: String,
+  target: String,
   state: { type: String, enum: ['preparing', 'committing', 'complete', 'failed', 'expired', 'deleted'], default: 'preparing' },
   finalized: { type: Boolean, default: false },
   plan: { type: mongoose.Schema.Types.Mixed, select: false },

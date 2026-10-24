@@ -17,6 +17,10 @@ import { creationAudit, creationContext, creationStep } from './creationAudit.js
 import { isPlatformSuperAdminRole } from './lmsAccess.js';
 import { recentRequestMetrics } from './requestObservability.js';
 import { alertChannelConfigured, notifyOperationalAlert } from './operationalAlerts.js';
+import { identityForRequest, pendingStudentDues } from './studentIdentity.js';
+import Enrollment from '../models/enrollments.js';
+import StudentBatchShift from '../models/studentBatchShifts.js';
+import { syncStudentFeeFromLogs } from './feePayment.js';
 
 const id = () => new mongoose.Types.ObjectId();
 const modelFor = (kind) => kind === 'student' ? Student : User;
@@ -61,7 +65,9 @@ export const claimCreation = (kind) => async (req, res, next) => {
     const key = req.get('Idempotency-Key') || crypto.randomUUID();
     if (!/^[\w-]{16,128}$/.test(key)) return res.status(400).json({ message: 'Invalid Idempotency-Key' });
     res.setHeader('Idempotency-Key', key);
-    const identity = kind === 'student' ? String(req.body.phone || '').replace(/\D/g, '').slice(-10)
+    const resolved = kind === 'student' && req.body.reuse_existing === 'true' ? await identityForRequest(req) : null;
+    req.studentIdentity = resolved;
+    const identity = resolved?.student ? `${resolved.normalized}:${req.body.batch || 'current'}` : kind === 'student' ? String(req.body.phone || '').replace(/\D/g, '').slice(-10)
       : String(req.body.email || '').trim().toLowerCase();
     if (!identity) return res.status(400).json({ message: kind === 'student' ? 'Phone number is required' : 'Email is required' });
     const files = Object.entries(req.files || {}).flatMap(([field, list]) => (Array.isArray(list) ? list : [list])
@@ -69,7 +75,7 @@ export const claimCreation = (kind) => async (req, res, next) => {
     const fingerprint = crypto.createHash('sha256').update(JSON.stringify(canonical({ body: req.body, files }))).digest('hex');
     let request;
     try {
-      request = await new CreationRequest({ actor, kind, key, aliases: [key], identity, fingerprint, recordId: id(), requestId: req.requestId })
+      request = await new CreationRequest({ actor, kind, key, aliases: [key], identity, fingerprint, recordId: id(), requestId: req.requestId, leaseEpoch: Date.now() * 1000 })
         .save({ writeConcern: { w: 1, j: true } });
     } catch (error) {
       if (error.code !== 11000) throw error;
@@ -108,6 +114,7 @@ export const claimCreation = (kind) => async (req, res, next) => {
     res.once('finish', () => {
       if (res.statusCode >= 400) CreationRequest.deleteOne({ _id: request._id, state: 'preparing', plan: { $exists: false } })
         .catch(() => creationAudit('creation_validation_cleanup_failed'));
+      if (res.statusCode >= 400) Student.updateOne({ admission_request: request._id }, { $unset: { admission_request: 1 } }).catch(() => {});
     });
     return creationContext.run({ requestId: req.requestId, creationId: String(request._id), kind }, next);
   } catch (error) { next(error); }
@@ -148,17 +155,24 @@ export async function stageCreationFiles(request, uploads, hasPayment) {
 }
 
 export async function tombstoneCreation(kind, recordId) {
-  return CreationRequest.updateOne({ kind, recordId, state: 'complete' }, {
+  return CreationRequest.updateMany({ kind, recordId, state: 'complete' }, {
     $set: { state: 'deleted', finalized: true, leaseUntil: new Date(0) },
     $unset: { identity: 1, plan: 1, leaseToken: 1 },
   }, { writeConcern: { w: 1, j: true } });
 }
 
 // Persist the entire recoverable DB plan before writing any account, student, or fee.
-export async function prepareCreation(request, { user, student, fee, assets = [] }) {
-  const recordId = request.recordId;
-  const userId = student ? id() : recordId;
-  const plan = { user: { ...user, _id: userId }, student: student ? { ...student, _id: recordId } : null, assets, fee: null };
+export async function prepareCreation(request, { user, student, fee, assets = [], existingStudent, existingUser }) {
+  const recordId = existingStudent?._id || request.recordId;
+  const userId = existingUser?._id || (student ? id() : recordId);
+  const plan = { user: { ...user, _id: userId }, student: student ? { ...student, _id: recordId, user: userId } : null,
+    reuseStudent: Boolean(existingStudent), reuseUser: Boolean(existingUser), assets, fee: null };
+  if (existingStudent) {
+    const dues = await pendingStudentDues(existingStudent._id);
+    if (dues.length) throw Object.assign(new Error('Pending dues must be cleared before admission'), { status: 409, code: 'PENDING_FEE_BLOCK' });
+    plan.previous = { batch: existingStudent.batch, roll: existingStudent.roll_number };
+    plan.shiftId = id();
+  }
   if (fee?.totalFee > 0) {
     const feeId = id();
     const net = Math.max(fee.totalFee - fee.discountAmount, 0);
@@ -180,8 +194,8 @@ export async function prepareCreation(request, { user, student, fee, assets = []
     plan.student.online_amount = online ? fee.payingNow : 0;
   }
   const jobs = [...assets.map((asset) => ({ name: asset.name, state: 'pending', attempts: 0, nextRun: new Date() })),
-    { name: 'welcome', state: 'pending', attempts: 0, nextRun: new Date() }];
-  const saved = await CreationRequest.updateOne({ _id: request._id, state: 'preparing' }, { $set: { plan, jobs, state: 'committing',
+    ...(!existingUser ? [{ name: 'welcome', state: 'pending', attempts: 0, nextRun: new Date() }] : [])];
+  const saved = await CreationRequest.updateOne({ _id: request._id, state: 'preparing' }, { $set: { plan, jobs, recordId, state: 'committing',
     leaseToken: crypto.randomUUID(), leaseUntil: new Date(Date.now() + 60000) } }, { writeConcern: { w: 1, j: true } });
   if (!saved.modifiedCount) throw new Error('Creation claim expired; check the submission status');
   return CreationRequest.findById(request._id).select('+plan');
@@ -203,8 +217,8 @@ export async function commitCreation(request, releaseLease = true, { afterWrite 
   }, 10000) : null;
   heartbeat?.unref();
   try { await creationStep('database_commit', async () => {
-    await insert(User, { ...plan.user, creation_pending: true, processing_status: 'pending', creation_request: request._id });
-    if (plan.student) {
+    if (!plan.reuseUser) await insert(User, { ...plan.user, creation_pending: true, processing_status: 'pending', creation_request: request._id });
+    if (plan.student && !plan.reuseStudent) {
       const qrcode = await QRCode.toString(String(request.recordId), { type: 'svg', errorCorrectionLevel: 'H' });
       await insert(Student, { ...plan.student, qrcode, creation_pending: true, processing_status: 'pending', creation_request: request._id });
     }
@@ -213,8 +227,26 @@ export async function commitCreation(request, releaseLease = true, { afterWrite 
       for (const log of plan.fee.logs) await insert(FeeLog, log);
       await insert(Fee, plan.fee.document);
     }
+    if (plan.student?.batch) {
+      if (plan.previous?.batch) await write('previous_enrollment', () => Enrollment.updateOne({ student: request.recordId, batch: plan.previous.batch },
+        { $setOnInsert: { student: request.recordId, batch: plan.previous.batch, roll_number: plan.previous.roll } }, { upsert: true }));
+      await write('enrollment', () => Enrollment.updateOne({ student: request.recordId, batch: plan.student.batch },
+        { $setOnInsert: { student: request.recordId, batch: plan.student.batch, roll_number: plan.student.roll_number } }, { upsert: true }));
+    }
+    if (plan.reuseStudent) {
+      await write('reuse_student', () => Student.updateOne({ _id: request.recordId, admission_request: request._id }, { $set: {
+        batch: plan.student.batch, roll_number: plan.student.roll_number, normalized_phone: plan.student.normalized_phone,
+        user: plan.user._id, processing_status: 'pending', creation_request: request._id,
+      } }));
+      await write('batch_history', () => StudentBatchShift.updateOne({ _id: plan.shiftId }, { $setOnInsert: {
+        student: request.recordId, student_name: plan.student.name, student_phone: plan.student.phone,
+        from_batch: plan.previous.batch, from_roll_number: plan.previous.roll,
+        to_batch: plan.student.batch, to_roll_number: plan.student.roll_number, shifted_by: request.actor,
+      } }, { upsert: true }));
+      await write('reuse_finance_sync', () => syncStudentFeeFromLogs(request.recordId));
+    }
     if (plan.student) await write('publish_student', () => Student.updateOne({ _id: request.recordId }, { $set: { creation_pending: false } }));
-    await write('publish_user', () => User.updateOne({ _id: plan.user._id }, { $set: { creation_pending: false } }));
+    if (!plan.reuseUser) await write('publish_user', () => User.updateOne({ _id: plan.user._id }, { $set: { creation_pending: false } }));
     await checkLease();
     const completed = await CreationRequest.updateOne({ _id: request._id, state: 'committing', leaseToken: request.leaseToken },
       { $set: { state: 'complete', ...(releaseLease ? { leaseUntil: new Date(0) } : {}), error: null, nextRun: new Date() },
@@ -222,6 +254,7 @@ export async function commitCreation(request, releaseLease = true, { afterWrite 
     if (!completed.modifiedCount) throw new Error('Core commit ownership changed');
     await afterWrite('journal_complete');
     request.state = 'complete';
+    if (plan.reuseStudent) await Student.updateOne({ _id: request.recordId, admission_request: request._id }, { $unset: { admission_request: 1 } });
   }); } finally { if (heartbeat) clearInterval(heartbeat); }
 }
 
@@ -235,7 +268,10 @@ export const getCreationByKey = (kind) => async (req, res, next) => {
 
 async function authorizedRequest(req, kind) {
   if (!mongoose.isValidObjectId(req.params.id)) return null;
-  const request = await CreationRequest.findOne({ kind, recordId: req.params.id });
+  if (req.query?.request_id && !mongoose.isValidObjectId(req.query.request_id)) return null;
+  const request = await CreationRequest.findOne({ kind, recordId: req.params.id,
+    ...(req.query?.request_id ? { _id: req.query.request_id } : {}),
+    ...(req.get?.('Idempotency-Key') ? { aliases: req.get('Idempotency-Key') } : {}) }).sort({ createdAt: -1 });
   if (!request) return null;
   const actor = await User.findById(req.user.user.id).select('role').lean();
   const role = String(actor?.role || '').trim().toLowerCase();
@@ -297,6 +333,12 @@ let lastAlert = 0;
 async function maintainStaging() {
   await CreationRequest.updateMany({ state: 'preparing', plan: { $exists: false },
     updatedAt: { $lt: new Date(Date.now() - 300000) } }, { $set: { state: 'expired', finalized: true } });
+  const admissionLocks = await Student.find({ admission_request: { $exists: true } }).select('admission_request').limit(100).lean();
+  const unlocked = await CreationRequest.find({ _id: { $in: admissionLocks.map((student) => student.admission_request) }, state: { $in: ['expired', 'complete', 'deleted'] } }).distinct('_id');
+  if (unlocked.length) await Student.updateMany({ admission_request: { $in: unlocked } }, { $unset: { admission_request: 1 } });
+  const evidenceLocks = await FeeLog.find({ evidence_edit_request: { $exists: true } }).select('evidence_edit_request').limit(100).lean();
+  const expired = await CreationRequest.find({ _id: { $in: evidenceLocks.map((log) => log.evidence_edit_request) }, state: { $in: ['expired', 'deleted'] } }).distinct('_id');
+  if (expired.length) await FeeLog.updateMany({ evidence_edit_request: { $in: expired } }, { $unset: { evidence_edit_request: 1 } });
   const directory = root();
   const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
@@ -313,6 +355,7 @@ async function maintainStaging() {
 }
 
 async function performJob(request, job) {
+  if (job.name === 'evidence-edit') return 'updated';
   const asset = request.plan.assets.find((entry) => entry.name === job.name);
   if (asset) {
     // Never resurrect deleted accounts or send orphaned payment evidence.
@@ -397,12 +440,21 @@ export async function processCreationOnce({ perform = performJob, afterClaim = a
       await assertWorkerLease(request);
       const evidence = request.jobs.filter((job) => job.name.startsWith('evidence:'));
       if (request.plan.fee && evidence.length) {
-        const urls = evidence.filter((job) => job.state === 'complete').map((job) => job.result);
+        const urls = [...(request.plan.evidenceEdit?.keep || []), ...evidence.filter((job) => job.state === 'complete').map((job) => job.result)];
         await FeeLog.updateMany({ _id: { $in: paidLogIds }, creation_worker_epoch: request.leaseEpoch },
-          { $set: { payment_evidence: urls.length === 1 ? urls[0] : urls, evidence_status:
+          { $set: { ...(!request.plan.evidenceEdit || evidence.every((job) => job.state === 'complete') ? { payment_evidence: urls.length === 1 ? urls[0] : urls } : {}), evidence_status:
             evidence.every((job) => job.state === 'complete') ? 'complete' : evidence.some((job) => job.state === 'failed') ? 'failed' : 'pending' } });
       }
+      if (request.plan.evidenceEdit && !evidence.length) {
+        await FeeLog.updateOne({ _id: request.plan.evidenceEdit.logId, evidence_edit_request: request._id },
+          { $set: { payment_evidence: request.plan.evidenceEdit.keep, evidence_status: 'complete' } });
+      }
       const summary = processingSummary(request);
+      if (request.plan.evidenceEdit && request.jobs.every((job) => job.state === 'complete')) {
+        await FeeLog.updateOne({ _id: request.plan.evidenceEdit.logId, evidence_edit_request: request._id }, { $unset: { evidence_edit_request: 1 } });
+        creationAudit('payment_evidence_updated', { paymentId: String(request.plan.evidenceEdit.logId), actorId: String(request.actor),
+          previousCount: request.plan.evidenceEdit.previous.length, retainedCount: request.plan.evidenceEdit.keep.length, newCount: evidence.length });
+      }
       await modelFor(request.kind).updateOne({ _id: request.recordId, creation_worker_epoch: request.leaseEpoch }, { $set: { processing_status: summary } });
       if (request.kind === 'student') await User.updateOne({ _id: request.plan.user._id, creation_worker_epoch: request.leaseEpoch }, { $set: { processing_status: summary } });
       const next = request.jobs.filter((job) => ['pending', 'processing'].includes(job.state)).map((job) => job.nextRun.getTime());
@@ -413,6 +465,7 @@ export async function processCreationOnce({ perform = performJob, afterClaim = a
       for (const asset of request.plan.assets) {
         if (request.jobs.find((job) => job.name === asset.name)?.state === 'complete') await fs.unlink(asset.stagedPath).catch(() => {});
       }
+      await Student.updateOne({ _id: request.recordId, admission_request: request._id }, { $unset: { admission_request: 1 } });
     });
   } catch (error) {
     await CreationRequest.updateOne({ _id: request._id, leaseToken: token }, { $inc: { attempts: 1 }, $set: {
@@ -426,6 +479,8 @@ export async function startCreationWorker() {
   // The unique indexes must exist before the API accepts its first create request.
   await CreationRequest.init();
   await CreationRequest.createIndexes();
+  await Student.init();
+  await Student.createIndexes();
   stopping = false;
   const tick = async () => {
     if (stopping) return;

@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 const enrollmentSchema = mongoose.Schema({
+  roll_number: String,
   student: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Student",

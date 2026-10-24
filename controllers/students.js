@@ -1,6 +1,7 @@
 import Student from "../models/students.js";
 import { stageCreationFiles, prepareCreation, commitCreation, creationResponse } from '../utils/creationService.js';
 import CreationRequest from '../models/creationRequests.js';
+import { pendingStudentDues, normalizedStudentPhone } from '../utils/studentIdentity.js';
 import { DEFAULT_STUDENT_PASSWORD } from '../utils/creationDefaults.js';
 import mongoose from "mongoose";
 import Batch from "../models/batches.js";
@@ -186,11 +187,24 @@ export const addStudent = async (req, res) => {
       }
     }
 
-    let email;
-    try {
-      email = await assertPhoneAvailableForNewStudent(phone, false);
-    } catch (err) {
-      return res.status(400).json({ message: err.message });
+    const existingStudent = req.studentIdentity?.student;
+    const existingUser = req.studentIdentity?.user;
+    let email = existingUser?.email;
+    if (existingStudent) {
+      if (!batch) return res.status(400).json({ message: 'Select a destination batch for the existing student' });
+      if (existingStudent.creation_pending) return res.status(409).json({ message: 'The existing admission is still processing. Inspect its status before retrying.' });
+      const dues = await pendingStudentDues(existingStudent._id);
+      if (dues.length) return res.status(409).json({ code: 'PENDING_FEE_BLOCK', message: 'Clear existing pending dues before admission', dues,
+        pending_total: dues.reduce((sum, item) => sum + item.pending, 0) });
+      if (String(existingStudent.batch) === String(batch)) return res.status(409).json({ message: 'This student is already in the selected batch. Use their existing record.' });
+      if (await Fee.exists({ student: existingStudent._id, batch })) return res.status(409).json({ message: 'A fee record already exists for this student and batch. Use the existing enrollment.' });
+      const locked = await Student.updateOne({ _id: existingStudent._id, $or: [{ admission_request: { $exists: false } }, { admission_request: null }] },
+        { $set: { admission_request: req.creationRequest._id } });
+      if (!locked.modifiedCount) return res.status(409).json({ message: 'Another admission is processing for this student. Check its status.' });
+    }
+    if (!email) {
+      try { email = await assertPhoneAvailableForNewStudent(phone, false); }
+      catch (err) { return res.status(400).json({ message: err.message }); }
     }
 
     let batchRecord = null;
@@ -205,6 +219,7 @@ export const addStudent = async (req, res) => {
       if (!batchRecord) {
         return res.status(400).json({ message: "Selected batch not found" });
       }
+      if (!await canAccessBatch(req, batch)) return res.status(403).json({ message: 'Destination batch access denied' });
       if (batchRecord.is_active === false) {
         return res.status(400).json({ message: "Selected batch is inactive" });
       }
@@ -315,13 +330,14 @@ export const addStudent = async (req, res) => {
 
     // Hash the password
     const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(randomPassword, saltRounds);
+    const hashedPassword = existingUser?.password || await bcrypt.hash(randomPassword, saltRounds);
 
     const newUser = new User({
       name,
       email,
       password: hashedPassword, // Save the hashed password
       role: "student", // Assign the role
+      phone,
     });
 
     const newStudent = new Student({
@@ -329,6 +345,7 @@ export const addStudent = async (req, res) => {
       name,
       email,
       phone,
+      normalized_phone: normalizedStudentPhone(phone),
       admission_date,
       batch: batch || undefined,
       remarks: remarks || "",
@@ -371,6 +388,7 @@ export const addStudent = async (req, res) => {
     const { _id: unusedStudentId, ...studentPlan } = newStudent.toObject();
     const prepared = await prepareCreation(request, {
       user: userPlan, student: studentPlan, assets,
+      existingStudent, existingUser,
       fee: batch ? { batchId: batch, totalFee: grossFee, payingNow, discountAmount, discountDescription,
         paymentMethod, nextInstallmentDate: isPartialPayment ? nextInstallmentDate : undefined } : null,
     });
@@ -1974,6 +1992,7 @@ export const transferStudentBatch = async (req, res) => {
       return res.status(404).json({ message: "Student not found" });
     }
 
+    if (student.admission_request) return res.status(409).json({ message: 'An admission is processing for this student. Wait before shifting batches.' });
     if (String(student.batch || "") === String(batch)) {
       return res.status(400).json({
         message: "Student is already assigned to this batch",

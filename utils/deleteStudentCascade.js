@@ -55,8 +55,8 @@ export const deleteStudentCascade = async (studentId, options = {}) => {
   if (!student) {
     throw new Error("Student not found");
   }
-  if (student.creation_pending) throw new Error('Student creation must finish before deletion. Inspect its processing status.');
-  const creation = await CreationRequest.findOne({ kind: 'student', recordId: student._id }).select('state');
+  if (student.creation_pending || student.admission_request) throw new Error('Student creation must finish before deletion. Inspect its processing status.');
+  const creation = await CreationRequest.findOne({ kind: 'student', recordId: student._id, state: { $nin: ['complete', 'deleted'] } }).select('state');
   if (creation && !['complete', 'deleted'].includes(creation.state)) throw new Error('The creation journal must finish recovery before this student can be deleted.');
 
   const id = student._id;

@@ -5,7 +5,7 @@ import auth from './auth.js';
 
 const ordinary = fileUpload();
 export default function creationUploads(req, res, next) {
-  if (req.method !== 'POST' || !/^\/(students|users)\/add\/?$/.test(req.path)) return ordinary(req, res, next);
+  if (req.method !== 'POST' || !(/^\/(students|users)\/add\/?$/.test(req.path) || /^\/students\/[a-f0-9]{24}\/payment-evidence\/[a-f0-9]{24}$/.test(req.path))) return ordinary(req, res, next);
   const incoming = path.resolve(process.env.CREATION_STAGING_DIR || '.creation-staging', '_incoming');
   const parser = fileUpload({ useTempFiles: true, tempFileDir: incoming, createParentPath: true,
     limits: { fileSize: 10 * 1024 * 1024, files: 11, fields: 40 }, abortOnLimit: true,

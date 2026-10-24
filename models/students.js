@@ -14,6 +14,9 @@ const studentSchema = mongoose.Schema({
   name: String,
   email: String,
   phone: String,
+  normalized_phone: String,
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  admission_request: { type: mongoose.Schema.Types.ObjectId, ref: 'CreationRequest' },
   cnic: String,
   admission_date: String,
   date_of_birth: String,
@@ -89,11 +92,27 @@ const studentSchema = mongoose.Schema({
   },
 });
 
+studentSchema.pre('validate', function () {
+  const digits = String(this.phone || '').replace(/\D/g, '');
+  if (digits.length >= 10) this.normalized_phone = digits.slice(-10);
+});
+for (const operation of ['updateOne', 'findOneAndUpdate', 'updateMany']) studentSchema.pre(operation, function () {
+  const update = this.getUpdate();
+  if (!update || Array.isArray(update)) return;
+  const phone = update.$set?.phone ?? update.phone;
+  if (phone === undefined) return;
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.length < 10) throw Object.assign(new Error('Enter a valid student phone number'), { status: 400 });
+  if (update.$set) update.$set.normalized_phone = digits.slice(-10);
+  else update.normalized_phone = digits.slice(-10);
+});
 studentSchema.plugin(mongoosePaginate);
 studentSchema.index({ batch: 1, is_active: 1, _id: -1 });
 studentSchema.index({ pending_fee: 1, batch: 1 });
 studentSchema.index({ email: 1 });
 studentSchema.index({ phone: 1 });
+studentSchema.index({ normalized_phone: 1 }, { unique: true, partialFilterExpression: { normalized_phone: { $type: 'string' } } });
+studentSchema.index({ user: 1 }, { unique: true, partialFilterExpression: { user: { $type: 'objectId' } } });
 
 const Student = mongoose.model("Student", studentSchema);
 export default Student;

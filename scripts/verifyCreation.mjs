@@ -139,7 +139,7 @@ try {
     assert.equal(await Student.countDocuments(), 1); assert.equal(await Fee.countDocuments(), 1);
     assert.equal((await Student.findOne()).roll_number, roll);
   });
-  for (let boundary = 1; boundary <= 9; boundary++) await record(`real process crash after core write ${boundary}`, async () => {
+  for (let boundary = 1; boundary <= 10; boundary++) await record(`real process crash after core write ${boundary}`, async () => {
     const f = await fixture();
     const crashed = await child('commit', f.prepared._id, boundary);
     assert.equal(crashed.message.writes, boundary);
@@ -189,9 +189,9 @@ try {
     await service.processCreationOnce({ perform: async () => 'verification-skipped-network' }); await consistent(f);
   });
   await record('published student cannot be deleted while core journal still needs recovery', async () => {
-    const f = await fixture(); let writes = 0;
-    await assert.rejects(service.commitCreation(f.prepared, true, { afterWrite: async () => {
-      if (++writes === 7) throw new Error('Verification interruption before publishing login');
+    const f = await fixture();
+    await assert.rejects(service.commitCreation(f.prepared, true, { afterWrite: async (name) => {
+      if (name === 'publish_student') throw new Error('Verification interruption before publishing login');
     } }), /Verification interruption/);
     assert.equal((await Student.findById(f.prepared.recordId)).creation_pending, false);
     const { deleteStudentCascade } = await import('../utils/deleteStudentCascade.js');
@@ -377,6 +377,40 @@ try {
     old.get = (name) => name === 'Idempotency-Key' ? 'legacy-request-key-1234' : undefined;
     assert.equal((await claim(old)).res.statusCode, 426);
     assert.equal(await Request.countDocuments(), before); assert.equal(await Student.countDocuments(), 0);
+  });
+  for (let boundary = 1; boundary <= 9; boundary++) await record(`reused student crash after core write ${boundary}`, async () => {
+    const f = await fixture();
+    await service.commitCreation(f.prepared);
+    await service.processCreationOnce({ perform: async () => 'verification-no-network' });
+    const existing = await Student.findById(f.prepared.recordId);
+    const login = await User.findOne({ email: existing.email });
+    const oldHash = login.password;
+    const previousFee = await Fee.findOne({ student: existing._id });
+    await FeeLog.create({ student: existing._id, fee: previousFee._id, action_type: 'Paid', action_amount: 700, amount: 700, payment_method: 'Cash' });
+    await Fee.updateOne({ _id: previousFee._id }, { $set: { amount: 0, status: 'Paid' } });
+    const nextBatch = await Batch.create({ name: 'Recovery new batch', batch_type: 'Online', roll_nickname: 'RECOVER', batch_fee: '2000' });
+    const key = crypto.randomUUID();
+    const journal = await Request.create({ actor: f.actor._id, kind: 'student', key, aliases: [key], fingerprint: key,
+      identity: `reuse:${existing._id}:${nextBatch._id}`, recordId: existing._id, leaseEpoch: Date.now() * 1000 });
+    await Student.updateOne({ _id: existing._id }, { $set: { admission_request: journal._id } });
+    const prepared = await service.prepareCreation(journal, { user: login.toObject(),
+      student: { ...existing.toObject(), batch: nextBatch._id, roll_number: 'On-RECOVER-1', normalized_phone: '3001234567' },
+      existingStudent: existing, existingUser: login,
+      fee: { batchId: nextBatch._id, totalFee: 2000, discountAmount: 0, payingNow: 0 } });
+    const crashed = await child('commit', prepared._id, boundary); await kill(crashed.process);
+    await Request.updateOne({ _id: prepared._id }, { $set: { leaseUntil: new Date(0) } });
+    await service.processCreationOnce({ perform: async () => 'verification-no-network' });
+    assert.equal((await Request.findById(prepared._id)).state, 'complete');
+    assert.equal(await Student.countDocuments(), 1); assert.equal(await User.countDocuments({ role: 'student' }), 1);
+    assert.equal((await User.findById(login._id)).password, oldHash);
+    assert.equal(await Fee.countDocuments({ student: existing._id }), 2);
+    assert.equal((await Student.findById(existing._id)).roll_number, 'On-RECOVER-1');
+    assert.equal((await Fee.findById(previousFee._id)).amount, 0);
+    const { default: Enrollment } = await import('../models/enrollments.js');
+    const { default: Shift } = await import('../models/studentBatchShifts.js');
+    assert.equal(await Enrollment.countDocuments({ student: existing._id }), 2);
+    assert.equal(await Shift.countDocuments({ student: existing._id }), 1);
+    assert.equal((await Student.findById(existing._id)).admission_request, undefined);
   });
   await record('alert delivery retry, durable cooldown and no PII (fake sender)', async () => {
     const { notifyOperationalAlert } = await import('../utils/operationalAlerts.js');
