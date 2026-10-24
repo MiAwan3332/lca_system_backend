@@ -649,9 +649,32 @@ export const getStatistics = async (req, res) => {
   }
 };
 
+/** Matches finance report / fee sync: Online Payment, Online, Bank Transfer. */
+const isOnlinePaymentMethodExpr = {
+  $in: [
+    {
+      $trim: {
+        input: { $ifNull: ["$payment_method", ""] },
+      },
+    },
+    ["Online Payment", "Online", "Bank Transfer"],
+  ],
+};
+
+const emptyBatchFinanceTotals = () => ({
+  active_students: 0,
+  total_fee_created: 0,
+  discount: 0,
+  received: 0,
+  cash: 0,
+  online: 0,
+  refund: 0,
+  pending: 0,
+});
+
 /**
  * Batch-wise fee summary for active batches only:
- * active students, total fee created, discount, received, refund, pending dues.
+ * active students, fee created, discount, received (cash + online), refund, pending.
  */
 export const getBatchFinanceStats = async (req, res) => {
   try {
@@ -685,14 +708,7 @@ export const getBatchFinanceStats = async (req, res) => {
     if (!activeBatches.length) {
       return res.status(200).json({
         batches: [],
-        totals: {
-          active_students: 0,
-          total_fee_created: 0,
-          discount: 0,
-          received: 0,
-          refund: 0,
-          pending: 0,
-        },
+        totals: emptyBatchFinanceTotals(),
       });
     }
 
@@ -730,6 +746,8 @@ export const getBatchFinanceStats = async (req, res) => {
         total_fee_created: 0,
         discount: 0,
         received: 0,
+        cash: 0,
+        online: 0,
         refund: 0,
         pending: 0,
       }));
@@ -738,14 +756,7 @@ export const getBatchFinanceStats = async (req, res) => {
           acc.active_students += row.active_students;
           return acc;
         },
-        {
-          active_students: 0,
-          total_fee_created: 0,
-          discount: 0,
-          received: 0,
-          refund: 0,
-          pending: 0,
-        }
+        emptyBatchFinanceTotals()
       );
       return res.status(200).json({
         batches: emptyBatches,
@@ -777,7 +788,13 @@ export const getBatchFinanceStats = async (req, res) => {
       { $match: logMatch },
       {
         $group: {
-          _id: { fee: "$fee", action_type: "$action_type" },
+          _id: {
+            fee: "$fee",
+            action_type: "$action_type",
+            channel: {
+              $cond: [isOnlinePaymentMethodExpr, "online", "cash"],
+            },
+          },
           total: {
             $sum: {
               $toDouble: {
@@ -804,8 +821,12 @@ export const getBatchFinanceStats = async (req, res) => {
         created: 0,
         discounted: 0,
         paid: 0,
+        paid_cash: 0,
+        paid_online: 0,
         deleted: 0,
         refunded: 0,
+        refunded_cash: 0,
+        refunded_online: 0,
       });
     }
 
@@ -815,6 +836,7 @@ export const getBatchFinanceStats = async (req, res) => {
       if (!batchKey || !byBatch.has(batchKey)) continue;
       const bucket = byBatch.get(batchKey);
       const amount = Number(row.total) || 0;
+      const channel = row._id?.channel === "online" ? "online" : "cash";
       switch (row._id?.action_type) {
         case "Created":
           bucket.created += amount;
@@ -824,12 +846,16 @@ export const getBatchFinanceStats = async (req, res) => {
           break;
         case "Paid":
           bucket.paid += amount;
+          if (channel === "online") bucket.paid_online += amount;
+          else bucket.paid_cash += amount;
           break;
         case "Deleted":
           bucket.deleted += amount;
           break;
         case "Refund":
           bucket.refunded += amount;
+          if (channel === "online") bucket.refunded_online += amount;
+          else bucket.refunded_cash += amount;
           break;
         default:
           break;
@@ -840,18 +866,28 @@ export const getBatchFinanceStats = async (req, res) => {
       const total_fee_created = Math.round(bucket.created);
       const discount = Math.round(bucket.discounted);
       const refund = Math.round(bucket.refunded);
-      const received = Math.round(bucket.paid - bucket.refunded);
+      const cash = Math.max(
+        Math.round(bucket.paid_cash - bucket.refunded_cash),
+        0
+      );
+      const online = Math.max(
+        Math.round(bucket.paid_online - bucket.refunded_online),
+        0
+      );
+      const received = Math.max(Math.round(bucket.paid - bucket.refunded), 0);
       const netRecord = Math.round(
         bucket.created - bucket.discounted - bucket.deleted - bucket.refunded
       );
-      const pending = Math.max(netRecord - Math.max(received, 0), 0);
+      const pending = Math.max(netRecord - received, 0);
       return {
         batch_id: bucket.batch_id,
         batch_name: bucket.batch_name,
         active_students: bucket.active_students || 0,
         total_fee_created,
         discount,
-        received: Math.max(received, 0),
+        received,
+        cash,
+        online,
         refund,
         pending,
       };
@@ -863,18 +899,13 @@ export const getBatchFinanceStats = async (req, res) => {
         acc.total_fee_created += row.total_fee_created;
         acc.discount += row.discount;
         acc.received += row.received;
+        acc.cash += row.cash;
+        acc.online += row.online;
         acc.refund += row.refund;
         acc.pending += row.pending;
         return acc;
       },
-      {
-        active_students: 0,
-        total_fee_created: 0,
-        discount: 0,
-        received: 0,
-        refund: 0,
-        pending: 0,
-      }
+      emptyBatchFinanceTotals()
     );
 
     res.status(200).json({ batches, totals });
