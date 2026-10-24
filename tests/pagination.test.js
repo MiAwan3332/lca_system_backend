@@ -52,3 +52,15 @@ test("pagination middleware prevents endpoint-specific bypasses", () => {
   assert.equal(req.query.limit, "100");
   assert.equal(continued, true);
 });
+
+test("pagination allows larger limits for export requests", () => {
+  assert.deepEqual(getPagination({ page: "1", limit: "9999999", export: "1" }), {
+    page: 1,
+    limit: 10000,
+    skip: 0,
+  });
+
+  const req = { query: { page: "1", limit: "5000", export: "true" } };
+  enforcePaginationBounds(req, {}, () => {});
+  assert.equal(req.query.limit, "5000");
+});

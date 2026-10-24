@@ -719,6 +719,8 @@ export const getStudents = async (req, res) => {
     city,
     search_field,
     is_active,
+    due_date_from,
+    due_date_to,
   } = req.query;
 
   try {
@@ -816,6 +818,32 @@ export const getStudents = async (req, res) => {
       ];
     }
 
+    const dueFrom = String(due_date_from || "").trim();
+    const dueTo = String(due_date_to || "").trim();
+    if (dueFrom || dueTo) {
+      const feeMatch = {
+        status: "Pending",
+        amount: { $gt: 0 },
+        due_date: { $exists: true, $nin: [null, ""] },
+      };
+      if (dueFrom || dueTo) {
+        feeMatch.due_date = {};
+        if (dueFrom) feeMatch.due_date.$gte = dueFrom;
+        if (dueTo) feeMatch.due_date.$lte = dueTo;
+      }
+
+      const dueStudentIds = await Fee.distinct("student", feeMatch);
+      if (!dueStudentIds.length) {
+        return res.status(200).json({
+          ...buildEmptyPaginatedResponse(parseInt(req.query.limit, 10) || 10),
+          status_counts: { total: 0, active: 0, inactive: 0 },
+        });
+      }
+      filter._id = { $in: dueStudentIds };
+      // Due-date filter implies pending dues
+      filter.pending_fee = { $gt: 0 };
+    }
+
     if (isTeacherRole(req)) {
       await applyTeacherBatchFilter(req, filter, "batch");
       if (filter.batch?.$in?.length === 0) {
@@ -881,14 +909,48 @@ export const getStudents = async (req, res) => {
       });
     }
 
+    let dueDateByStudent = {};
+    const shouldAttachDueDate =
+      String(req.query.export || "") === "1" ||
+      String(req.query.export || "").toLowerCase() === "true" ||
+      feeStatus === "pending_dues" ||
+      feeStatus === "pending" ||
+      Boolean(dueFrom || dueTo);
+
+    if (shouldAttachDueDate && studentIds.length) {
+      const pendingFees = await Fee.find({
+        student: { $in: studentIds },
+        status: "Pending",
+        amount: { $gt: 0 },
+        due_date: { $exists: true, $nin: [null, ""] },
+      })
+        .select("student due_date amount")
+        .sort({ due_date: 1 })
+        .lean();
+
+      pendingFees.forEach((fee) => {
+        const key = String(fee.student);
+        if (!dueDateByStudent[key]) {
+          dueDateByStudent[key] = {
+            due_date: fee.due_date,
+            pending_due_amount: Number(fee.amount) || 0,
+          };
+        }
+      });
+    }
+
     students.docs = docs.map((doc) => {
       const plain = typeof doc.toObject === "function" ? doc.toObject() : doc;
       const key = String(plain._id);
+      const dueInfo = dueDateByStudent[key] || null;
       return {
         ...plain,
         approved_refund_request: approvedByStudent[key] || null,
         pending_refund_request: pendingByStudent[key] || null,
         has_refunded_request: refundedStudentIds.has(key),
+        due_date: dueInfo?.due_date || "",
+        pending_due_date: dueInfo?.due_date || "",
+        pending_due_amount: dueInfo?.pending_due_amount || 0,
       };
     });
 

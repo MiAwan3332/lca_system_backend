@@ -36,6 +36,8 @@ const formatFeeEntry = (fee, daysUntil, referenceIsToday = true) => {
     student_name: student?.name || "Unknown",
     student_email: student?.email || "",
     student_phone: student?.phone || "",
+    roll_number: student?.roll_number || "",
+    batch_id: batch?._id ? String(batch._id) : "",
     batch_name: batch?.name || "N/A",
     amount,
     due_date: fee.due_date,
@@ -71,7 +73,7 @@ export async function buildFeeDueReport(reportDateInput) {
     amount: { $gt: 0 },
     due_date: { $exists: true, $ne: "" },
   })
-    .populate("student", "name email phone")
+    .populate("student", "name email phone roll_number")
     .populate("batch", "name");
 
   const dueOnDate = [];
