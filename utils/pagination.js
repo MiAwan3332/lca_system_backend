@@ -1,9 +1,18 @@
 export const DEFAULT_PAGE_SIZE = 10;
 export const MAX_PAGE_SIZE = 100;
+/** Higher cap for Excel/PDF exports (opt-in via export=1). */
+export const MAX_EXPORT_PAGE_SIZE = 10000;
 
 const positiveInteger = (value, fallback) => {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const isExportRequest = (query = {}) => {
+  const flag = String(query.export || query.for_export || "")
+    .trim()
+    .toLowerCase();
+  return flag === "1" || flag === "true" || flag === "yes";
 };
 
 export const getPagination = (
@@ -12,7 +21,10 @@ export const getPagination = (
 ) => {
   const page = positiveInteger(query.page, 1);
   const requestedLimit = positiveInteger(query.limit, defaultLimit);
-  const limit = Math.min(requestedLimit, maxLimit);
+  const effectiveMax = isExportRequest(query)
+    ? Math.max(maxLimit, MAX_EXPORT_PAGE_SIZE)
+    : maxLimit;
+  const limit = Math.min(requestedLimit, effectiveMax);
 
   return {
     page,
