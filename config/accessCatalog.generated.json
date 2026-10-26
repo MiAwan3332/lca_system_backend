@@ -1,0 +1,6282 @@
+{
+  "version": 1,
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/users",
+      "permission": "users.get.users",
+      "resource": "users",
+      "handler": "getUsers",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/users/by-key/:key",
+      "permission": "users.get.creation.by.key",
+      "resource": "users",
+      "handler": "getCreationByKey",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/users/:id/processing",
+      "permission": "users.get.creation.status",
+      "resource": "users",
+      "handler": "getCreationStatus",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/users/:id/processing/retry",
+      "permission": "users.retry.creation",
+      "resource": "users",
+      "handler": "retryCreation",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/users/:id",
+      "permission": "users.get.user",
+      "resource": "users",
+      "handler": "getUser",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/users/register",
+      "permission": "users.register",
+      "resource": "users",
+      "handler": "register",
+      "public": false,
+      "blocked": true
+    },
+    {
+      "method": "POST",
+      "path": "/users/login",
+      "permission": "users.login",
+      "resource": "users",
+      "handler": "login",
+      "public": true,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/users/adminlogin",
+      "permission": "users.adminlogin",
+      "resource": "users",
+      "handler": "adminlogin",
+      "public": true,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/users/add",
+      "permission": "users.add.user",
+      "resource": "users",
+      "handler": "addUser",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/users/update/:id",
+      "permission": "users.update.user",
+      "resource": "users",
+      "handler": "updateUser",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/users/delete/:id",
+      "permission": "users.delete.user",
+      "resource": "users",
+      "handler": "deleteUser",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/users/avatar",
+      "permission": "users.change.avatar",
+      "resource": "users",
+      "handler": "changeAvatar",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/users/changePassword",
+      "permission": "users.change.password",
+      "resource": "users",
+      "handler": "changePassword",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/users/forgotPassword",
+      "permission": "users.forgot.password",
+      "resource": "users",
+      "handler": "forgotPassword",
+      "public": true,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/users/resetPasswordForAllStudents",
+      "permission": "users.reset.password.for.all.students",
+      "resource": "users",
+      "handler": "resetPasswordForAllStudents",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/courses",
+      "permission": "courses.get.courses",
+      "resource": "courses",
+      "handler": "getCourses",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/courses/:id",
+      "permission": "courses.get.course",
+      "resource": "courses",
+      "handler": "getCourse",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/courses/add",
+      "permission": "courses.add.course",
+      "resource": "courses",
+      "handler": "addCourse",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/courses/update/:id",
+      "permission": "courses.update.course",
+      "resource": "courses",
+      "handler": "updateCourse",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/courses/delete/:id",
+      "permission": "courses.delete.course",
+      "resource": "courses",
+      "handler": "deleteCourse",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/courses/student/courses/:studentId",
+      "permission": "courses.get.batch.and.courses",
+      "resource": "courses",
+      "handler": "getBatchAndCourses",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/teachers",
+      "permission": "teachers.get.teachers",
+      "resource": "teachers",
+      "handler": "getTeachers",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/teachers/:id",
+      "permission": "teachers.get.teacher",
+      "resource": "teachers",
+      "handler": "getTeacher",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/teachers/add",
+      "permission": "teachers.add.teacher",
+      "resource": "teachers",
+      "handler": "addTeacher",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/teachers/update/:id",
+      "permission": "teachers.update.teacher",
+      "resource": "teachers",
+      "handler": "updateTeacher",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/teachers/delete/:id",
+      "permission": "teachers.delete.teacher",
+      "resource": "teachers",
+      "handler": "deleteTeacher",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/batches",
+      "permission": "batches.get.batches",
+      "resource": "batches",
+      "handler": "getBatches",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/batches/deletion-archives",
+      "permission": "batches.get.deleted.batches",
+      "resource": "batches",
+      "handler": "getDeletedBatches",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/batches/deletion-archives/:id",
+      "permission": "batches.get.deleted.batch.archive",
+      "resource": "batches",
+      "handler": "getDeletedBatchArchive",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/batches/courses/:id",
+      "permission": "batches.get.batch.courses",
+      "resource": "batches",
+      "handler": "getBatchCourses",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/batches/teachers/:id",
+      "permission": "batches.get.batch.teachers",
+      "resource": "batches",
+      "handler": "getBatchTeachers",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/batches/teacher-assignments/:id",
+      "permission": "batches.get.batch.teacher.assignments",
+      "resource": "batches",
+      "handler": "getBatchTeacherAssignments",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/batches/:id",
+      "permission": "batches.get.batch",
+      "resource": "batches",
+      "handler": "getBatch",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/batches/add",
+      "permission": "batches.add.batch",
+      "resource": "batches",
+      "handler": "addBatch",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/batches/update/:id",
+      "permission": "batches.update.batch",
+      "resource": "batches",
+      "handler": "updateBatch",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/batches/toggle-status/:id",
+      "permission": "batches.toggle.batch.status",
+      "resource": "batches",
+      "handler": "toggleBatchStatus",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/batches/delete/:id",
+      "permission": "batches.delete.batch",
+      "resource": "batches",
+      "handler": "deleteBatch",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/batches/assignCourses",
+      "permission": "batches.assign.courses.to.batch",
+      "resource": "batches",
+      "handler": "assignCoursesToBatch",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/batches/assignTeachers",
+      "permission": "batches.assign.teachers.to.batch",
+      "resource": "batches",
+      "handler": "assignTeachersToBatch",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/batches/assignTeacherCourses",
+      "permission": "batches.assign.teacher.courses.to.batch",
+      "resource": "batches",
+      "handler": "assignTeacherCoursesToBatch",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students",
+      "permission": "students.get.students",
+      "resource": "students",
+      "handler": "getStudents",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/identity/lookup",
+      "permission": "students.lookup.student.identity",
+      "resource": "students",
+      "handler": "lookupStudentIdentity",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/:id/payment-evidence/:logId",
+      "permission": "students.edit.payment.evidence",
+      "resource": "students",
+      "handler": "editPaymentEvidence",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/:id/evidence-payments",
+      "permission": "students.list.evidence.payments",
+      "resource": "students",
+      "handler": "listEvidencePayments",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/:id/last-payment-receipt",
+      "permission": "students.latest.fee.receipt",
+      "resource": "students",
+      "handler": "latestFeeReceipt",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/deletion-archives",
+      "permission": "students.get.deleted.students",
+      "resource": "students",
+      "handler": "getDeletedStudents",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/deletion-archives/:id",
+      "permission": "students.get.deleted.student.archive",
+      "resource": "students",
+      "handler": "getDeletedStudentArchive",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/batch-shifts",
+      "permission": "students.get.batch.shifts",
+      "resource": "students",
+      "handler": "getBatchShifts",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/change-password/:id",
+      "permission": "students.change.student.password",
+      "resource": "students",
+      "handler": "changeStudentPassword",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/batch/:batchId",
+      "permission": "students.get.students.by.batch",
+      "resource": "students",
+      "handler": "getStudentsByBatch",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/batch/:batchId/toggle-status",
+      "permission": "students.toggle.batch.students.status",
+      "resource": "students",
+      "handler": "toggleBatchStudentsStatus",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/bulk-import",
+      "permission": "students.bulk.import.students",
+      "resource": "students",
+      "handler": "bulkImportStudents",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/fill-null-field",
+      "permission": "students.fill.null.student.field",
+      "resource": "students",
+      "handler": "fillNullStudentField",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/toggle-status/:id",
+      "permission": "students.toggle.student.status",
+      "resource": "students",
+      "handler": "toggleStudentStatus",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/payment-logs/:id",
+      "permission": "students.get.student.payment.logs",
+      "resource": "students",
+      "handler": "getStudentPaymentLogs",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/history/:id",
+      "permission": "students.get.student.history",
+      "resource": "students",
+      "handler": "getStudentHistory",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/ensure-roll/:id",
+      "permission": "students.ensure.student.roll.number",
+      "resource": "students",
+      "handler": "ensureStudentRollNumber",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/transfer-batch/:id",
+      "permission": "students.transfer.student.batch",
+      "resource": "students",
+      "handler": "transferStudentBatch",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/pending-fee-slip/:id",
+      "permission": "students.get.pending.fee.slip",
+      "resource": "students",
+      "handler": "getPendingFeeSlip",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/pending-fee-slip/:id",
+      "permission": "students.get.or.create.pending.fee.slip",
+      "resource": "students",
+      "handler": "getOrCreatePendingFeeSlip",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/by-key/:key",
+      "permission": "students.get.creation.by.key",
+      "resource": "students",
+      "handler": "getCreationByKey",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/:id/processing",
+      "permission": "students.get.creation.status",
+      "resource": "students",
+      "handler": "getCreationStatus",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/:id/processing/retry",
+      "permission": "students.retry.creation",
+      "resource": "students",
+      "handler": "retryCreation",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/:id",
+      "permission": "students.get.student",
+      "resource": "students",
+      "handler": "getStudent",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/add",
+      "permission": "students.add.student",
+      "resource": "students",
+      "handler": "addStudent",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/update/:id",
+      "permission": "students.update.student",
+      "resource": "students",
+      "handler": "updateStudent",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/students/delete/:id",
+      "permission": "students.delete.student",
+      "resource": "students",
+      "handler": "deleteStudent",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/qrcode/:id",
+      "permission": "students.get.qr.code",
+      "resource": "students",
+      "handler": "getQrCode",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/studentInfoUpdate/:id",
+      "permission": "students.update.studentinfo",
+      "resource": "students",
+      "handler": "updateStudentinfo",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/checkStudentFields/:id",
+      "permission": "students.check.student.fields",
+      "resource": "students",
+      "handler": "checkStudentFields",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/students/basic-update/:id",
+      "permission": "students.basic.student.update",
+      "resource": "students",
+      "handler": "basicStudentUpdate",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/students/graph",
+      "permission": "students.get.students.graph",
+      "resource": "students",
+      "handler": "getStudentsGraph",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/students/Batchesgraph",
+      "permission": "students.get.students.by.batches.graph",
+      "resource": "students",
+      "handler": "getStudentsByBatchesGraph",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/students/students/getStudentsContacts",
+      "permission": "students.get.students.contacts",
+      "resource": "students",
+      "handler": "getStudentsContacts",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/students/deleteAllStudents",
+      "permission": "students.delete.all.students",
+      "resource": "students",
+      "handler": "deleteAllStudents",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/seminars",
+      "permission": "seminars.get.seminars",
+      "resource": "seminars",
+      "handler": "getSeminars",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/seminars/:id",
+      "permission": "seminars.get.seminar",
+      "resource": "seminars",
+      "handler": "getSeminar",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/seminars/add",
+      "permission": "seminars.add.seminar",
+      "resource": "seminars",
+      "handler": "addSeminar",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/seminars/update/:id",
+      "permission": "seminars.update.seminar",
+      "resource": "seminars",
+      "handler": "updateSeminar",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/seminars/delete/:id",
+      "permission": "seminars.delete.seminar",
+      "resource": "seminars",
+      "handler": "deleteSeminar",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/seminars/seminar/today",
+      "permission": "seminars.get.today.seminars",
+      "resource": "seminars",
+      "handler": "getTodaySeminars",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/seminars/seminar/getSeminarAttendees",
+      "permission": "seminars.get.seminars.with.attendee.counts",
+      "resource": "seminars",
+      "handler": "getSeminarsWithAttendeeCounts",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/seminars/seminar/getallSeminarwithAttendees",
+      "permission": "seminars.getall.seminarwith.attendees",
+      "resource": "seminars",
+      "handler": "getallSeminarwithAttendees",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/roles",
+      "permission": "roles.get.roles",
+      "resource": "roles",
+      "handler": "getRoles",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/roles/:id",
+      "permission": "roles.get.role",
+      "resource": "roles",
+      "handler": "getRole",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/roles/add",
+      "permission": "roles.add.role",
+      "resource": "roles",
+      "handler": "addRole",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/roles/update/:id",
+      "permission": "roles.update.role",
+      "resource": "roles",
+      "handler": "updateRole",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/roles/delete/:id",
+      "permission": "roles.delete.role",
+      "resource": "roles",
+      "handler": "deleteRole",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/roles/permissions/:id",
+      "permission": "roles.get.role.permissions",
+      "resource": "roles",
+      "handler": "getRolePermissions",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/roles/assignPermissions",
+      "permission": "roles.assign.permissions.to.role",
+      "resource": "roles",
+      "handler": "assignPermissionsToRole",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/permissions",
+      "permission": "permissions.get.permissions",
+      "resource": "permissions",
+      "handler": "getPermissions",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/permissions/:id",
+      "permission": "permissions.get.permission",
+      "resource": "permissions",
+      "handler": "getPermission",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/permissions/add",
+      "permission": "permissions.add.permission",
+      "resource": "permissions",
+      "handler": "addPermission",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/permissions/update/:id",
+      "permission": "permissions.update.permission",
+      "resource": "permissions",
+      "handler": "updatePermission",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/permissions/delete/:id",
+      "permission": "permissions.delete.permission",
+      "resource": "permissions",
+      "handler": "deletePermission",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/attendees",
+      "permission": "attendees.get.attendees",
+      "resource": "attendees",
+      "handler": "getAttendees",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/attendees/:id",
+      "permission": "attendees.get.attendee",
+      "resource": "attendees",
+      "handler": "getAttendee",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/attendees/add",
+      "permission": "attendees.create.attendee",
+      "resource": "attendees",
+      "handler": "createAttendee",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/attendees/update/:id",
+      "permission": "attendees.update.attendee",
+      "resource": "attendees",
+      "handler": "updateAttendee",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/attendees/delete/:id",
+      "permission": "attendees.delete.attendee",
+      "resource": "attendees",
+      "handler": "deleteAttendee",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/attendees/seminar/:id",
+      "permission": "attendees.get.attendees.by.seminar",
+      "resource": "attendees",
+      "handler": "getAttendeesBySeminar",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/attendence",
+      "permission": "attendence.get.attendences",
+      "resource": "attendence",
+      "handler": "getAttendences",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/attendence/create",
+      "permission": "attendence.create.attendence",
+      "resource": "attendence",
+      "handler": "createAttendence",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/attendence/studentAttendence/:student_id",
+      "permission": "attendence.get.today.attendence.by.student.id",
+      "resource": "attendence",
+      "handler": "getTodayAttendenceByStudentId",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/timetable/add",
+      "permission": "timetable.create.time.table",
+      "resource": "timetable",
+      "handler": "createTimeTable",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "PUT",
+      "path": "/timetable/update/:id",
+      "permission": "timetable.update.time.table",
+      "resource": "timetable",
+      "handler": "updateTimeTable",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/timetable/:id",
+      "permission": "timetable.get.time.table.by.id",
+      "resource": "timetable",
+      "handler": "getTimeTableById",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/timetable",
+      "permission": "timetable.get.all.time.tables",
+      "resource": "timetable",
+      "handler": "getAllTimeTables",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/timetable/delete/:id",
+      "permission": "timetable.delete.time.table",
+      "resource": "timetable",
+      "handler": "deleteTimeTable",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/timetable/get-time-table-by-student-id/:id",
+      "permission": "timetable.get.time.table.by.student.id",
+      "resource": "timetable",
+      "handler": "getTimeTableByStudentId",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/timetable/today/get",
+      "permission": "timetable.get.today.time.tables",
+      "resource": "timetable",
+      "handler": "getTodayTimeTables",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/enrollments",
+      "permission": "enrollments.get.enrollments",
+      "resource": "enrollments",
+      "handler": "getEnrollments",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/enrollments/student/:id",
+      "permission": "enrollments.get.entrollmentby.student",
+      "resource": "enrollments",
+      "handler": "getEntrollmentbyStudent",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/enrollments/add",
+      "permission": "enrollments.create.enrollment",
+      "resource": "enrollments",
+      "handler": "createEnrollment",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/statistics",
+      "permission": "statistics.get.statistics",
+      "resource": "statistics",
+      "handler": "getStatistics",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/statistics/batch-finance",
+      "permission": "statistics.get.batch.finance.stats",
+      "resource": "statistics",
+      "handler": "getBatchFinanceStats",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/mcqs",
+      "permission": "mcqs.get.all.mcqs",
+      "resource": "mcqs",
+      "handler": "getAllMcqs",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/mcqs/course/:id",
+      "permission": "mcqs.get.mcqs.by.course.id",
+      "resource": "mcqs",
+      "handler": "getMcqsByCourseId",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/mcqs/:id",
+      "permission": "mcqs.get.mcq.by.id",
+      "resource": "mcqs",
+      "handler": "getMcqById",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/mcqs/add",
+      "permission": "mcqs.create.mcq",
+      "resource": "mcqs",
+      "handler": "createMcq",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/mcqs/bulk-import",
+      "permission": "mcqs.bulk.import.mcqs",
+      "resource": "mcqs",
+      "handler": "bulkImportMcqs",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/mcqs/update/:id",
+      "permission": "mcqs.update.mcq",
+      "resource": "mcqs",
+      "handler": "updateMcq",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/mcqs/delete/:id",
+      "permission": "mcqs.delete.mcq",
+      "resource": "mcqs",
+      "handler": "deleteMcq",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/pastPapers",
+      "permission": "pastPapers.get.all.past.papers",
+      "resource": "pastPapers",
+      "handler": "getAllPastPapers",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/pastPapers/:id",
+      "permission": "pastPapers.get.past.paper.by.id",
+      "resource": "pastPapers",
+      "handler": "getPastPaperById",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/pastPapers/add",
+      "permission": "pastPapers.create.past.paper",
+      "resource": "pastPapers",
+      "handler": "createPastPaper",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/pastPapers/update/:id",
+      "permission": "pastPapers.update.past.paper",
+      "resource": "pastPapers",
+      "handler": "updatePastPaper",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/pastPapers/delete/:id",
+      "permission": "pastPapers.delete.past.paper",
+      "resource": "pastPapers",
+      "handler": "deletePastPaper",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/pastPapers/pastPapers/papers",
+      "permission": "pastPapers.get.past.paper.by.course.and.year",
+      "resource": "pastPapers",
+      "handler": "getPastPaperByCourseAndYear",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/fees/report",
+      "permission": "fees.get.finance.report",
+      "resource": "fees",
+      "handler": "getFinanceReport",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/fees/student-fees-report",
+      "permission": "fees.get.student.fees.report",
+      "resource": "fees",
+      "handler": "getStudentFeesReport",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/fees",
+      "permission": "fees.get.fees",
+      "resource": "fees",
+      "handler": "getFees",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/fees/collect-pending/:studentId",
+      "permission": "fees.collect.pending.fee",
+      "resource": "fees",
+      "handler": "collectPendingFee",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/fees/pay/:id",
+      "permission": "fees.pay.fee",
+      "resource": "fees",
+      "handler": "payFee",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/fees/discount/:id",
+      "permission": "fees.discount.fee",
+      "resource": "fees",
+      "handler": "discountFee",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/fees/delete/:id",
+      "permission": "fees.delete.fee",
+      "resource": "fees",
+      "handler": "deleteFee",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/fees/logs/:id",
+      "permission": "fees.get.fee.logs",
+      "resource": "fees",
+      "handler": "getFeeLogs",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/fees/student/:id",
+      "permission": "fees.get.fees.by.student.id",
+      "resource": "fees",
+      "handler": "getFeesByStudentId",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/fees/:id",
+      "permission": "fees.get.fee.by.id",
+      "resource": "fees",
+      "handler": "getFeeById",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/fees/create",
+      "permission": "fees.create.fee",
+      "resource": "fees",
+      "handler": "createFee",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/expenses",
+      "permission": "expenses.get.expenses",
+      "resource": "expenses",
+      "handler": "getExpenses",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/expenses/add",
+      "permission": "expenses.add.expense",
+      "resource": "expenses",
+      "handler": "addExpense",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/expenses/approve/:id",
+      "permission": "expenses.approve.expense",
+      "resource": "expenses",
+      "handler": "approveExpense",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/expenses/reject/:id",
+      "permission": "expenses.reject.expense",
+      "resource": "expenses",
+      "handler": "rejectExpense",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/expenses/:id",
+      "permission": "expenses.get.expense",
+      "resource": "expenses",
+      "handler": "getExpense",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/expenses/update/:id",
+      "permission": "expenses.update.expense",
+      "resource": "expenses",
+      "handler": "updateExpense",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/expenses/delete/:id",
+      "permission": "expenses.delete.expense",
+      "resource": "expenses",
+      "handler": "deleteExpense",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/refund-requests",
+      "permission": "refund-requests.get.refund.requests",
+      "resource": "refund-requests",
+      "handler": "getRefundRequests",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/refund-requests/add",
+      "permission": "refund-requests.create.refund.request",
+      "resource": "refund-requests",
+      "handler": "createRefundRequest",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/refund-requests/approve/:id",
+      "permission": "refund-requests.approve.refund.request",
+      "resource": "refund-requests",
+      "handler": "approveRefundRequest",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/refund-requests/reject/:id",
+      "permission": "refund-requests.reject.refund.request",
+      "resource": "refund-requests",
+      "handler": "rejectRefundRequest",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/refund-requests/process/:id",
+      "permission": "refund-requests.process.refund.request",
+      "resource": "refund-requests",
+      "handler": "processRefundRequest",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/refund-requests/update-payout/:id",
+      "permission": "refund-requests.update.refund.payout",
+      "resource": "refund-requests",
+      "handler": "updateRefundPayout",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/quiz/subjects",
+      "permission": "quiz.get.quiz.subjects",
+      "resource": "quiz",
+      "handler": "getQuizSubjects",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/quiz/start",
+      "permission": "quiz.start.quiz",
+      "resource": "quiz",
+      "handler": "startQuiz",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/quiz/attempts",
+      "permission": "quiz.get.quiz.attempts",
+      "resource": "quiz",
+      "handler": "getQuizAttempts",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/quiz/attempts/:id/log",
+      "permission": "quiz.get.quiz.attempt.log",
+      "resource": "quiz",
+      "handler": "getQuizAttemptLog",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/quiz/attempts/:id",
+      "permission": "quiz.get.quiz.attempt",
+      "resource": "quiz",
+      "handler": "getQuizAttempt",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/quiz/attempts/:id/answer",
+      "permission": "quiz.save.quiz.answer",
+      "resource": "quiz",
+      "handler": "saveQuizAnswer",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/quiz/attempts/:id/submit",
+      "permission": "quiz.submit.quiz",
+      "resource": "quiz",
+      "handler": "submitQuiz",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/assignments",
+      "permission": "assignments.get.assignments",
+      "resource": "assignments",
+      "handler": "getAssignments",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/assignments/my-courses",
+      "permission": "assignments.get.my.assignment.courses",
+      "resource": "assignments",
+      "handler": "getMyAssignmentCourses",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/assignments/batch/:batchId/courses",
+      "permission": "assignments.get.batch.courses.for.assignment",
+      "resource": "assignments",
+      "handler": "getBatchCoursesForAssignment",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/assignments/submissions/list",
+      "permission": "assignments.get.assignment.submissions",
+      "resource": "assignments",
+      "handler": "getAssignmentSubmissions",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/assignments/:id",
+      "permission": "assignments.get.assignment.by.id",
+      "resource": "assignments",
+      "handler": "getAssignmentById",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/assignments/add",
+      "permission": "assignments.create.assignment",
+      "resource": "assignments",
+      "handler": "createAssignment",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/assignments/update/:id",
+      "permission": "assignments.update.assignment",
+      "resource": "assignments",
+      "handler": "updateAssignment",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/assignments/publish/:id",
+      "permission": "assignments.publish.assignment",
+      "resource": "assignments",
+      "handler": "publishAssignment",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/assignments/submit/:id",
+      "permission": "assignments.submit.assignment",
+      "resource": "assignments",
+      "handler": "submitAssignment",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/assignments/delete/:id",
+      "permission": "assignments.delete.assignment",
+      "resource": "assignments",
+      "handler": "deleteAssignment",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/assignments/submissions/:id/grade",
+      "permission": "assignments.grade.submission",
+      "resource": "assignments",
+      "handler": "gradeSubmission",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/course-quizzes",
+      "permission": "course-quizzes.get.course.quizzes",
+      "resource": "course-quizzes",
+      "handler": "getCourseQuizzes",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/course-quizzes/batch/:batchId/courses",
+      "permission": "course-quizzes.get.batch.courses.for.quiz",
+      "resource": "course-quizzes",
+      "handler": "getBatchCoursesForQuiz",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/course-quizzes/attempts",
+      "permission": "course-quizzes.get.course.quiz.attempts",
+      "resource": "course-quizzes",
+      "handler": "getCourseQuizAttempts",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/course-quizzes/attempts/:id",
+      "permission": "course-quizzes.get.course.quiz.attempt.by.id",
+      "resource": "course-quizzes",
+      "handler": "getCourseQuizAttemptById",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/course-quizzes/:id",
+      "permission": "course-quizzes.get.course.quiz.by.id",
+      "resource": "course-quizzes",
+      "handler": "getCourseQuizById",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/course-quizzes/add",
+      "permission": "course-quizzes.create.course.quiz",
+      "resource": "course-quizzes",
+      "handler": "createCourseQuiz",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/course-quizzes/update/:id",
+      "permission": "course-quizzes.update.course.quiz",
+      "resource": "course-quizzes",
+      "handler": "updateCourseQuiz",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/course-quizzes/publish/:id",
+      "permission": "course-quizzes.publish.course.quiz",
+      "resource": "course-quizzes",
+      "handler": "publishCourseQuiz",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/course-quizzes/:id/start",
+      "permission": "course-quizzes.start.course.quiz.attempt",
+      "resource": "course-quizzes",
+      "handler": "startCourseQuizAttempt",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/course-quizzes/attempts/:attemptId/answer",
+      "permission": "course-quizzes.save.course.quiz.answer",
+      "resource": "course-quizzes",
+      "handler": "saveCourseQuizAnswer",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/course-quizzes/attempts/:attemptId/submit",
+      "permission": "course-quizzes.submit.course.quiz.attempt",
+      "resource": "course-quizzes",
+      "handler": "submitCourseQuizAttempt",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/course-quizzes/attempts/:id/review",
+      "permission": "course-quizzes.review.course.quiz.attempt",
+      "resource": "course-quizzes",
+      "handler": "reviewCourseQuizAttempt",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/course-quizzes/:id/publish-results",
+      "permission": "course-quizzes.publish.course.quiz.results",
+      "resource": "course-quizzes",
+      "handler": "publishCourseQuizResults",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/course-quizzes/delete/:id",
+      "permission": "course-quizzes.delete.course.quiz",
+      "resource": "course-quizzes",
+      "handler": "deleteCourseQuiz",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/notifications/fee-due-report",
+      "permission": "notifications.get.fee.due.report",
+      "resource": "notifications",
+      "handler": "getFeeDueReport",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/notifications",
+      "permission": "notifications.get.notifications",
+      "resource": "notifications",
+      "handler": "getNotifications",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/notifications/read/:id",
+      "permission": "notifications.mark.as.read",
+      "resource": "notifications",
+      "handler": "markAsRead",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/notifications/read-all",
+      "permission": "notifications.mark.all.as.read",
+      "resource": "notifications",
+      "handler": "markAllAsRead",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/complaints/meta",
+      "permission": "complaints.get.complaint.meta",
+      "resource": "complaints",
+      "handler": "getComplaintMeta",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/complaints",
+      "permission": "complaints.get.complaints",
+      "resource": "complaints",
+      "handler": "getComplaints",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/complaints/:id",
+      "permission": "complaints.get.complaint.by.id",
+      "resource": "complaints",
+      "handler": "getComplaintById",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/complaints/add",
+      "permission": "complaints.create.complaint",
+      "resource": "complaints",
+      "handler": "createComplaint",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/complaints/respond/:id",
+      "permission": "complaints.respond.to.complaint",
+      "resource": "complaints",
+      "handler": "respondToComplaint",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/complaints/delete/:id",
+      "permission": "complaints.delete.complaint",
+      "resource": "complaints",
+      "handler": "deleteComplaint",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/announcements",
+      "permission": "announcements.get.announcements",
+      "resource": "announcements",
+      "handler": "getAnnouncements",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/announcements/:id",
+      "permission": "announcements.get.announcement.by.id",
+      "resource": "announcements",
+      "handler": "getAnnouncementById",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/announcements/add",
+      "permission": "announcements.create.announcement",
+      "resource": "announcements",
+      "handler": "createAnnouncement",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "PUT",
+      "path": "/announcements/update/:id",
+      "permission": "announcements.update.announcement",
+      "resource": "announcements",
+      "handler": "updateAnnouncement",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/announcements/read/:id",
+      "permission": "announcements.mark.announcement.as.read",
+      "resource": "announcements",
+      "handler": "markAnnouncementAsRead",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/announcements/delete/:id",
+      "permission": "announcements.delete.announcement",
+      "resource": "announcements",
+      "handler": "deleteAnnouncement",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/interview-panels",
+      "permission": "interview-panels.get.interview.panels",
+      "resource": "interview-panels",
+      "handler": "getInterviewPanels",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/interview-panels/conduct/:id/:scheduleIndex",
+      "permission": "interview-panels.get.conduct.interview",
+      "resource": "interview-panels",
+      "handler": "getConductInterview",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/interview-panels/evaluation-details/:id/:scheduleIndex",
+      "permission": "interview-panels.get.interview.evaluation.details",
+      "resource": "interview-panels",
+      "handler": "getInterviewEvaluationDetails",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/interview-panels/start-interview/:id",
+      "permission": "interview-panels.start.interview",
+      "resource": "interview-panels",
+      "handler": "startInterview",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/interview-panels/submit-evaluation/:id",
+      "permission": "interview-panels.submit.interview.evaluation",
+      "resource": "interview-panels",
+      "handler": "submitInterviewEvaluation",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/interview-panels/:id",
+      "permission": "interview-panels.get.interview.panel",
+      "resource": "interview-panels",
+      "handler": "getInterviewPanel",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/interview-panels/add",
+      "permission": "interview-panels.add.interview.panel",
+      "resource": "interview-panels",
+      "handler": "addInterviewPanel",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/interview-panels/update/:id",
+      "permission": "interview-panels.update.interview.panel",
+      "resource": "interview-panels",
+      "handler": "updateInterviewPanel",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/interview-panels/book/:id",
+      "permission": "interview-panels.book.interview.slot",
+      "resource": "interview-panels",
+      "handler": "bookInterviewSlot",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/interview-panels/delete/:id",
+      "permission": "interview-panels.delete.interview.panel",
+      "resource": "interview-panels",
+      "handler": "deleteInterviewPanel",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/panelists",
+      "permission": "panelists.get.panelists",
+      "resource": "panelists",
+      "handler": "getPanelists",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/panelists/:id",
+      "permission": "panelists.get.panelist",
+      "resource": "panelists",
+      "handler": "getPanelist",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/panelists/add",
+      "permission": "panelists.add.panelist",
+      "resource": "panelists",
+      "handler": "addPanelist",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/panelists/update/:id",
+      "permission": "panelists.update.panelist",
+      "resource": "panelists",
+      "handler": "updatePanelist",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/panelists/change-password/:id",
+      "permission": "panelists.change.panelist.password",
+      "resource": "panelists",
+      "handler": "changePanelistPassword",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/panelists/delete/:id",
+      "permission": "panelists.delete.panelist",
+      "resource": "panelists",
+      "handler": "deletePanelist",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/qualifiers",
+      "permission": "qualifiers.get.qualifiers",
+      "resource": "qualifiers",
+      "handler": "getQualifiers",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/qualifiers/:id",
+      "permission": "qualifiers.get.qualifier",
+      "resource": "qualifiers",
+      "handler": "getQualifier",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/qualifiers/add",
+      "permission": "qualifiers.add.qualifier",
+      "resource": "qualifiers",
+      "handler": "addQualifier",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/qualifiers/bulk-import",
+      "permission": "qualifiers.bulk.import.qualifiers",
+      "resource": "qualifiers",
+      "handler": "bulkImportQualifiers",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/qualifiers/fill-null-field",
+      "permission": "qualifiers.fill.null.qualifier.field",
+      "resource": "qualifiers",
+      "handler": "fillNullQualifierField",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/qualifiers/update/:id",
+      "permission": "qualifiers.update.qualifier",
+      "resource": "qualifiers",
+      "handler": "updateQualifier",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/qualifiers/toggle-status/:id",
+      "permission": "qualifiers.toggle.qualifier.status",
+      "resource": "qualifiers",
+      "handler": "toggleQualifierStatus",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/qualifiers/change-password/:id",
+      "permission": "qualifiers.change.qualifier.password",
+      "resource": "qualifiers",
+      "handler": "changeQualifierPassword",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/qualifiers/delete/:id",
+      "permission": "qualifiers.delete.qualifier",
+      "resource": "qualifiers",
+      "handler": "deleteQualifier",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/admission-slips/issue",
+      "permission": "admission-slips.issue.admission.slip.verification",
+      "resource": "admission-slips",
+      "handler": "issueAdmissionSlipVerification",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/admission-slips/verify/:token",
+      "permission": "admission-slips.verify.admission.slip",
+      "resource": "admission-slips",
+      "handler": "verifyAdmissionSlip",
+      "public": true,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/whatsapp/config",
+      "permission": "whatsapp.get.whats.app.config",
+      "resource": "whatsapp",
+      "handler": "getWhatsAppConfig",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/whatsapp/sessions",
+      "permission": "whatsapp.list.whats.app.sessions",
+      "resource": "whatsapp",
+      "handler": "listWhatsAppSessions",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/sessions",
+      "permission": "whatsapp.create.whats.app.session",
+      "resource": "whatsapp",
+      "handler": "createWhatsAppSession",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/connect",
+      "permission": "whatsapp.connect.whats.app",
+      "resource": "whatsapp",
+      "handler": "connectWhatsApp",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/whatsapp/sessions/:id",
+      "permission": "whatsapp.get.whats.app.session",
+      "resource": "whatsapp",
+      "handler": "getWhatsAppSession",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/sessions/:id/start",
+      "permission": "whatsapp.start.whats.app.session",
+      "resource": "whatsapp",
+      "handler": "startWhatsAppSession",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/sessions/:id/stop",
+      "permission": "whatsapp.stop.whats.app.session",
+      "resource": "whatsapp",
+      "handler": "stopWhatsAppSession",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/sessions/:id/logout",
+      "permission": "whatsapp.logout.whats.app.session",
+      "resource": "whatsapp",
+      "handler": "logoutWhatsAppSession",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/whatsapp/sessions/:id",
+      "permission": "whatsapp.delete.whats.app.session",
+      "resource": "whatsapp",
+      "handler": "deleteWhatsAppSession",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/whatsapp/sessions/:id/qr",
+      "permission": "whatsapp.get.whats.app.session.qr",
+      "resource": "whatsapp",
+      "handler": "getWhatsAppSessionQr",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/sessions/:id/pairing-code",
+      "permission": "whatsapp.request.whats.app.pairing.code",
+      "resource": "whatsapp",
+      "handler": "requestWhatsAppPairingCode",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/whatsapp/queue/stats",
+      "permission": "whatsapp.get.whats.app.queue.stats",
+      "resource": "whatsapp",
+      "handler": "getWhatsAppQueueStats",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/whatsapp/queue",
+      "permission": "whatsapp.list.whats.app.queue",
+      "resource": "whatsapp",
+      "handler": "listWhatsAppQueue",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/queue/bulk",
+      "permission": "whatsapp.enqueue.bulk.whats.app",
+      "resource": "whatsapp",
+      "handler": "enqueueBulkWhatsApp",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/queue/cancel-all",
+      "permission": "whatsapp.cancel.all.whats.app.queue",
+      "resource": "whatsapp",
+      "handler": "cancelAllWhatsAppQueue",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/queue/:id/cancel",
+      "permission": "whatsapp.cancel.whats.app.queue.message",
+      "resource": "whatsapp",
+      "handler": "cancelWhatsAppQueueMessage",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/whatsapp/templates/tags",
+      "permission": "whatsapp.list.whats.app.template.tags",
+      "resource": "whatsapp",
+      "handler": "listWhatsAppTemplateTags",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/whatsapp/templates",
+      "permission": "whatsapp.list.whats.app.templates",
+      "resource": "whatsapp",
+      "handler": "listWhatsAppTemplates",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/templates",
+      "permission": "whatsapp.create.whats.app.template",
+      "resource": "whatsapp",
+      "handler": "createWhatsAppTemplate",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/whatsapp/templates/:keyOrId",
+      "permission": "whatsapp.get.whats.app.template",
+      "resource": "whatsapp",
+      "handler": "getWhatsAppTemplate",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "PUT",
+      "path": "/whatsapp/templates/:keyOrId",
+      "permission": "whatsapp.update.whats.app.template",
+      "resource": "whatsapp",
+      "handler": "updateWhatsAppTemplate",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/whatsapp/templates/:keyOrId",
+      "permission": "whatsapp.delete.whats.app.template",
+      "resource": "whatsapp",
+      "handler": "deleteWhatsAppTemplate",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/templates/:keyOrId/preview",
+      "permission": "whatsapp.preview.whats.app.template",
+      "resource": "whatsapp",
+      "handler": "previewWhatsAppTemplate",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/templates/:keyOrId/test",
+      "permission": "whatsapp.test.whats.app.template",
+      "resource": "whatsapp",
+      "handler": "testWhatsAppTemplate",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/activity-logs",
+      "permission": "activity-logs.get.activity.logs",
+      "resource": "activity-logs",
+      "handler": "getActivityLogs",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/activity-logs/filters",
+      "permission": "activity-logs.get.activity.log.modules",
+      "resource": "activity-logs",
+      "handler": "getActivityLogModules",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/google/status",
+      "permission": "google.get.google.status",
+      "resource": "google",
+      "handler": "getGoogleStatus",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/google/connect-url",
+      "permission": "google.get.google.connect.url",
+      "resource": "google",
+      "handler": "getGoogleConnectUrl",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/google/callback",
+      "permission": "google.google.callback",
+      "resource": "google",
+      "handler": "googleCallback",
+      "public": true,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/google/disconnect",
+      "permission": "google.disconnect.google",
+      "resource": "google",
+      "handler": "disconnectGoogle",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/google/classroom/batches/:batchId/sync-course",
+      "permission": "google.sync.batch.classroom.course",
+      "resource": "google",
+      "handler": "syncBatchClassroomCourse",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/google/classroom/assignments/:assignmentId/sync",
+      "permission": "google.sync.assignment.coursework",
+      "resource": "google",
+      "handler": "syncAssignmentCoursework",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/google/calendar/timetable/:timetableId/sync-event",
+      "permission": "google.sync.timetable.calendar.event",
+      "resource": "google",
+      "handler": "syncTimetableCalendarEvent",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/google/status",
+      "permission": "google.get.google.status",
+      "resource": "google",
+      "handler": "getGoogleStatus",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/google/connect-url",
+      "permission": "google.get.google.connect.url",
+      "resource": "google",
+      "handler": "getGoogleConnectUrl",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/google/callback",
+      "permission": "google.google.callback",
+      "resource": "google",
+      "handler": "googleCallback",
+      "public": true,
+      "blocked": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/google/disconnect",
+      "permission": "google.disconnect.google",
+      "resource": "google",
+      "handler": "disconnectGoogle",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/google/classroom/batches/:batchId/sync-course",
+      "permission": "google.sync.batch.classroom.course",
+      "resource": "google",
+      "handler": "syncBatchClassroomCourse",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/google/classroom/assignments/:assignmentId/sync",
+      "permission": "google.sync.assignment.coursework",
+      "resource": "google",
+      "handler": "syncAssignmentCoursework",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/google/calendar/timetable/:timetableId/sync-event",
+      "permission": "google.sync.timetable.calendar.event",
+      "resource": "google",
+      "handler": "syncTimetableCalendarEvent",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/operations/creation-metrics",
+      "permission": "operations.get.creation.metrics",
+      "resource": "operations",
+      "handler": "getCreationMetrics",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
+      "path": "/operations/creation-capabilities",
+      "permission": "operations.get.creation.capabilities",
+      "resource": "operations",
+      "handler": "getCreationCapabilities",
+      "public": false,
+      "blocked": false
+    }
+  ],
+  "permissions": [
+    {
+      "key": "users.get.users",
+      "group": "users",
+      "label": "get Users",
+      "type": "action"
+    },
+    {
+      "key": "users.get.creation.by.key",
+      "group": "users",
+      "label": "get Creation By Key",
+      "type": "action"
+    },
+    {
+      "key": "users.get.creation.status",
+      "group": "users",
+      "label": "get Creation Status",
+      "type": "action"
+    },
+    {
+      "key": "users.retry.creation",
+      "group": "users",
+      "label": "retry Creation",
+      "type": "action"
+    },
+    {
+      "key": "users.get.user",
+      "group": "users",
+      "label": "get User",
+      "type": "action"
+    },
+    {
+      "key": "users.add.user",
+      "group": "users",
+      "label": "add User",
+      "type": "action"
+    },
+    {
+      "key": "users.update.user",
+      "group": "users",
+      "label": "update User",
+      "type": "action"
+    },
+    {
+      "key": "users.delete.user",
+      "group": "users",
+      "label": "delete User",
+      "type": "action"
+    },
+    {
+      "key": "users.change.avatar",
+      "group": "users",
+      "label": "change Avatar",
+      "type": "action"
+    },
+    {
+      "key": "users.change.password",
+      "group": "users",
+      "label": "change Password",
+      "type": "action"
+    },
+    {
+      "key": "users.reset.password.for.all.students",
+      "group": "users",
+      "label": "reset Password For All Students",
+      "type": "action"
+    },
+    {
+      "key": "courses.get.courses",
+      "group": "courses",
+      "label": "get Courses",
+      "type": "action"
+    },
+    {
+      "key": "courses.get.course",
+      "group": "courses",
+      "label": "get Course",
+      "type": "action"
+    },
+    {
+      "key": "courses.add.course",
+      "group": "courses",
+      "label": "add Course",
+      "type": "action"
+    },
+    {
+      "key": "courses.update.course",
+      "group": "courses",
+      "label": "update Course",
+      "type": "action"
+    },
+    {
+      "key": "courses.delete.course",
+      "group": "courses",
+      "label": "delete Course",
+      "type": "action"
+    },
+    {
+      "key": "courses.get.batch.and.courses",
+      "group": "courses",
+      "label": "get Batch And Courses",
+      "type": "action"
+    },
+    {
+      "key": "teachers.get.teachers",
+      "group": "teachers",
+      "label": "get Teachers",
+      "type": "action"
+    },
+    {
+      "key": "teachers.get.teacher",
+      "group": "teachers",
+      "label": "get Teacher",
+      "type": "action"
+    },
+    {
+      "key": "teachers.add.teacher",
+      "group": "teachers",
+      "label": "add Teacher",
+      "type": "action"
+    },
+    {
+      "key": "teachers.update.teacher",
+      "group": "teachers",
+      "label": "update Teacher",
+      "type": "action"
+    },
+    {
+      "key": "teachers.delete.teacher",
+      "group": "teachers",
+      "label": "delete Teacher",
+      "type": "action"
+    },
+    {
+      "key": "batches.get.batches",
+      "group": "batches",
+      "label": "get Batches",
+      "type": "action"
+    },
+    {
+      "key": "batches.get.deleted.batches",
+      "group": "batches",
+      "label": "get Deleted Batches",
+      "type": "action"
+    },
+    {
+      "key": "batches.get.deleted.batch.archive",
+      "group": "batches",
+      "label": "get Deleted Batch Archive",
+      "type": "action"
+    },
+    {
+      "key": "batches.get.batch.courses",
+      "group": "batches",
+      "label": "get Batch Courses",
+      "type": "action"
+    },
+    {
+      "key": "batches.get.batch.teachers",
+      "group": "batches",
+      "label": "get Batch Teachers",
+      "type": "action"
+    },
+    {
+      "key": "batches.get.batch.teacher.assignments",
+      "group": "batches",
+      "label": "get Batch Teacher Assignments",
+      "type": "action"
+    },
+    {
+      "key": "batches.get.batch",
+      "group": "batches",
+      "label": "get Batch",
+      "type": "action"
+    },
+    {
+      "key": "batches.add.batch",
+      "group": "batches",
+      "label": "add Batch",
+      "type": "action"
+    },
+    {
+      "key": "batches.update.batch",
+      "group": "batches",
+      "label": "update Batch",
+      "type": "action"
+    },
+    {
+      "key": "batches.toggle.batch.status",
+      "group": "batches",
+      "label": "toggle Batch Status",
+      "type": "action"
+    },
+    {
+      "key": "batches.delete.batch",
+      "group": "batches",
+      "label": "delete Batch",
+      "type": "action"
+    },
+    {
+      "key": "batches.assign.courses.to.batch",
+      "group": "batches",
+      "label": "assign Courses To Batch",
+      "type": "action"
+    },
+    {
+      "key": "batches.assign.teachers.to.batch",
+      "group": "batches",
+      "label": "assign Teachers To Batch",
+      "type": "action"
+    },
+    {
+      "key": "batches.assign.teacher.courses.to.batch",
+      "group": "batches",
+      "label": "assign Teacher Courses To Batch",
+      "type": "action"
+    },
+    {
+      "key": "students.get.students",
+      "group": "students",
+      "label": "get Students",
+      "type": "action"
+    },
+    {
+      "key": "students.lookup.student.identity",
+      "group": "students",
+      "label": "lookup Student Identity",
+      "type": "action"
+    },
+    {
+      "key": "students.edit.payment.evidence",
+      "group": "students",
+      "label": "edit Payment Evidence",
+      "type": "action"
+    },
+    {
+      "key": "students.list.evidence.payments",
+      "group": "students",
+      "label": "list Evidence Payments",
+      "type": "action"
+    },
+    {
+      "key": "students.latest.fee.receipt",
+      "group": "students",
+      "label": "latest Fee Receipt",
+      "type": "action"
+    },
+    {
+      "key": "students.get.deleted.students",
+      "group": "students",
+      "label": "get Deleted Students",
+      "type": "action"
+    },
+    {
+      "key": "students.get.deleted.student.archive",
+      "group": "students",
+      "label": "get Deleted Student Archive",
+      "type": "action"
+    },
+    {
+      "key": "students.get.batch.shifts",
+      "group": "students",
+      "label": "get Batch Shifts",
+      "type": "action"
+    },
+    {
+      "key": "students.change.student.password",
+      "group": "students",
+      "label": "change Student Password",
+      "type": "action"
+    },
+    {
+      "key": "students.get.students.by.batch",
+      "group": "students",
+      "label": "get Students By Batch",
+      "type": "action"
+    },
+    {
+      "key": "students.toggle.batch.students.status",
+      "group": "students",
+      "label": "toggle Batch Students Status",
+      "type": "action"
+    },
+    {
+      "key": "students.bulk.import.students",
+      "group": "students",
+      "label": "bulk Import Students",
+      "type": "action"
+    },
+    {
+      "key": "students.fill.null.student.field",
+      "group": "students",
+      "label": "fill Null Student Field",
+      "type": "action"
+    },
+    {
+      "key": "students.toggle.student.status",
+      "group": "students",
+      "label": "toggle Student Status",
+      "type": "action"
+    },
+    {
+      "key": "students.get.student.payment.logs",
+      "group": "students",
+      "label": "get Student Payment Logs",
+      "type": "action"
+    },
+    {
+      "key": "students.get.student.history",
+      "group": "students",
+      "label": "get Student History",
+      "type": "action"
+    },
+    {
+      "key": "students.ensure.student.roll.number",
+      "group": "students",
+      "label": "ensure Student Roll Number",
+      "type": "action"
+    },
+    {
+      "key": "students.transfer.student.batch",
+      "group": "students",
+      "label": "transfer Student Batch",
+      "type": "action"
+    },
+    {
+      "key": "students.get.pending.fee.slip",
+      "group": "students",
+      "label": "get Pending Fee Slip",
+      "type": "action"
+    },
+    {
+      "key": "students.get.or.create.pending.fee.slip",
+      "group": "students",
+      "label": "get Or Create Pending Fee Slip",
+      "type": "action"
+    },
+    {
+      "key": "students.get.creation.by.key",
+      "group": "students",
+      "label": "get Creation By Key",
+      "type": "action"
+    },
+    {
+      "key": "students.get.creation.status",
+      "group": "students",
+      "label": "get Creation Status",
+      "type": "action"
+    },
+    {
+      "key": "students.retry.creation",
+      "group": "students",
+      "label": "retry Creation",
+      "type": "action"
+    },
+    {
+      "key": "students.get.student",
+      "group": "students",
+      "label": "get Student",
+      "type": "action"
+    },
+    {
+      "key": "students.add.student",
+      "group": "students",
+      "label": "add Student",
+      "type": "action"
+    },
+    {
+      "key": "students.update.student",
+      "group": "students",
+      "label": "update Student",
+      "type": "action"
+    },
+    {
+      "key": "students.delete.student",
+      "group": "students",
+      "label": "delete Student",
+      "type": "action"
+    },
+    {
+      "key": "students.get.qr.code",
+      "group": "students",
+      "label": "get Qr Code",
+      "type": "action"
+    },
+    {
+      "key": "students.update.studentinfo",
+      "group": "students",
+      "label": "update Studentinfo",
+      "type": "action"
+    },
+    {
+      "key": "students.check.student.fields",
+      "group": "students",
+      "label": "check Student Fields",
+      "type": "action"
+    },
+    {
+      "key": "students.basic.student.update",
+      "group": "students",
+      "label": "basic Student Update",
+      "type": "action"
+    },
+    {
+      "key": "students.get.students.graph",
+      "group": "students",
+      "label": "get Students Graph",
+      "type": "action"
+    },
+    {
+      "key": "students.get.students.by.batches.graph",
+      "group": "students",
+      "label": "get Students By Batches Graph",
+      "type": "action"
+    },
+    {
+      "key": "students.get.students.contacts",
+      "group": "students",
+      "label": "get Students Contacts",
+      "type": "action"
+    },
+    {
+      "key": "students.delete.all.students",
+      "group": "students",
+      "label": "delete All Students",
+      "type": "action"
+    },
+    {
+      "key": "seminars.get.seminars",
+      "group": "seminars",
+      "label": "get Seminars",
+      "type": "action"
+    },
+    {
+      "key": "seminars.get.seminar",
+      "group": "seminars",
+      "label": "get Seminar",
+      "type": "action"
+    },
+    {
+      "key": "seminars.add.seminar",
+      "group": "seminars",
+      "label": "add Seminar",
+      "type": "action"
+    },
+    {
+      "key": "seminars.update.seminar",
+      "group": "seminars",
+      "label": "update Seminar",
+      "type": "action"
+    },
+    {
+      "key": "seminars.delete.seminar",
+      "group": "seminars",
+      "label": "delete Seminar",
+      "type": "action"
+    },
+    {
+      "key": "seminars.get.today.seminars",
+      "group": "seminars",
+      "label": "get Today Seminars",
+      "type": "action"
+    },
+    {
+      "key": "seminars.get.seminars.with.attendee.counts",
+      "group": "seminars",
+      "label": "get Seminars With Attendee Counts",
+      "type": "action"
+    },
+    {
+      "key": "seminars.getall.seminarwith.attendees",
+      "group": "seminars",
+      "label": "getall Seminarwith Attendees",
+      "type": "action"
+    },
+    {
+      "key": "roles.get.roles",
+      "group": "roles",
+      "label": "get Roles",
+      "type": "action"
+    },
+    {
+      "key": "roles.get.role",
+      "group": "roles",
+      "label": "get Role",
+      "type": "action"
+    },
+    {
+      "key": "roles.add.role",
+      "group": "roles",
+      "label": "add Role",
+      "type": "action"
+    },
+    {
+      "key": "roles.update.role",
+      "group": "roles",
+      "label": "update Role",
+      "type": "action"
+    },
+    {
+      "key": "roles.delete.role",
+      "group": "roles",
+      "label": "delete Role",
+      "type": "action"
+    },
+    {
+      "key": "roles.get.role.permissions",
+      "group": "roles",
+      "label": "get Role Permissions",
+      "type": "action"
+    },
+    {
+      "key": "roles.assign.permissions.to.role",
+      "group": "roles",
+      "label": "assign Permissions To Role",
+      "type": "action"
+    },
+    {
+      "key": "permissions.get.permissions",
+      "group": "permissions",
+      "label": "get Permissions",
+      "type": "action"
+    },
+    {
+      "key": "permissions.get.permission",
+      "group": "permissions",
+      "label": "get Permission",
+      "type": "action"
+    },
+    {
+      "key": "permissions.add.permission",
+      "group": "permissions",
+      "label": "add Permission",
+      "type": "action"
+    },
+    {
+      "key": "permissions.update.permission",
+      "group": "permissions",
+      "label": "update Permission",
+      "type": "action"
+    },
+    {
+      "key": "permissions.delete.permission",
+      "group": "permissions",
+      "label": "delete Permission",
+      "type": "action"
+    },
+    {
+      "key": "attendees.get.attendees",
+      "group": "attendees",
+      "label": "get Attendees",
+      "type": "action"
+    },
+    {
+      "key": "attendees.get.attendee",
+      "group": "attendees",
+      "label": "get Attendee",
+      "type": "action"
+    },
+    {
+      "key": "attendees.create.attendee",
+      "group": "attendees",
+      "label": "create Attendee",
+      "type": "action"
+    },
+    {
+      "key": "attendees.update.attendee",
+      "group": "attendees",
+      "label": "update Attendee",
+      "type": "action"
+    },
+    {
+      "key": "attendees.delete.attendee",
+      "group": "attendees",
+      "label": "delete Attendee",
+      "type": "action"
+    },
+    {
+      "key": "attendees.get.attendees.by.seminar",
+      "group": "attendees",
+      "label": "get Attendees By Seminar",
+      "type": "action"
+    },
+    {
+      "key": "attendence.get.attendences",
+      "group": "attendence",
+      "label": "get Attendences",
+      "type": "action"
+    },
+    {
+      "key": "attendence.create.attendence",
+      "group": "attendence",
+      "label": "create Attendence",
+      "type": "action"
+    },
+    {
+      "key": "attendence.get.today.attendence.by.student.id",
+      "group": "attendence",
+      "label": "get Today Attendence By Student Id",
+      "type": "action"
+    },
+    {
+      "key": "timetable.create.time.table",
+      "group": "timetable",
+      "label": "create Time Table",
+      "type": "action"
+    },
+    {
+      "key": "timetable.update.time.table",
+      "group": "timetable",
+      "label": "update Time Table",
+      "type": "action"
+    },
+    {
+      "key": "timetable.get.time.table.by.id",
+      "group": "timetable",
+      "label": "get Time Table By Id",
+      "type": "action"
+    },
+    {
+      "key": "timetable.get.all.time.tables",
+      "group": "timetable",
+      "label": "get All Time Tables",
+      "type": "action"
+    },
+    {
+      "key": "timetable.delete.time.table",
+      "group": "timetable",
+      "label": "delete Time Table",
+      "type": "action"
+    },
+    {
+      "key": "timetable.get.time.table.by.student.id",
+      "group": "timetable",
+      "label": "get Time Table By Student Id",
+      "type": "action"
+    },
+    {
+      "key": "timetable.get.today.time.tables",
+      "group": "timetable",
+      "label": "get Today Time Tables",
+      "type": "action"
+    },
+    {
+      "key": "enrollments.get.enrollments",
+      "group": "enrollments",
+      "label": "get Enrollments",
+      "type": "action"
+    },
+    {
+      "key": "enrollments.get.entrollmentby.student",
+      "group": "enrollments",
+      "label": "get Entrollmentby Student",
+      "type": "action"
+    },
+    {
+      "key": "enrollments.create.enrollment",
+      "group": "enrollments",
+      "label": "create Enrollment",
+      "type": "action"
+    },
+    {
+      "key": "statistics.get.statistics",
+      "group": "statistics",
+      "label": "get Statistics",
+      "type": "action"
+    },
+    {
+      "key": "statistics.get.batch.finance.stats",
+      "group": "statistics",
+      "label": "get Batch Finance Stats",
+      "type": "action"
+    },
+    {
+      "key": "mcqs.get.all.mcqs",
+      "group": "mcqs",
+      "label": "get All Mcqs",
+      "type": "action"
+    },
+    {
+      "key": "mcqs.get.mcqs.by.course.id",
+      "group": "mcqs",
+      "label": "get Mcqs By Course Id",
+      "type": "action"
+    },
+    {
+      "key": "mcqs.get.mcq.by.id",
+      "group": "mcqs",
+      "label": "get Mcq By Id",
+      "type": "action"
+    },
+    {
+      "key": "mcqs.create.mcq",
+      "group": "mcqs",
+      "label": "create Mcq",
+      "type": "action"
+    },
+    {
+      "key": "mcqs.bulk.import.mcqs",
+      "group": "mcqs",
+      "label": "bulk Import Mcqs",
+      "type": "action"
+    },
+    {
+      "key": "mcqs.update.mcq",
+      "group": "mcqs",
+      "label": "update Mcq",
+      "type": "action"
+    },
+    {
+      "key": "mcqs.delete.mcq",
+      "group": "mcqs",
+      "label": "delete Mcq",
+      "type": "action"
+    },
+    {
+      "key": "pastPapers.get.all.past.papers",
+      "group": "pastPapers",
+      "label": "get All Past Papers",
+      "type": "action"
+    },
+    {
+      "key": "pastPapers.get.past.paper.by.id",
+      "group": "pastPapers",
+      "label": "get Past Paper By Id",
+      "type": "action"
+    },
+    {
+      "key": "pastPapers.create.past.paper",
+      "group": "pastPapers",
+      "label": "create Past Paper",
+      "type": "action"
+    },
+    {
+      "key": "pastPapers.update.past.paper",
+      "group": "pastPapers",
+      "label": "update Past Paper",
+      "type": "action"
+    },
+    {
+      "key": "pastPapers.delete.past.paper",
+      "group": "pastPapers",
+      "label": "delete Past Paper",
+      "type": "action"
+    },
+    {
+      "key": "pastPapers.get.past.paper.by.course.and.year",
+      "group": "pastPapers",
+      "label": "get Past Paper By Course And Year",
+      "type": "action"
+    },
+    {
+      "key": "fees.get.finance.report",
+      "group": "fees",
+      "label": "get Finance Report",
+      "type": "action"
+    },
+    {
+      "key": "fees.get.student.fees.report",
+      "group": "fees",
+      "label": "get Student Fees Report",
+      "type": "action"
+    },
+    {
+      "key": "fees.get.fees",
+      "group": "fees",
+      "label": "get Fees",
+      "type": "action"
+    },
+    {
+      "key": "fees.collect.pending.fee",
+      "group": "fees",
+      "label": "collect Pending Fee",
+      "type": "action"
+    },
+    {
+      "key": "fees.pay.fee",
+      "group": "fees",
+      "label": "pay Fee",
+      "type": "action"
+    },
+    {
+      "key": "fees.discount.fee",
+      "group": "fees",
+      "label": "discount Fee",
+      "type": "action"
+    },
+    {
+      "key": "fees.delete.fee",
+      "group": "fees",
+      "label": "delete Fee",
+      "type": "action"
+    },
+    {
+      "key": "fees.get.fee.logs",
+      "group": "fees",
+      "label": "get Fee Logs",
+      "type": "action"
+    },
+    {
+      "key": "fees.get.fees.by.student.id",
+      "group": "fees",
+      "label": "get Fees By Student Id",
+      "type": "action"
+    },
+    {
+      "key": "fees.get.fee.by.id",
+      "group": "fees",
+      "label": "get Fee By Id",
+      "type": "action"
+    },
+    {
+      "key": "fees.create.fee",
+      "group": "fees",
+      "label": "create Fee",
+      "type": "action"
+    },
+    {
+      "key": "expenses.get.expenses",
+      "group": "expenses",
+      "label": "get Expenses",
+      "type": "action"
+    },
+    {
+      "key": "expenses.add.expense",
+      "group": "expenses",
+      "label": "add Expense",
+      "type": "action"
+    },
+    {
+      "key": "expenses.approve.expense",
+      "group": "expenses",
+      "label": "approve Expense",
+      "type": "action"
+    },
+    {
+      "key": "expenses.reject.expense",
+      "group": "expenses",
+      "label": "reject Expense",
+      "type": "action"
+    },
+    {
+      "key": "expenses.get.expense",
+      "group": "expenses",
+      "label": "get Expense",
+      "type": "action"
+    },
+    {
+      "key": "expenses.update.expense",
+      "group": "expenses",
+      "label": "update Expense",
+      "type": "action"
+    },
+    {
+      "key": "expenses.delete.expense",
+      "group": "expenses",
+      "label": "delete Expense",
+      "type": "action"
+    },
+    {
+      "key": "refund-requests.get.refund.requests",
+      "group": "refund-requests",
+      "label": "get Refund Requests",
+      "type": "action"
+    },
+    {
+      "key": "refund-requests.create.refund.request",
+      "group": "refund-requests",
+      "label": "create Refund Request",
+      "type": "action"
+    },
+    {
+      "key": "refund-requests.approve.refund.request",
+      "group": "refund-requests",
+      "label": "approve Refund Request",
+      "type": "action"
+    },
+    {
+      "key": "refund-requests.reject.refund.request",
+      "group": "refund-requests",
+      "label": "reject Refund Request",
+      "type": "action"
+    },
+    {
+      "key": "refund-requests.process.refund.request",
+      "group": "refund-requests",
+      "label": "process Refund Request",
+      "type": "action"
+    },
+    {
+      "key": "refund-requests.update.refund.payout",
+      "group": "refund-requests",
+      "label": "update Refund Payout",
+      "type": "action"
+    },
+    {
+      "key": "quiz.get.quiz.subjects",
+      "group": "quiz",
+      "label": "get Quiz Subjects",
+      "type": "action"
+    },
+    {
+      "key": "quiz.start.quiz",
+      "group": "quiz",
+      "label": "start Quiz",
+      "type": "action"
+    },
+    {
+      "key": "quiz.get.quiz.attempts",
+      "group": "quiz",
+      "label": "get Quiz Attempts",
+      "type": "action"
+    },
+    {
+      "key": "quiz.get.quiz.attempt.log",
+      "group": "quiz",
+      "label": "get Quiz Attempt Log",
+      "type": "action"
+    },
+    {
+      "key": "quiz.get.quiz.attempt",
+      "group": "quiz",
+      "label": "get Quiz Attempt",
+      "type": "action"
+    },
+    {
+      "key": "quiz.save.quiz.answer",
+      "group": "quiz",
+      "label": "save Quiz Answer",
+      "type": "action"
+    },
+    {
+      "key": "quiz.submit.quiz",
+      "group": "quiz",
+      "label": "submit Quiz",
+      "type": "action"
+    },
+    {
+      "key": "assignments.get.assignments",
+      "group": "assignments",
+      "label": "get Assignments",
+      "type": "action"
+    },
+    {
+      "key": "assignments.get.my.assignment.courses",
+      "group": "assignments",
+      "label": "get My Assignment Courses",
+      "type": "action"
+    },
+    {
+      "key": "assignments.get.batch.courses.for.assignment",
+      "group": "assignments",
+      "label": "get Batch Courses For Assignment",
+      "type": "action"
+    },
+    {
+      "key": "assignments.get.assignment.submissions",
+      "group": "assignments",
+      "label": "get Assignment Submissions",
+      "type": "action"
+    },
+    {
+      "key": "assignments.get.assignment.by.id",
+      "group": "assignments",
+      "label": "get Assignment By Id",
+      "type": "action"
+    },
+    {
+      "key": "assignments.create.assignment",
+      "group": "assignments",
+      "label": "create Assignment",
+      "type": "action"
+    },
+    {
+      "key": "assignments.update.assignment",
+      "group": "assignments",
+      "label": "update Assignment",
+      "type": "action"
+    },
+    {
+      "key": "assignments.publish.assignment",
+      "group": "assignments",
+      "label": "publish Assignment",
+      "type": "action"
+    },
+    {
+      "key": "assignments.submit.assignment",
+      "group": "assignments",
+      "label": "submit Assignment",
+      "type": "action"
+    },
+    {
+      "key": "assignments.delete.assignment",
+      "group": "assignments",
+      "label": "delete Assignment",
+      "type": "action"
+    },
+    {
+      "key": "assignments.grade.submission",
+      "group": "assignments",
+      "label": "grade Submission",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.get.course.quizzes",
+      "group": "course-quizzes",
+      "label": "get Course Quizzes",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.get.batch.courses.for.quiz",
+      "group": "course-quizzes",
+      "label": "get Batch Courses For Quiz",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.get.course.quiz.attempts",
+      "group": "course-quizzes",
+      "label": "get Course Quiz Attempts",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.get.course.quiz.attempt.by.id",
+      "group": "course-quizzes",
+      "label": "get Course Quiz Attempt By Id",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.get.course.quiz.by.id",
+      "group": "course-quizzes",
+      "label": "get Course Quiz By Id",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.create.course.quiz",
+      "group": "course-quizzes",
+      "label": "create Course Quiz",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.update.course.quiz",
+      "group": "course-quizzes",
+      "label": "update Course Quiz",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.publish.course.quiz",
+      "group": "course-quizzes",
+      "label": "publish Course Quiz",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.start.course.quiz.attempt",
+      "group": "course-quizzes",
+      "label": "start Course Quiz Attempt",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.save.course.quiz.answer",
+      "group": "course-quizzes",
+      "label": "save Course Quiz Answer",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.submit.course.quiz.attempt",
+      "group": "course-quizzes",
+      "label": "submit Course Quiz Attempt",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.review.course.quiz.attempt",
+      "group": "course-quizzes",
+      "label": "review Course Quiz Attempt",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.publish.course.quiz.results",
+      "group": "course-quizzes",
+      "label": "publish Course Quiz Results",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.delete.course.quiz",
+      "group": "course-quizzes",
+      "label": "delete Course Quiz",
+      "type": "action"
+    },
+    {
+      "key": "notifications.get.fee.due.report",
+      "group": "notifications",
+      "label": "get Fee Due Report",
+      "type": "action"
+    },
+    {
+      "key": "notifications.get.notifications",
+      "group": "notifications",
+      "label": "get Notifications",
+      "type": "action"
+    },
+    {
+      "key": "notifications.mark.as.read",
+      "group": "notifications",
+      "label": "mark As Read",
+      "type": "action"
+    },
+    {
+      "key": "notifications.mark.all.as.read",
+      "group": "notifications",
+      "label": "mark All As Read",
+      "type": "action"
+    },
+    {
+      "key": "complaints.get.complaint.meta",
+      "group": "complaints",
+      "label": "get Complaint Meta",
+      "type": "action"
+    },
+    {
+      "key": "complaints.get.complaints",
+      "group": "complaints",
+      "label": "get Complaints",
+      "type": "action"
+    },
+    {
+      "key": "complaints.get.complaint.by.id",
+      "group": "complaints",
+      "label": "get Complaint By Id",
+      "type": "action"
+    },
+    {
+      "key": "complaints.create.complaint",
+      "group": "complaints",
+      "label": "create Complaint",
+      "type": "action"
+    },
+    {
+      "key": "complaints.respond.to.complaint",
+      "group": "complaints",
+      "label": "respond To Complaint",
+      "type": "action"
+    },
+    {
+      "key": "complaints.delete.complaint",
+      "group": "complaints",
+      "label": "delete Complaint",
+      "type": "action"
+    },
+    {
+      "key": "announcements.get.announcements",
+      "group": "announcements",
+      "label": "get Announcements",
+      "type": "action"
+    },
+    {
+      "key": "announcements.get.announcement.by.id",
+      "group": "announcements",
+      "label": "get Announcement By Id",
+      "type": "action"
+    },
+    {
+      "key": "announcements.create.announcement",
+      "group": "announcements",
+      "label": "create Announcement",
+      "type": "action"
+    },
+    {
+      "key": "announcements.update.announcement",
+      "group": "announcements",
+      "label": "update Announcement",
+      "type": "action"
+    },
+    {
+      "key": "announcements.mark.announcement.as.read",
+      "group": "announcements",
+      "label": "mark Announcement As Read",
+      "type": "action"
+    },
+    {
+      "key": "announcements.delete.announcement",
+      "group": "announcements",
+      "label": "delete Announcement",
+      "type": "action"
+    },
+    {
+      "key": "interview-panels.get.interview.panels",
+      "group": "interview-panels",
+      "label": "get Interview Panels",
+      "type": "action"
+    },
+    {
+      "key": "interview-panels.get.conduct.interview",
+      "group": "interview-panels",
+      "label": "get Conduct Interview",
+      "type": "action"
+    },
+    {
+      "key": "interview-panels.get.interview.evaluation.details",
+      "group": "interview-panels",
+      "label": "get Interview Evaluation Details",
+      "type": "action"
+    },
+    {
+      "key": "interview-panels.start.interview",
+      "group": "interview-panels",
+      "label": "start Interview",
+      "type": "action"
+    },
+    {
+      "key": "interview-panels.submit.interview.evaluation",
+      "group": "interview-panels",
+      "label": "submit Interview Evaluation",
+      "type": "action"
+    },
+    {
+      "key": "interview-panels.get.interview.panel",
+      "group": "interview-panels",
+      "label": "get Interview Panel",
+      "type": "action"
+    },
+    {
+      "key": "interview-panels.add.interview.panel",
+      "group": "interview-panels",
+      "label": "add Interview Panel",
+      "type": "action"
+    },
+    {
+      "key": "interview-panels.update.interview.panel",
+      "group": "interview-panels",
+      "label": "update Interview Panel",
+      "type": "action"
+    },
+    {
+      "key": "interview-panels.book.interview.slot",
+      "group": "interview-panels",
+      "label": "book Interview Slot",
+      "type": "action"
+    },
+    {
+      "key": "interview-panels.delete.interview.panel",
+      "group": "interview-panels",
+      "label": "delete Interview Panel",
+      "type": "action"
+    },
+    {
+      "key": "panelists.get.panelists",
+      "group": "panelists",
+      "label": "get Panelists",
+      "type": "action"
+    },
+    {
+      "key": "panelists.get.panelist",
+      "group": "panelists",
+      "label": "get Panelist",
+      "type": "action"
+    },
+    {
+      "key": "panelists.add.panelist",
+      "group": "panelists",
+      "label": "add Panelist",
+      "type": "action"
+    },
+    {
+      "key": "panelists.update.panelist",
+      "group": "panelists",
+      "label": "update Panelist",
+      "type": "action"
+    },
+    {
+      "key": "panelists.change.panelist.password",
+      "group": "panelists",
+      "label": "change Panelist Password",
+      "type": "action"
+    },
+    {
+      "key": "panelists.delete.panelist",
+      "group": "panelists",
+      "label": "delete Panelist",
+      "type": "action"
+    },
+    {
+      "key": "qualifiers.get.qualifiers",
+      "group": "qualifiers",
+      "label": "get Qualifiers",
+      "type": "action"
+    },
+    {
+      "key": "qualifiers.get.qualifier",
+      "group": "qualifiers",
+      "label": "get Qualifier",
+      "type": "action"
+    },
+    {
+      "key": "qualifiers.add.qualifier",
+      "group": "qualifiers",
+      "label": "add Qualifier",
+      "type": "action"
+    },
+    {
+      "key": "qualifiers.bulk.import.qualifiers",
+      "group": "qualifiers",
+      "label": "bulk Import Qualifiers",
+      "type": "action"
+    },
+    {
+      "key": "qualifiers.fill.null.qualifier.field",
+      "group": "qualifiers",
+      "label": "fill Null Qualifier Field",
+      "type": "action"
+    },
+    {
+      "key": "qualifiers.update.qualifier",
+      "group": "qualifiers",
+      "label": "update Qualifier",
+      "type": "action"
+    },
+    {
+      "key": "qualifiers.toggle.qualifier.status",
+      "group": "qualifiers",
+      "label": "toggle Qualifier Status",
+      "type": "action"
+    },
+    {
+      "key": "qualifiers.change.qualifier.password",
+      "group": "qualifiers",
+      "label": "change Qualifier Password",
+      "type": "action"
+    },
+    {
+      "key": "qualifiers.delete.qualifier",
+      "group": "qualifiers",
+      "label": "delete Qualifier",
+      "type": "action"
+    },
+    {
+      "key": "admission-slips.issue.admission.slip.verification",
+      "group": "admission-slips",
+      "label": "issue Admission Slip Verification",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.get.whats.app.config",
+      "group": "whatsapp",
+      "label": "get Whats App Config",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.list.whats.app.sessions",
+      "group": "whatsapp",
+      "label": "list Whats App Sessions",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.create.whats.app.session",
+      "group": "whatsapp",
+      "label": "create Whats App Session",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.connect.whats.app",
+      "group": "whatsapp",
+      "label": "connect Whats App",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.get.whats.app.session",
+      "group": "whatsapp",
+      "label": "get Whats App Session",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.start.whats.app.session",
+      "group": "whatsapp",
+      "label": "start Whats App Session",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.stop.whats.app.session",
+      "group": "whatsapp",
+      "label": "stop Whats App Session",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.logout.whats.app.session",
+      "group": "whatsapp",
+      "label": "logout Whats App Session",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.delete.whats.app.session",
+      "group": "whatsapp",
+      "label": "delete Whats App Session",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.get.whats.app.session.qr",
+      "group": "whatsapp",
+      "label": "get Whats App Session Qr",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.request.whats.app.pairing.code",
+      "group": "whatsapp",
+      "label": "request Whats App Pairing Code",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.get.whats.app.queue.stats",
+      "group": "whatsapp",
+      "label": "get Whats App Queue Stats",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.list.whats.app.queue",
+      "group": "whatsapp",
+      "label": "list Whats App Queue",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.enqueue.bulk.whats.app",
+      "group": "whatsapp",
+      "label": "enqueue Bulk Whats App",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.cancel.all.whats.app.queue",
+      "group": "whatsapp",
+      "label": "cancel All Whats App Queue",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.cancel.whats.app.queue.message",
+      "group": "whatsapp",
+      "label": "cancel Whats App Queue Message",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.list.whats.app.template.tags",
+      "group": "whatsapp",
+      "label": "list Whats App Template Tags",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.list.whats.app.templates",
+      "group": "whatsapp",
+      "label": "list Whats App Templates",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.create.whats.app.template",
+      "group": "whatsapp",
+      "label": "create Whats App Template",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.get.whats.app.template",
+      "group": "whatsapp",
+      "label": "get Whats App Template",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.update.whats.app.template",
+      "group": "whatsapp",
+      "label": "update Whats App Template",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.delete.whats.app.template",
+      "group": "whatsapp",
+      "label": "delete Whats App Template",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.preview.whats.app.template",
+      "group": "whatsapp",
+      "label": "preview Whats App Template",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.test.whats.app.template",
+      "group": "whatsapp",
+      "label": "test Whats App Template",
+      "type": "action"
+    },
+    {
+      "key": "activity-logs.get.activity.logs",
+      "group": "activity-logs",
+      "label": "get Activity Logs",
+      "type": "action"
+    },
+    {
+      "key": "activity-logs.get.activity.log.modules",
+      "group": "activity-logs",
+      "label": "get Activity Log Modules",
+      "type": "action"
+    },
+    {
+      "key": "google.get.google.status",
+      "group": "google",
+      "label": "get Google Status",
+      "type": "action"
+    },
+    {
+      "key": "google.get.google.connect.url",
+      "group": "google",
+      "label": "get Google Connect Url",
+      "type": "action"
+    },
+    {
+      "key": "google.disconnect.google",
+      "group": "google",
+      "label": "disconnect Google",
+      "type": "action"
+    },
+    {
+      "key": "google.sync.batch.classroom.course",
+      "group": "google",
+      "label": "sync Batch Classroom Course",
+      "type": "action"
+    },
+    {
+      "key": "google.sync.assignment.coursework",
+      "group": "google",
+      "label": "sync Assignment Coursework",
+      "type": "action"
+    },
+    {
+      "key": "google.sync.timetable.calendar.event",
+      "group": "google",
+      "label": "sync Timetable Calendar Event",
+      "type": "action"
+    },
+    {
+      "key": "operations.get.creation.metrics",
+      "group": "operations",
+      "label": "getCreationMetrics",
+      "type": "action"
+    },
+    {
+      "key": "operations.get.creation.capabilities",
+      "group": "operations",
+      "label": "getCreationCapabilities",
+      "type": "action"
+    },
+    {
+      "key": "users.export",
+      "group": "users",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "users.print",
+      "group": "users",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "courses.export",
+      "group": "courses",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "courses.print",
+      "group": "courses",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "teachers.export",
+      "group": "teachers",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "teachers.print",
+      "group": "teachers",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "batches.export",
+      "group": "batches",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "batches.print",
+      "group": "batches",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "students.export",
+      "group": "students",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "students.print",
+      "group": "students",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "seminars.export",
+      "group": "seminars",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "seminars.print",
+      "group": "seminars",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "roles.export",
+      "group": "roles",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "roles.print",
+      "group": "roles",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "permissions.export",
+      "group": "permissions",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "permissions.print",
+      "group": "permissions",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "attendees.export",
+      "group": "attendees",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "attendees.print",
+      "group": "attendees",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "attendence.export",
+      "group": "attendence",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "attendence.print",
+      "group": "attendence",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "timetable.export",
+      "group": "timetable",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "timetable.print",
+      "group": "timetable",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "enrollments.export",
+      "group": "enrollments",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "enrollments.print",
+      "group": "enrollments",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "statistics.export",
+      "group": "statistics",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "statistics.print",
+      "group": "statistics",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "mcqs.export",
+      "group": "mcqs",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "mcqs.print",
+      "group": "mcqs",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "pastPapers.export",
+      "group": "pastPapers",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "pastPapers.print",
+      "group": "pastPapers",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "fees.export",
+      "group": "fees",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "fees.print",
+      "group": "fees",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "expenses.export",
+      "group": "expenses",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "expenses.print",
+      "group": "expenses",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "refund-requests.export",
+      "group": "refund-requests",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "refund-requests.print",
+      "group": "refund-requests",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "quiz.export",
+      "group": "quiz",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "quiz.print",
+      "group": "quiz",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "assignments.export",
+      "group": "assignments",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "assignments.print",
+      "group": "assignments",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.export",
+      "group": "course-quizzes",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "course-quizzes.print",
+      "group": "course-quizzes",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "notifications.export",
+      "group": "notifications",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "notifications.print",
+      "group": "notifications",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "complaints.export",
+      "group": "complaints",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "complaints.print",
+      "group": "complaints",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "announcements.export",
+      "group": "announcements",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "announcements.print",
+      "group": "announcements",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "interview-panels.export",
+      "group": "interview-panels",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "interview-panels.print",
+      "group": "interview-panels",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "panelists.export",
+      "group": "panelists",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "panelists.print",
+      "group": "panelists",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "qualifiers.export",
+      "group": "qualifiers",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "qualifiers.print",
+      "group": "qualifiers",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "admission-slips.export",
+      "group": "admission-slips",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "admission-slips.print",
+      "group": "admission-slips",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.export",
+      "group": "whatsapp",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "whatsapp.print",
+      "group": "whatsapp",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "activity-logs.export",
+      "group": "activity-logs",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "activity-logs.print",
+      "group": "activity-logs",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "google.export",
+      "group": "google",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "google.print",
+      "group": "google",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "operations.export",
+      "group": "operations",
+      "label": "export",
+      "type": "action"
+    },
+    {
+      "key": "operations.print",
+      "group": "operations",
+      "label": "print",
+      "type": "action"
+    },
+    {
+      "key": "fields.general.read",
+      "group": "fields",
+      "label": "general read",
+      "type": "field",
+      "fields": [
+        "MCQ",
+        "_id",
+        "accessManaged",
+        "account",
+        "accountType",
+        "action",
+        "action_by",
+        "action_date",
+        "action_type",
+        "actions",
+        "active",
+        "active_batches_total",
+        "active_quizzes_count",
+        "activity_logs",
+        "actor",
+        "actor_category",
+        "actor_name",
+        "actor_role",
+        "actor_student",
+        "actor_teacher",
+        "actor_user",
+        "admission_date",
+        "admission_request",
+        "age",
+        "aliases",
+        "allowed_targets",
+        "analytical_ability",
+        "announcement_id",
+        "answered_at",
+        "answers",
+        "append_schedules",
+        "approvedCount",
+        "approved_at",
+        "approved_by",
+        "assigned",
+        "assigned_batches_count",
+        "assigned_courses_count",
+        "assigned_students_count",
+        "assignment",
+        "assignment_title",
+        "assignments",
+        "attempt",
+        "attempt_id",
+        "attempt_number",
+        "attempts",
+        "attendance_records_count",
+        "attendence",
+        "audience",
+        "authentic",
+        "authorized_by",
+        "auto_graded_score",
+        "auto_submit_on_timeout",
+        "availability_date",
+        "averages",
+        "awarded_marks",
+        "batch",
+        "batchId",
+        "batchName",
+        "batch_history",
+        "batch_id",
+        "batch_ids",
+        "batch_name",
+        "batch_shifts",
+        "batch_snapshot",
+        "batch_type",
+        "batch_wise",
+        "batches",
+        "body",
+        "body_language",
+        "booked_for",
+        "booked_notes",
+        "booked_user_id",
+        "breakdown",
+        "campaign_id",
+        "can_view_all",
+        "can_view_inbox",
+        "cancelled",
+        "cancelled_at",
+        "cascade_summary",
+        "category",
+        "chart_data",
+        "check",
+        "class_end_time",
+        "class_start_time",
+        "class_time",
+        "class_type",
+        "code",
+        "comment",
+        "communication",
+        "completed_at",
+        "completion_year",
+        "confidence",
+        "configured",
+        "connected",
+        "connected_at",
+        "correct_answers",
+        "correct_count",
+        "correct_option",
+        "correct_option_index",
+        "course",
+        "courseId",
+        "courseIds",
+        "courseWork",
+        "course_id",
+        "courses",
+        "createdAt",
+        "created_by",
+        "created_by_name",
+        "creation_pending",
+        "creation_request",
+        "creation_worker_epoch",
+        "css",
+        "css_pms_roll_no",
+        "current_affairs",
+        "current_batches_count",
+        "date",
+        "day",
+        "delay_ms",
+        "deleted_at",
+        "deleted_by",
+        "deleted_by_name",
+        "deleted_by_role",
+        "deletion_reason",
+        "deletion_source",
+        "description",
+        "details",
+        "diagnostic",
+        "disabledAt",
+        "disconnected_at",
+        "docs",
+        "due_date",
+        "dues",
+        "duration_minutes",
+        "duration_seconds",
+        "education_background",
+        "embedded_questions",
+        "emptyFields",
+        "end_date",
+        "end_datetime",
+        "end_time",
+        "enddate",
+        "ended_at",
+        "enrolled_student_count",
+        "enrollment",
+        "enrollments",
+        "entity_id",
+        "entity_type",
+        "error",
+        "ethics_decision",
+        "evaluation",
+        "evaluations",
+        "evaluator_key",
+        "event",
+        "exam_type",
+        "exam_type_counts",
+        "expiry_date",
+        "father_name",
+        "field",
+        "field_label",
+        "file",
+        "file_name",
+        "file_size",
+        "file_type",
+        "file_url",
+        "files",
+        "finalized",
+        "forSelf",
+        "from_batch",
+        "from_batch_name",
+        "from_roll_number",
+        "gateway",
+        "generated_by",
+        "graded_at",
+        "graded_by",
+        "grading_criteria",
+        "grants",
+        "hasNextPage",
+        "hasPrevPage",
+        "has_deadline",
+        "id",
+        "idempotency_key",
+        "identifier",
+        "identity",
+        "improvement_since_last_mock",
+        "inactive",
+        "inbox_role",
+        "incorrect_count",
+        "instructions",
+        "interview_bookings_count",
+        "is_active",
+        "is_connected",
+        "is_correct",
+        "is_interview_batch",
+        "is_late",
+        "is_qualifier_dashboard",
+        "is_read",
+        "is_skipped",
+        "is_special_batch",
+        "is_student_dashboard",
+        "is_teacher_dashboard",
+        "issued_at",
+        "item",
+        "jobs",
+        "key",
+        "key_strength",
+        "kind",
+        "knowledge",
+        "label",
+        "lastSent",
+        "late_deadline",
+        "late_penalty_percent",
+        "late_submission_policy",
+        "latest_degree",
+        "limit",
+        "major_weakness",
+        "managed",
+        "managed_by",
+        "manual_marks",
+        "manual_score",
+        "marks",
+        "marks_cgpa",
+        "marks_obtained",
+        "matched_count",
+        "max_attempts",
+        "max_marks",
+        "max_score",
+        "mcq",
+        "mcqs",
+        "members",
+        "message",
+        "metadata",
+        "method",
+        "missing_fields",
+        "modified_count",
+        "module",
+        "modules",
+        "name",
+        "negative_mark_value",
+        "negative_marking",
+        "negative_marks",
+        "nextAttempt",
+        "nextPage",
+        "nextRun",
+        "next_installment_date",
+        "no_of_attempts",
+        "notes",
+        "notification_id",
+        "operation",
+        "option1",
+        "option2",
+        "option3",
+        "option4",
+        "optional_subjects",
+        "options",
+        "original_batch_id",
+        "original_student_id",
+        "outcome",
+        "page",
+        "pagingCounter",
+        "panel",
+        "panel_id",
+        "panelist",
+        "panelistData",
+        "panelistId",
+        "panelist_id",
+        "passed",
+        "passing_marks",
+        "past_interviews_count",
+        "path",
+        "pattern",
+        "paying_now",
+        "payload",
+        "penalty_applied",
+        "pendingCount",
+        "pending_assignment_reviews",
+        "pending_total",
+        "percentage",
+        "period",
+        "permissionIds",
+        "permissions",
+        "personality",
+        "platformOwner",
+        "pms",
+        "prevPage",
+        "preview",
+        "previous_batches_count",
+        "process",
+        "processes",
+        "processing_status",
+        "profile_updated_once",
+        "province",
+        "publish_result",
+        "published_at",
+        "qr",
+        "qr_data_url",
+        "qrcode",
+        "qualification",
+        "qualifier",
+        "qualifierData",
+        "qualifierId",
+        "qualifier_id",
+        "qualifier_name",
+        "qualifiers",
+        "question",
+        "question_count",
+        "question_count_requested",
+        "question_id",
+        "question_order",
+        "question_type",
+        "questions",
+        "quiz",
+        "randomize_questions",
+        "read_at",
+        "reason",
+        "receipt",
+        "receiptId",
+        "receipt_saved",
+        "recent_activity",
+        "recent_student_activity",
+        "recipient_count",
+        "recipient_id",
+        "recipient_name",
+        "recipient_student",
+        "recipient_type",
+        "recipient_user",
+        "recipients",
+        "recordId",
+        "rejectedCount",
+        "rejected_at",
+        "rejected_by",
+        "rendered",
+        "requestId",
+        "requested_by",
+        "requires_manual_grading",
+        "responded_at",
+        "responded_by",
+        "response",
+        "resubmission_allowed",
+        "resubmission_requested",
+        "result_publication",
+        "result_published_at",
+        "result_visible",
+        "reuse_existing",
+        "reused",
+        "reviewed_at",
+        "reviewed_by",
+        "revision",
+        "role",
+        "roleId",
+        "roll_nickname",
+        "roll_number",
+        "runtime_status",
+        "schedule_index",
+        "schedules",
+        "scope",
+        "scopes",
+        "score",
+        "selected_answers",
+        "selected_option",
+        "seminar",
+        "seminar_id",
+        "sent_at",
+        "seq",
+        "session",
+        "shifted_at",
+        "shifted_by",
+        "shifted_by_name",
+        "shifted_by_role",
+        "skip_profile_completion",
+        "skipped_count",
+        "slip",
+        "slip_type",
+        "slip_url",
+        "slot",
+        "source",
+        "special_selected_options",
+        "start_date",
+        "start_datetime",
+        "start_time",
+        "startdate",
+        "started_at",
+        "started_by_user_id",
+        "state",
+        "stats",
+        "status",
+        "status_code",
+        "status_counts",
+        "statuses",
+        "student",
+        "studentData",
+        "studentId",
+        "student_archive_ids",
+        "student_id",
+        "student_name",
+        "student_roll_number",
+        "students",
+        "students_deactivated_count",
+        "subject",
+        "submission_deadline",
+        "submission_files",
+        "submission_status",
+        "submission_text",
+        "submitted_at",
+        "submitted_by",
+        "submitted_by_student",
+        "submitter_role",
+        "subtitle",
+        "summary",
+        "tags",
+        "target",
+        "target_id",
+        "target_role",
+        "target_type",
+        "teacher",
+        "teacherData",
+        "teacherId",
+        "teacherIds",
+        "teacher_course_assignments",
+        "teacher_name",
+        "teachers",
+        "template",
+        "template_id",
+        "template_key",
+        "template_name",
+        "templates",
+        "text_answer",
+        "time",
+        "timer_enabled",
+        "timer_seconds",
+        "timetable",
+        "title",
+        "to_batch",
+        "to_batch_name",
+        "to_roll_number",
+        "total",
+        "totalDocs",
+        "totalPages",
+        "total_batches_count",
+        "total_enrolled_students_count",
+        "total_online",
+        "total_questions",
+        "total_recipients",
+        "total_score",
+        "totals",
+        "transactions",
+        "type",
+        "university",
+        "unreadCount",
+        "upcoming_assignment_deadlines",
+        "upcoming_classes_count",
+        "upcoming_events",
+        "upcoming_interviews_count",
+        "updated_by",
+        "url",
+        "use_mcq_bank",
+        "user",
+        "user_agent",
+        "value",
+        "vars",
+        "venue",
+        "verdict",
+        "verify_url",
+        "visibility_status",
+        "whatsapp_welcome",
+        "workload_overview",
+        "year"
+      ]
+    },
+    {
+      "key": "fields.general.write",
+      "group": "fields",
+      "label": "general write",
+      "type": "field",
+      "fields": [
+        "MCQ",
+        "account",
+        "action",
+        "action_by",
+        "action_date",
+        "action_type",
+        "actions",
+        "active",
+        "active_batches_total",
+        "active_quizzes_count",
+        "activity_logs",
+        "actor_category",
+        "actor_name",
+        "actor_role",
+        "actor_student",
+        "actor_teacher",
+        "actor_user",
+        "admission_date",
+        "admission_request",
+        "age",
+        "aliases",
+        "allowed_targets",
+        "analytical_ability",
+        "announcement_id",
+        "answered_at",
+        "answers",
+        "append_schedules",
+        "approvedCount",
+        "approved_at",
+        "approved_by",
+        "assigned",
+        "assigned_batches_count",
+        "assigned_courses_count",
+        "assigned_students_count",
+        "assignment",
+        "assignment_title",
+        "assignments",
+        "attempt",
+        "attempt_id",
+        "attempt_number",
+        "attempts",
+        "attendance_records_count",
+        "attendence",
+        "audience",
+        "authentic",
+        "authorized_by",
+        "auto_graded_score",
+        "auto_submit_on_timeout",
+        "availability_date",
+        "averages",
+        "awarded_marks",
+        "batch",
+        "batchId",
+        "batchName",
+        "batch_history",
+        "batch_id",
+        "batch_ids",
+        "batch_name",
+        "batch_shifts",
+        "batch_snapshot",
+        "batch_type",
+        "batch_wise",
+        "batches",
+        "body",
+        "body_language",
+        "booked_for",
+        "booked_notes",
+        "booked_user_id",
+        "breakdown",
+        "campaign_id",
+        "can_view_all",
+        "can_view_inbox",
+        "cancelled",
+        "cancelled_at",
+        "cascade_summary",
+        "category",
+        "chart_data",
+        "check",
+        "class_end_time",
+        "class_start_time",
+        "class_time",
+        "class_type",
+        "code",
+        "comment",
+        "communication",
+        "completed_at",
+        "completion_year",
+        "confidence",
+        "configured",
+        "connected",
+        "connected_at",
+        "correct_answers",
+        "correct_count",
+        "correct_option",
+        "correct_option_index",
+        "course",
+        "courseId",
+        "courseIds",
+        "courseWork",
+        "course_id",
+        "courses",
+        "created_by_name",
+        "css",
+        "css_pms_roll_no",
+        "current_affairs",
+        "current_batches_count",
+        "date",
+        "day",
+        "delay_ms",
+        "deleted_at",
+        "deleted_by",
+        "deleted_by_name",
+        "deleted_by_role",
+        "deletion_reason",
+        "deletion_source",
+        "description",
+        "details",
+        "diagnostic",
+        "disconnected_at",
+        "docs",
+        "due_date",
+        "dues",
+        "duration_minutes",
+        "duration_seconds",
+        "education_background",
+        "embedded_questions",
+        "emptyFields",
+        "end_date",
+        "end_datetime",
+        "end_time",
+        "enddate",
+        "ended_at",
+        "enrolled_student_count",
+        "enrollment",
+        "enrollments",
+        "entity_id",
+        "entity_type",
+        "error",
+        "ethics_decision",
+        "evaluation",
+        "evaluations",
+        "evaluator_key",
+        "event",
+        "exam_type",
+        "exam_type_counts",
+        "expiry_date",
+        "father_name",
+        "field",
+        "field_label",
+        "file",
+        "file_name",
+        "file_size",
+        "file_type",
+        "file_url",
+        "files",
+        "finalized",
+        "forSelf",
+        "from_batch",
+        "from_batch_name",
+        "from_roll_number",
+        "gateway",
+        "generated_by",
+        "graded_at",
+        "graded_by",
+        "grading_criteria",
+        "grants",
+        "hasNextPage",
+        "hasPrevPage",
+        "has_deadline",
+        "id",
+        "idempotency_key",
+        "identifier",
+        "identity",
+        "improvement_since_last_mock",
+        "inactive",
+        "inbox_role",
+        "incorrect_count",
+        "instructions",
+        "interview_bookings_count",
+        "is_active",
+        "is_connected",
+        "is_correct",
+        "is_interview_batch",
+        "is_late",
+        "is_qualifier_dashboard",
+        "is_read",
+        "is_skipped",
+        "is_special_batch",
+        "is_student_dashboard",
+        "is_teacher_dashboard",
+        "issued_at",
+        "item",
+        "jobs",
+        "key",
+        "key_strength",
+        "kind",
+        "knowledge",
+        "label",
+        "lastSent",
+        "late_deadline",
+        "late_penalty_percent",
+        "late_submission_policy",
+        "latest_degree",
+        "limit",
+        "major_weakness",
+        "managed",
+        "managed_by",
+        "manual_marks",
+        "manual_score",
+        "marks",
+        "marks_cgpa",
+        "marks_obtained",
+        "matched_count",
+        "max_attempts",
+        "max_marks",
+        "max_score",
+        "mcq",
+        "mcqs",
+        "members",
+        "message",
+        "metadata",
+        "method",
+        "missing_fields",
+        "modified_count",
+        "module",
+        "modules",
+        "name",
+        "negative_mark_value",
+        "negative_marking",
+        "negative_marks",
+        "nextAttempt",
+        "nextPage",
+        "nextRun",
+        "next_installment_date",
+        "no_of_attempts",
+        "notes",
+        "notification_id",
+        "operation",
+        "option1",
+        "option2",
+        "option3",
+        "option4",
+        "optional_subjects",
+        "options",
+        "original_batch_id",
+        "original_student_id",
+        "outcome",
+        "page",
+        "pagingCounter",
+        "panel",
+        "panel_id",
+        "panelist",
+        "panelistData",
+        "panelistId",
+        "panelist_id",
+        "passed",
+        "passing_marks",
+        "past_interviews_count",
+        "path",
+        "pattern",
+        "paying_now",
+        "payload",
+        "penalty_applied",
+        "pendingCount",
+        "pending_assignment_reviews",
+        "pending_total",
+        "percentage",
+        "period",
+        "permissionIds",
+        "permissions",
+        "personality",
+        "pms",
+        "prevPage",
+        "preview",
+        "previous_batches_count",
+        "process",
+        "processes",
+        "profile_updated_once",
+        "province",
+        "publish_result",
+        "published_at",
+        "qr",
+        "qr_data_url",
+        "qrcode",
+        "qualification",
+        "qualifier",
+        "qualifierData",
+        "qualifierId",
+        "qualifier_id",
+        "qualifier_name",
+        "qualifiers",
+        "question",
+        "question_count",
+        "question_count_requested",
+        "question_id",
+        "question_order",
+        "question_type",
+        "questions",
+        "quiz",
+        "randomize_questions",
+        "read_at",
+        "reason",
+        "receipt",
+        "receiptId",
+        "receipt_saved",
+        "recent_activity",
+        "recent_student_activity",
+        "recipient_count",
+        "recipient_id",
+        "recipient_name",
+        "recipient_student",
+        "recipient_type",
+        "recipient_user",
+        "recipients",
+        "recordId",
+        "rejectedCount",
+        "rejected_at",
+        "rejected_by",
+        "rendered",
+        "requestId",
+        "requested_by",
+        "requires_manual_grading",
+        "responded_at",
+        "responded_by",
+        "response",
+        "resubmission_allowed",
+        "resubmission_requested",
+        "result_publication",
+        "result_published_at",
+        "result_visible",
+        "reuse_existing",
+        "reused",
+        "reviewed_at",
+        "reviewed_by",
+        "revision",
+        "role",
+        "roleId",
+        "roll_nickname",
+        "roll_number",
+        "runtime_status",
+        "schedule_index",
+        "schedules",
+        "scope",
+        "scopes",
+        "score",
+        "selected_answers",
+        "selected_option",
+        "seminar",
+        "seminar_id",
+        "sent_at",
+        "seq",
+        "session",
+        "shifted_at",
+        "shifted_by",
+        "shifted_by_name",
+        "shifted_by_role",
+        "skip_profile_completion",
+        "skipped_count",
+        "slip",
+        "slip_type",
+        "slip_url",
+        "slot",
+        "source",
+        "special_selected_options",
+        "start_date",
+        "start_datetime",
+        "start_time",
+        "startdate",
+        "started_at",
+        "started_by_user_id",
+        "state",
+        "stats",
+        "status",
+        "status_code",
+        "status_counts",
+        "statuses",
+        "student",
+        "studentData",
+        "studentId",
+        "student_archive_ids",
+        "student_id",
+        "student_name",
+        "student_roll_number",
+        "students",
+        "students_deactivated_count",
+        "subject",
+        "submission_deadline",
+        "submission_files",
+        "submission_status",
+        "submission_text",
+        "submitted_at",
+        "submitted_by",
+        "submitted_by_student",
+        "submitter_role",
+        "subtitle",
+        "summary",
+        "tags",
+        "target",
+        "target_id",
+        "target_role",
+        "target_type",
+        "teacher",
+        "teacherData",
+        "teacherId",
+        "teacherIds",
+        "teacher_course_assignments",
+        "teacher_name",
+        "teachers",
+        "template",
+        "template_id",
+        "template_key",
+        "template_name",
+        "templates",
+        "text_answer",
+        "time",
+        "timer_enabled",
+        "timer_seconds",
+        "timetable",
+        "title",
+        "to_batch",
+        "to_batch_name",
+        "to_roll_number",
+        "total",
+        "totalDocs",
+        "totalPages",
+        "total_batches_count",
+        "total_enrolled_students_count",
+        "total_online",
+        "total_questions",
+        "total_recipients",
+        "total_score",
+        "totals",
+        "transactions",
+        "type",
+        "university",
+        "unreadCount",
+        "upcoming_assignment_deadlines",
+        "upcoming_classes_count",
+        "upcoming_events",
+        "upcoming_interviews_count",
+        "updated_by",
+        "url",
+        "use_mcq_bank",
+        "user_agent",
+        "value",
+        "vars",
+        "venue",
+        "verdict",
+        "verify_url",
+        "visibility_status",
+        "whatsapp_welcome",
+        "workload_overview",
+        "year"
+      ]
+    },
+    {
+      "key": "fields.contact.read",
+      "group": "fields",
+      "label": "contact read",
+      "type": "field",
+      "fields": [
+        "actor_email",
+        "booked_phone",
+        "city",
+        "deleted_by_email",
+        "email",
+        "father_phone",
+        "ip_address",
+        "login_email",
+        "normalized_phone",
+        "phone",
+        "phoneNumber",
+        "phones",
+        "shifted_by_email",
+        "student_email",
+        "student_phone"
+      ]
+    },
+    {
+      "key": "fields.contact.write",
+      "group": "fields",
+      "label": "contact write",
+      "type": "field",
+      "fields": [
+        "actor_email",
+        "booked_phone",
+        "city",
+        "deleted_by_email",
+        "email",
+        "father_phone",
+        "ip_address",
+        "login_email",
+        "normalized_phone",
+        "phone",
+        "phoneNumber",
+        "phones",
+        "shifted_by_email",
+        "student_email",
+        "student_phone"
+      ]
+    },
+    {
+      "key": "fields.identity.read",
+      "group": "fields",
+      "label": "identity read",
+      "type": "field",
+      "fields": [
+        "cnic",
+        "date_of_birth"
+      ]
+    },
+    {
+      "key": "fields.identity.write",
+      "group": "fields",
+      "label": "identity write",
+      "type": "field",
+      "fields": [
+        "cnic",
+        "date_of_birth"
+      ]
+    },
+    {
+      "key": "fields.financial.read",
+      "group": "fields",
+      "label": "financial read",
+      "type": "field",
+      "fields": [
+        "action_amount",
+        "amount",
+        "amount_received",
+        "approved_amount",
+        "assign_new_fee",
+        "assigned_fee_id",
+        "batchWiseFeeStatistics",
+        "batch_fee",
+        "cash_amount",
+        "discount_amount",
+        "discount_description",
+        "discount_remarks",
+        "expense_date",
+        "fee",
+        "fee_due_date",
+        "fee_ids",
+        "fee_is_overdue",
+        "fee_log",
+        "fee_overdue_days",
+        "fee_overview",
+        "feedback",
+        "feedback_updates",
+        "fees",
+        "finance",
+        "has_pending_fee_slip",
+        "is_paid_batch",
+        "is_refunded",
+        "net_balance",
+        "new_fee_amount",
+        "online_amount",
+        "overallFeeStatistics",
+        "paid_amount",
+        "paid_fee",
+        "paymentAmount",
+        "payment_logs",
+        "payment_method",
+        "payment_option",
+        "pending_amount",
+        "pending_fee",
+        "pending_fee_record",
+        "pending_fee_slips",
+        "refund_payment_method",
+        "refund_requests",
+        "refundedCount",
+        "refunded_amount",
+        "refunded_at",
+        "refunded_by",
+        "rejected_amount",
+        "remaining_fee",
+        "requested_amount",
+        "special_fee_options",
+        "total_amount",
+        "total_approved_expenses",
+        "total_cash",
+        "total_fee",
+        "total_fee_created",
+        "total_fee_defaulters",
+        "total_fee_deleted",
+        "total_fee_discounted",
+        "total_fee_pending",
+        "total_fee_record",
+        "total_fee_recovered",
+        "total_fee_refunded",
+        "total_pending_amount",
+        "total_pending_expenses",
+        "whatsapp_payment"
+      ]
+    },
+    {
+      "key": "fields.financial.write",
+      "group": "fields",
+      "label": "financial write",
+      "type": "field",
+      "fields": [
+        "action_amount",
+        "amount",
+        "amount_received",
+        "approved_amount",
+        "assign_new_fee",
+        "assigned_fee_id",
+        "batchWiseFeeStatistics",
+        "batch_fee",
+        "cash_amount",
+        "discount_amount",
+        "discount_description",
+        "discount_remarks",
+        "expense_date",
+        "fee",
+        "fee_due_date",
+        "fee_ids",
+        "fee_is_overdue",
+        "fee_log",
+        "fee_overdue_days",
+        "fee_overview",
+        "feedback",
+        "feedback_updates",
+        "fees",
+        "finance",
+        "has_pending_fee_slip",
+        "is_paid_batch",
+        "is_refunded",
+        "net_balance",
+        "new_fee_amount",
+        "online_amount",
+        "overallFeeStatistics",
+        "paid_amount",
+        "paid_fee",
+        "paymentAmount",
+        "payment_logs",
+        "payment_method",
+        "payment_option",
+        "pending_amount",
+        "pending_fee",
+        "pending_fee_record",
+        "pending_fee_slips",
+        "refund_payment_method",
+        "refund_requests",
+        "refundedCount",
+        "refunded_amount",
+        "refunded_at",
+        "refunded_by",
+        "rejected_amount",
+        "remaining_fee",
+        "requested_amount",
+        "special_fee_options",
+        "total_amount",
+        "total_approved_expenses",
+        "total_cash",
+        "total_fee",
+        "total_fee_created",
+        "total_fee_defaulters",
+        "total_fee_deleted",
+        "total_fee_discounted",
+        "total_fee_pending",
+        "total_fee_record",
+        "total_fee_recovered",
+        "total_fee_refunded",
+        "total_pending_amount",
+        "total_pending_expenses",
+        "whatsapp_payment"
+      ]
+    },
+    {
+      "key": "fields.evidence.read",
+      "group": "fields",
+      "label": "evidence read",
+      "type": "field",
+      "fields": [
+        "attachments",
+        "avatar",
+        "cnic_back_image",
+        "cnic_image",
+        "evidence_edit_request",
+        "evidence_status",
+        "image",
+        "keep_evidence",
+        "latest_degree_image",
+        "payment_evidence",
+        "photo",
+        "refund_evidence",
+        "replace_evidence",
+        "resume"
+      ]
+    },
+    {
+      "key": "fields.evidence.write",
+      "group": "fields",
+      "label": "evidence write",
+      "type": "field",
+      "fields": [
+        "attachments",
+        "avatar",
+        "cnic_back_image",
+        "cnic_image",
+        "evidence_edit_request",
+        "evidence_status",
+        "image",
+        "keep_evidence",
+        "latest_degree_image",
+        "payment_evidence",
+        "photo",
+        "refund_evidence",
+        "replace_evidence",
+        "resume"
+      ]
+    },
+    {
+      "key": "fields.internal.read",
+      "group": "fields",
+      "label": "internal read",
+      "type": "field",
+      "fields": [
+        "approval_comment",
+        "final_remarks",
+        "rejection_comment",
+        "rejection_reason",
+        "remarks"
+      ]
+    },
+    {
+      "key": "fields.internal.write",
+      "group": "fields",
+      "label": "internal write",
+      "type": "field",
+      "fields": [
+        "approval_comment",
+        "final_remarks",
+        "rejection_comment",
+        "rejection_reason",
+        "remarks"
+      ]
+    },
+    {
+      "key": "fields.integration.read",
+      "group": "fields",
+      "label": "integration read",
+      "type": "field",
+      "fields": [
+        "google_calendar_event_id",
+        "google_calendar_html_link",
+        "google_classroom_alternate_link",
+        "google_classroom_course_id",
+        "google_classroom_course_url",
+        "google_classroom_coursework_id",
+        "google_meet_link",
+        "google_synced_at",
+        "google_synced_by",
+        "google_user_id"
+      ]
+    },
+    {
+      "key": "fields.integration.write",
+      "group": "fields",
+      "label": "integration write",
+      "type": "field",
+      "fields": [
+        "google_calendar_event_id",
+        "google_calendar_html_link",
+        "google_classroom_alternate_link",
+        "google_classroom_course_id",
+        "google_classroom_course_url",
+        "google_classroom_coursework_id",
+        "google_meet_link",
+        "google_synced_at",
+        "google_synced_by",
+        "google_user_id"
+      ]
+    },
+    {
+      "key": "fields.credentials.write",
+      "group": "fields",
+      "label": "credentials write",
+      "type": "field",
+      "fields": [
+        "currentPassword",
+        "newPassword",
+        "password"
+      ]
+    },
+    {
+      "key": "access.read",
+      "group": "access",
+      "label": "access.read",
+      "type": "action"
+    },
+    {
+      "key": "access.manage",
+      "group": "access",
+      "label": "access.manage",
+      "type": "action"
+    },
+    {
+      "key": "access.assign",
+      "group": "access",
+      "label": "access.assign",
+      "type": "action"
+    },
+    {
+      "key": "access.audit",
+      "group": "access",
+      "label": "access.audit",
+      "type": "action"
+    },
+    {
+      "key": "access.explain",
+      "group": "access",
+      "label": "access.explain",
+      "type": "action"
+    },
+    {
+      "key": "files.download",
+      "group": "files",
+      "label": "files.download",
+      "type": "action"
+    }
+  ],
+  "fieldGroups": {
+    "general": [
+      "MCQ",
+      "_id",
+      "accessManaged",
+      "account",
+      "accountType",
+      "action",
+      "action_by",
+      "action_date",
+      "action_type",
+      "actions",
+      "active",
+      "active_batches_total",
+      "active_quizzes_count",
+      "activity_logs",
+      "actor",
+      "actor_category",
+      "actor_name",
+      "actor_role",
+      "actor_student",
+      "actor_teacher",
+      "actor_user",
+      "admission_date",
+      "admission_request",
+      "age",
+      "aliases",
+      "allowed_targets",
+      "analytical_ability",
+      "announcement_id",
+      "answered_at",
+      "answers",
+      "append_schedules",
+      "approvedCount",
+      "approved_at",
+      "approved_by",
+      "assigned",
+      "assigned_batches_count",
+      "assigned_courses_count",
+      "assigned_students_count",
+      "assignment",
+      "assignment_title",
+      "assignments",
+      "attempt",
+      "attempt_id",
+      "attempt_number",
+      "attempts",
+      "attendance_records_count",
+      "attendence",
+      "audience",
+      "authentic",
+      "authorized_by",
+      "auto_graded_score",
+      "auto_submit_on_timeout",
+      "availability_date",
+      "averages",
+      "awarded_marks",
+      "batch",
+      "batchId",
+      "batchName",
+      "batch_history",
+      "batch_id",
+      "batch_ids",
+      "batch_name",
+      "batch_shifts",
+      "batch_snapshot",
+      "batch_type",
+      "batch_wise",
+      "batches",
+      "body",
+      "body_language",
+      "booked_for",
+      "booked_notes",
+      "booked_user_id",
+      "breakdown",
+      "campaign_id",
+      "can_view_all",
+      "can_view_inbox",
+      "cancelled",
+      "cancelled_at",
+      "cascade_summary",
+      "category",
+      "chart_data",
+      "check",
+      "class_end_time",
+      "class_start_time",
+      "class_time",
+      "class_type",
+      "code",
+      "comment",
+      "communication",
+      "completed_at",
+      "completion_year",
+      "confidence",
+      "configured",
+      "connected",
+      "connected_at",
+      "correct_answers",
+      "correct_count",
+      "correct_option",
+      "correct_option_index",
+      "course",
+      "courseId",
+      "courseIds",
+      "courseWork",
+      "course_id",
+      "courses",
+      "createdAt",
+      "created_by",
+      "created_by_name",
+      "creation_pending",
+      "creation_request",
+      "creation_worker_epoch",
+      "css",
+      "css_pms_roll_no",
+      "current_affairs",
+      "current_batches_count",
+      "date",
+      "day",
+      "delay_ms",
+      "deleted_at",
+      "deleted_by",
+      "deleted_by_name",
+      "deleted_by_role",
+      "deletion_reason",
+      "deletion_source",
+      "description",
+      "details",
+      "diagnostic",
+      "disabledAt",
+      "disconnected_at",
+      "docs",
+      "due_date",
+      "dues",
+      "duration_minutes",
+      "duration_seconds",
+      "education_background",
+      "embedded_questions",
+      "emptyFields",
+      "end_date",
+      "end_datetime",
+      "end_time",
+      "enddate",
+      "ended_at",
+      "enrolled_student_count",
+      "enrollment",
+      "enrollments",
+      "entity_id",
+      "entity_type",
+      "error",
+      "ethics_decision",
+      "evaluation",
+      "evaluations",
+      "evaluator_key",
+      "event",
+      "exam_type",
+      "exam_type_counts",
+      "expiry_date",
+      "father_name",
+      "field",
+      "field_label",
+      "file",
+      "file_name",
+      "file_size",
+      "file_type",
+      "file_url",
+      "files",
+      "finalized",
+      "forSelf",
+      "from_batch",
+      "from_batch_name",
+      "from_roll_number",
+      "gateway",
+      "generated_by",
+      "graded_at",
+      "graded_by",
+      "grading_criteria",
+      "grants",
+      "hasNextPage",
+      "hasPrevPage",
+      "has_deadline",
+      "id",
+      "idempotency_key",
+      "identifier",
+      "identity",
+      "improvement_since_last_mock",
+      "inactive",
+      "inbox_role",
+      "incorrect_count",
+      "instructions",
+      "interview_bookings_count",
+      "is_active",
+      "is_connected",
+      "is_correct",
+      "is_interview_batch",
+      "is_late",
+      "is_qualifier_dashboard",
+      "is_read",
+      "is_skipped",
+      "is_special_batch",
+      "is_student_dashboard",
+      "is_teacher_dashboard",
+      "issued_at",
+      "item",
+      "jobs",
+      "key",
+      "key_strength",
+      "kind",
+      "knowledge",
+      "label",
+      "lastSent",
+      "late_deadline",
+      "late_penalty_percent",
+      "late_submission_policy",
+      "latest_degree",
+      "limit",
+      "major_weakness",
+      "managed",
+      "managed_by",
+      "manual_marks",
+      "manual_score",
+      "marks",
+      "marks_cgpa",
+      "marks_obtained",
+      "matched_count",
+      "max_attempts",
+      "max_marks",
+      "max_score",
+      "mcq",
+      "mcqs",
+      "members",
+      "message",
+      "metadata",
+      "method",
+      "missing_fields",
+      "modified_count",
+      "module",
+      "modules",
+      "name",
+      "negative_mark_value",
+      "negative_marking",
+      "negative_marks",
+      "nextAttempt",
+      "nextPage",
+      "nextRun",
+      "next_installment_date",
+      "no_of_attempts",
+      "notes",
+      "notification_id",
+      "operation",
+      "option1",
+      "option2",
+      "option3",
+      "option4",
+      "optional_subjects",
+      "options",
+      "original_batch_id",
+      "original_student_id",
+      "outcome",
+      "page",
+      "pagingCounter",
+      "panel",
+      "panel_id",
+      "panelist",
+      "panelistData",
+      "panelistId",
+      "panelist_id",
+      "passed",
+      "passing_marks",
+      "past_interviews_count",
+      "path",
+      "pattern",
+      "paying_now",
+      "payload",
+      "penalty_applied",
+      "pendingCount",
+      "pending_assignment_reviews",
+      "pending_total",
+      "percentage",
+      "period",
+      "permissionIds",
+      "permissions",
+      "personality",
+      "platformOwner",
+      "pms",
+      "prevPage",
+      "preview",
+      "previous_batches_count",
+      "process",
+      "processes",
+      "processing_status",
+      "profile_updated_once",
+      "province",
+      "publish_result",
+      "published_at",
+      "qr",
+      "qr_data_url",
+      "qrcode",
+      "qualification",
+      "qualifier",
+      "qualifierData",
+      "qualifierId",
+      "qualifier_id",
+      "qualifier_name",
+      "qualifiers",
+      "question",
+      "question_count",
+      "question_count_requested",
+      "question_id",
+      "question_order",
+      "question_type",
+      "questions",
+      "quiz",
+      "randomize_questions",
+      "read_at",
+      "reason",
+      "receipt",
+      "receiptId",
+      "receipt_saved",
+      "recent_activity",
+      "recent_student_activity",
+      "recipient_count",
+      "recipient_id",
+      "recipient_name",
+      "recipient_student",
+      "recipient_type",
+      "recipient_user",
+      "recipients",
+      "recordId",
+      "rejectedCount",
+      "rejected_at",
+      "rejected_by",
+      "rendered",
+      "requestId",
+      "requested_by",
+      "requires_manual_grading",
+      "responded_at",
+      "responded_by",
+      "response",
+      "resubmission_allowed",
+      "resubmission_requested",
+      "result_publication",
+      "result_published_at",
+      "result_visible",
+      "reuse_existing",
+      "reused",
+      "reviewed_at",
+      "reviewed_by",
+      "revision",
+      "role",
+      "roleId",
+      "roll_nickname",
+      "roll_number",
+      "runtime_status",
+      "schedule_index",
+      "schedules",
+      "scope",
+      "scopes",
+      "score",
+      "selected_answers",
+      "selected_option",
+      "seminar",
+      "seminar_id",
+      "sent_at",
+      "seq",
+      "session",
+      "shifted_at",
+      "shifted_by",
+      "shifted_by_name",
+      "shifted_by_role",
+      "skip_profile_completion",
+      "skipped_count",
+      "slip",
+      "slip_type",
+      "slip_url",
+      "slot",
+      "source",
+      "special_selected_options",
+      "start_date",
+      "start_datetime",
+      "start_time",
+      "startdate",
+      "started_at",
+      "started_by_user_id",
+      "state",
+      "stats",
+      "status",
+      "status_code",
+      "status_counts",
+      "statuses",
+      "student",
+      "studentData",
+      "studentId",
+      "student_archive_ids",
+      "student_id",
+      "student_name",
+      "student_roll_number",
+      "students",
+      "students_deactivated_count",
+      "subject",
+      "submission_deadline",
+      "submission_files",
+      "submission_status",
+      "submission_text",
+      "submitted_at",
+      "submitted_by",
+      "submitted_by_student",
+      "submitter_role",
+      "subtitle",
+      "summary",
+      "tags",
+      "target",
+      "target_id",
+      "target_role",
+      "target_type",
+      "teacher",
+      "teacherData",
+      "teacherId",
+      "teacherIds",
+      "teacher_course_assignments",
+      "teacher_name",
+      "teachers",
+      "template",
+      "template_id",
+      "template_key",
+      "template_name",
+      "templates",
+      "text_answer",
+      "time",
+      "timer_enabled",
+      "timer_seconds",
+      "timetable",
+      "title",
+      "to_batch",
+      "to_batch_name",
+      "to_roll_number",
+      "total",
+      "totalDocs",
+      "totalPages",
+      "total_batches_count",
+      "total_enrolled_students_count",
+      "total_online",
+      "total_questions",
+      "total_recipients",
+      "total_score",
+      "totals",
+      "transactions",
+      "type",
+      "university",
+      "unreadCount",
+      "upcoming_assignment_deadlines",
+      "upcoming_classes_count",
+      "upcoming_events",
+      "upcoming_interviews_count",
+      "updated_by",
+      "url",
+      "use_mcq_bank",
+      "user",
+      "user_agent",
+      "value",
+      "vars",
+      "venue",
+      "verdict",
+      "verify_url",
+      "visibility_status",
+      "whatsapp_welcome",
+      "workload_overview",
+      "year"
+    ],
+    "contact": [
+      "actor_email",
+      "booked_phone",
+      "city",
+      "deleted_by_email",
+      "email",
+      "father_phone",
+      "ip_address",
+      "login_email",
+      "normalized_phone",
+      "phone",
+      "phoneNumber",
+      "phones",
+      "shifted_by_email",
+      "student_email",
+      "student_phone"
+    ],
+    "identity": [
+      "cnic",
+      "date_of_birth"
+    ],
+    "financial": [
+      "action_amount",
+      "amount",
+      "amount_received",
+      "approved_amount",
+      "assign_new_fee",
+      "assigned_fee_id",
+      "batchWiseFeeStatistics",
+      "batch_fee",
+      "cash_amount",
+      "discount_amount",
+      "discount_description",
+      "discount_remarks",
+      "expense_date",
+      "fee",
+      "fee_due_date",
+      "fee_ids",
+      "fee_is_overdue",
+      "fee_log",
+      "fee_overdue_days",
+      "fee_overview",
+      "feedback",
+      "feedback_updates",
+      "fees",
+      "finance",
+      "has_pending_fee_slip",
+      "is_paid_batch",
+      "is_refunded",
+      "net_balance",
+      "new_fee_amount",
+      "online_amount",
+      "overallFeeStatistics",
+      "paid_amount",
+      "paid_fee",
+      "paymentAmount",
+      "payment_logs",
+      "payment_method",
+      "payment_option",
+      "pending_amount",
+      "pending_fee",
+      "pending_fee_record",
+      "pending_fee_slips",
+      "refund_payment_method",
+      "refund_requests",
+      "refundedCount",
+      "refunded_amount",
+      "refunded_at",
+      "refunded_by",
+      "rejected_amount",
+      "remaining_fee",
+      "requested_amount",
+      "special_fee_options",
+      "total_amount",
+      "total_approved_expenses",
+      "total_cash",
+      "total_fee",
+      "total_fee_created",
+      "total_fee_defaulters",
+      "total_fee_deleted",
+      "total_fee_discounted",
+      "total_fee_pending",
+      "total_fee_record",
+      "total_fee_recovered",
+      "total_fee_refunded",
+      "total_pending_amount",
+      "total_pending_expenses",
+      "whatsapp_payment"
+    ],
+    "evidence": [
+      "attachments",
+      "avatar",
+      "cnic_back_image",
+      "cnic_image",
+      "evidence_edit_request",
+      "evidence_status",
+      "image",
+      "keep_evidence",
+      "latest_degree_image",
+      "payment_evidence",
+      "photo",
+      "refund_evidence",
+      "replace_evidence",
+      "resume"
+    ],
+    "internal": [
+      "approval_comment",
+      "final_remarks",
+      "rejection_comment",
+      "rejection_reason",
+      "remarks"
+    ],
+    "integration": [
+      "google_calendar_event_id",
+      "google_calendar_html_link",
+      "google_classroom_alternate_link",
+      "google_classroom_course_id",
+      "google_classroom_course_url",
+      "google_classroom_coursework_id",
+      "google_meet_link",
+      "google_synced_at",
+      "google_synced_by",
+      "google_user_id"
+    ],
+    "credentials": [
+      "currentPassword",
+      "newPassword",
+      "password"
+    ]
+  },
+  "readOnlyFields": [
+    "_id",
+    "__v",
+    "created_by",
+    "createdAt",
+    "updatedAt",
+    "user",
+    "actor",
+    "platformOwner",
+    "accessManaged",
+    "accountType",
+    "disabledAt",
+    "accessOnboardingRole",
+    "creation_pending",
+    "creation_request",
+    "creation_worker_epoch",
+    "processing_status"
+  ]
+}

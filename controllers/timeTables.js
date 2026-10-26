@@ -46,28 +46,17 @@ export const createTimeTable = async (req, res) => {
 
 export const updateTimeTable = async (req, res) => {
   const { id } = req.params;
-  const { batch, course, teacher, start_time, end_time, day } = req.body;
-
-  // Validate input
-  if (!batch || !course || !teacher || !start_time || !end_time || !day) {
-    return res.status(400).json({ message: "All fields are required" });
-  }
-
   try {
-    const updatedTimeTable = await TimeTable.findByIdAndUpdate(
-      id,
-      { batch, course, teacher, start_time, end_time, day },
-      { new: true, runValidators: true } // Options to return the updated document and run validation
-    );
-
-    if (!updatedTimeTable) {
-      return res.status(404).json({ message: "Timetable entry not found" });
+    const existing = await TimeTable.findById(id);
+    if (!existing) return res.status(404).json({ message: "Timetable entry not found" });
+    const fields = ['batch', 'course', 'teacher', 'start_time', 'end_time', 'day'];
+    const update = Object.fromEntries(fields.filter((key) => Object.hasOwn(req.body, key)).map((key) => [key, req.body[key]]));
+    if (fields.some((key) => !(Object.hasOwn(update, key) ? update[key] : existing[key]))) {
+      return res.status(400).json({ message: "All fields are required" });
     }
-
-    res.status(200).json(updatedTimeTable);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    const updated = await TimeTable.findByIdAndUpdate(id, update, { new: true, runValidators: true });
+    res.status(200).json(updated);
+  } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
 export const getTimeTableById = async (req, res) => {

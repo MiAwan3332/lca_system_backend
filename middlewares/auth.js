@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import { assertStudentAccountActive } from "../utils/studentScope.js";
 import { attachRequestActivityLogger } from "../utils/activityLogger.js";
+import { freshAccessUser, authorizeApplicationRequest } from '../utils/accessRuntime.js';
 
 dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -21,8 +22,14 @@ const auth = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
+    await freshAccessUser(req);
+    if (req.access.enforced) {
+      attachRequestActivityLogger(req, res);
+      return await authorizeApplicationRequest(req, res, next);
+    }
+    await authorizeApplicationRequest(req, res, () => {});
 
-    const role = decoded?.user?.role;
+    const role = req.user?.user?.role;
     if (role?.toLowerCase() === "student") {
       const isActive = await assertStudentAccountActive(req, res);
       if (!isActive) {
@@ -75,7 +82,7 @@ const auth = async (req, res, next) => {
     if (error.name === "JsonWebTokenError" || error.name === "TokenExpiredError") {
       return res.status(401).json({ message: "Invalid or expired token" });
     }
-    res.status(500).json({ message: error.message });
+    res.status(error.status || 500).json({ message: error.message });
   }
 };
 

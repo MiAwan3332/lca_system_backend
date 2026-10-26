@@ -205,6 +205,33 @@ export const serveStoredPublicFile = async (req, res, next) => {
   }
 };
 
+export async function serveAuthorizedObject(key, res, next) {
+  try {
+    key = toPublicObjectKey(key);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'");
+    const client = getS3Client();
+    if (client) {
+      const object = await client.send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key }), { abortSignal: AbortSignal.timeout(15000) });
+      res.setHeader('Content-Type', object.ContentType || 'application/octet-stream');
+      if (object.ContentLength) res.setHeader('Content-Length', String(object.ContentLength));
+      object.Body.on('error', next); object.Body.pipe(res);
+    } else {
+      const root = path.resolve(process.env.FILES_STORAGE_PATH || 'public');
+      const relative = key.replace(new RegExp(`^${process.env.S3_KEY_PREFIX || 'files'}/`), '');
+      const target = path.resolve(root, relative);
+      if (!target.startsWith(`${root}${path.sep}`)) throw new Error('Invalid file path');
+      await fs.promises.access(target);
+      res.setHeader('Content-Type', mime.lookup(target) || 'application/octet-stream');
+      fs.createReadStream(target).on('error', next).pipe(res);
+    }
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.$metadata?.httpStatusCode === 404) return res.status(404).send('File not found');
+    next(error);
+  }
+}
+
 const deleteObject = async (filePath) => {
   await invalidatePublicImage(toObjectKey(filePath));
   const client = getS3Client();

@@ -1,4 +1,5 @@
 import Fee from "../models/fees.js";
+import { accessContext } from './accessContext.js';
 import FeeLog from "../models/feeLogs.js";
 import Student from "../models/students.js";
 import moment from "moment-timezone";
@@ -510,6 +511,9 @@ export async function collectStudentPendingPayment({
 }
 
 export async function syncStudentFeeFromLogs(studentId) {
+  return accessContext.run(undefined, () => syncStudentFeeUnscoped(studentId));
+}
+async function syncStudentFeeUnscoped(studentId) {
   const student = await Student.findById(studentId);
   if (!student) return;
 

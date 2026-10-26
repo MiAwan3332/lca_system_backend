@@ -6,6 +6,7 @@ import CreationRequest from '../models/creationRequests.js';
 import { stageCreationFiles, creationResponse } from './creationService.js';
 import { getPaymentEvidenceUrls } from './paymentEvidence.js';
 import { identityForRequest } from './studentIdentity.js';
+import { retainedMediaReference } from './accessMedia.js';
 
 export async function listEvidencePayments(req, res, next) {
   try {
@@ -44,7 +45,8 @@ export async function editPaymentEvidence(req, res, next) {
     try { keep = JSON.parse(req.body.keep_evidence || '[]'); }
     catch { return res.status(400).json({ message: 'Invalid retained evidence list' }); }
     const original = getPaymentEvidenceUrls(log.payment_evidence);
-    if (!Array.isArray(keep) || keep.some((url) => !original.includes(url))) return res.status(400).json({ message: 'Only existing payment attachments may be retained' });
+    if (!Array.isArray(keep)) return res.status(400).json({ message: 'Only existing payment attachments may be retained' });
+    keep = [...new Set(keep.map((url) => retainedMediaReference(url, original, req.access)))];
     const incoming = req.files?.payment_evidence;
     const count = Array.isArray(incoming) ? incoming.length : incoming ? 1 : 0;
     if (keep.length + count > 10 || keep.length + count < 1) return res.status(400).json({ message: 'Retain or upload between one and ten evidence files' });

@@ -16,6 +16,7 @@ const studentSchema = mongoose.Schema({
   phone: String,
   normalized_phone: String,
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', immutable: true },
   admission_request: { type: mongoose.Schema.Types.ObjectId, ref: 'CreationRequest' },
   cnic: String,
   admission_date: String,

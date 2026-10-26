@@ -39,11 +39,13 @@ try {
     catch (error) { if (attempt === 40) throw error; await pause(200); }
   }
   const { default: User } = await import('../models/users.js');
+  const { default: Role } = await import('../models/roles.js');
   const { default: Batch } = await import('../models/batches.js');
   const { default: Student } = await import('../models/students.js');
   const { default: Fee } = await import('../models/fees.js');
   const { default: FeeLog } = await import('../models/feeLogs.js');
   const actor = await User.create({ name: 'Isolated acceptance admin', email: 'http-admin@example.invalid', role: 'superadmin' });
+  await Role.create({ name: 'admin' });
   const batch = await Batch.create({ name: 'Isolated acceptance batch', batch_type: 'On Campus', roll_nickname: 'HTTP', batch_fee: '1000' });
   let output = '';
   api = spawn(process.execPath, [path.join(source, 'index.js')], { cwd: directory, env: environment, stdio: ['ignore', 'pipe', 'pipe'] });

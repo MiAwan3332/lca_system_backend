@@ -1,3 +1,4 @@
+import './utils/accessQueryScope.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 import express from 'express';
@@ -48,6 +49,7 @@ import { enforcePaginationBounds } from './utils/pagination.js';
 import { errorHandler, requestObservability } from './utils/requestObservability.js';
 import { startCreationWorker, stopCreationWorker, getCreationMetrics } from './utils/creationService.js';
 import auth from './middlewares/auth.js';
+import accessRoutes from './routes/access.js';
 import { flushCreationAudit } from './utils/creationAudit.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -75,6 +77,7 @@ app.use(bodyParser.json({ limit: "30mb", extended: true }));
 app.use(bodyParser.urlencoded({ limit: "30mb", extended: true }));
 app.use(creationUploads);
 app.use(enforcePaginationBounds);
+app.use('/access', accessRoutes);
 app.get('/operations/creation-metrics', auth, getCreationMetrics);
 app.get('/operations/creation-capabilities', auth, (_req, res) => res.set('Cache-Control', 'no-store').json({ protocol: 2 }));
 app.get("/", (req, res) => res.send("Express on Vercel"));
@@ -86,6 +89,7 @@ app.get("/health/ready", (_req, res) => {
     database: databaseReady ? "connected" : "disconnected",
   });
 });
+app.use('/public', (req, res, next) => process.env.PRIVATE_MEDIA_ACCESS === 'true' ? res.status(404).end() : next());
 app.use(`/public/${process.env.S3_KEY_PREFIX || 'files'}`, express.static(process.env.FILES_STORAGE_PATH || join(__dirname, 'public')));
 app.use('/public', express.static(join(__dirname, 'public')), serveStoredPublicFile);
 app.use('/users', usersRoutes);

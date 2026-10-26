@@ -1,4 +1,5 @@
 import Role from "../models/roles.js";
+import User from '../models/users.js';
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import { ensureAccountsRole } from "../utils/ensureAccountsRole.js";
@@ -8,11 +9,10 @@ const JWT_SECRET = process.env.JWT_SECRET;
 export const getRoles = async (req, res) => {
   const { query } = req.query;
   try {
-    await ensureAccountsRole();
-
     const searchQuery = query ? query : "";
     const roles = await Role.paginate(
       {
+        managed: { $ne: true },
         $or: [
           { name: { $regex: searchQuery, $options: "i" } },
           { description: { $regex: searchQuery, $options: "i" } },
@@ -57,6 +57,9 @@ export const addRole = async (req, res) => {
 export const deleteRole = async (req, res) => {
   const { id } = req.params;
   try {
+    const role = await Role.findById(id);
+    if (!role || role.managed) return res.status(409).json({ message: 'Managed roles must be disabled through Access Management' });
+    if (await User.exists({ role: role.name })) return res.status(409).json({ message: 'Role is assigned to users and cannot be deleted' });
     await Role.findByIdAndDelete(id);
     res.status(200).json("Role deleted successfully");
   } catch (error) {
@@ -68,6 +71,9 @@ export const updateRole = async (req, res) => {
   const { id } = req.params;
   const { name, description } = req.body;
   try {
+    if (await Role.exists({ _id: id, managed: true })) return res.status(409).json({ message: 'Use Access Management for this role' });
+    const previous = await Role.findById(id);
+    if (previous && name !== previous.name) return res.status(409).json({ message: 'Legacy role names are immutable until migrated to stable role assignments' });
     await Role.findByIdAndUpdate(id, { name, description });
     res.status(200).json("Role updated successfully");
   } catch (error) {
@@ -79,6 +85,7 @@ export const assignPermissionsToRole = async (req, res) => {
   const { roleId, permissionIds } = req.body;
   try {
     const role = await Role.findById(roleId);
+    if (!role || role.managed) return res.status(409).json({ message: 'Use Access Management for managed roles' });
     role.permissions = permissionIds;
     await role.save();
     res.status(200).json("Permissions assigned to role successfully");

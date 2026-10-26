@@ -18,6 +18,7 @@ import { isPlatformSuperAdminRole } from './lmsAccess.js';
 import { recentRequestMetrics } from './requestObservability.js';
 import { alertChannelConfigured, notifyOperationalAlert } from './operationalAlerts.js';
 import { errorDiagnostic } from './operationalDiagnostics.js';
+import { defaultAccessPlan, applyDefaultAccess } from './defaultAccess.js';
 import { identityForRequest, pendingStudentDues } from './studentIdentity.js';
 import Enrollment from '../models/enrollments.js';
 import StudentBatchShift from '../models/studentBatchShifts.js';
@@ -168,6 +169,7 @@ export async function prepareCreation(request, { user, student, fee, assets = []
   const userId = existingUser?._id || (student ? id() : recordId);
   const plan = { user: { ...user, _id: userId }, student: student ? { ...student, _id: recordId, user: userId } : null,
     reuseStudent: Boolean(existingStudent), reuseUser: Boolean(existingUser), assets, fee: null };
+  if (!existingUser) plan.defaultAccess = await defaultAccessPlan(plan.user);
   if (existingStudent) {
     const dues = await pendingStudentDues(existingStudent._id);
     if (dues.length) throw Object.assign(new Error('Pending dues must be cleared before admission'), { status: 409, code: 'PENDING_FEE_BLOCK' });
@@ -219,6 +221,7 @@ export async function commitCreation(request, releaseLease = true, { afterWrite 
   heartbeat?.unref();
   try { await creationStep('database_commit', async () => {
     if (!plan.reuseUser) await insert(User, { ...plan.user, creation_pending: true, processing_status: 'pending', creation_request: request._id });
+    if (plan.defaultAccess) await write('default_access', () => applyDefaultAccess(plan.user, plan.defaultAccess));
     if (plan.student && !plan.reuseStudent) {
       const qrcode = await QRCode.toString(String(request.recordId), { type: 'svg', errorCorrectionLevel: 'H' });
       await insert(Student, { ...plan.student, qrcode, creation_pending: true, processing_status: 'pending', creation_request: request._id });

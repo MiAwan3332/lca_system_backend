@@ -239,7 +239,9 @@ export const updateAnnouncement = async (req, res) => {
       return res.status(403).json({ message: "You cannot update this announcement" });
     }
 
-    const { title, message, batch_ids: batchIds } = req.body;
+    const title = req.body.title === undefined ? announcement.title : req.body.title;
+    const message = req.body.message === undefined ? announcement.message : req.body.message;
+    const batchIds = req.body.batch_ids === undefined ? announcement.batches.map(String) : req.body.batch_ids;
     if (!title?.trim() || !message?.trim()) {
       return res.status(400).json({ message: "Title and message are required" });
     }
@@ -259,7 +261,7 @@ export const updateAnnouncement = async (req, res) => {
 
     await Notification.updateMany(
       { entity_id: announcement._id, type: "announcement" },
-      { title: announcement.title, message: announcement.message }
+      { ...(req.body.title !== undefined ? { title: announcement.title } : {}), ...(req.body.message !== undefined ? { message: announcement.message } : {}) }
     );
 
     const addedBatchIds = newBatchIds.filter((id) => !oldBatchIds.includes(String(id)));

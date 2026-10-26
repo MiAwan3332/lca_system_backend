@@ -1,3 +1,4 @@
+import { legacyAccessDecision } from './accessContext.js';
 /**
  * Role helpers for refund request create / approve / reject.
  */
@@ -44,16 +45,16 @@ export const isAccountsRoleName = (role) => compactRole(role) === "accounts";
 
 /** CEO / Principal / VP / Super Admin / Accounts — create + decide. */
 export const canCreateRefundRequest = (role) =>
-  isCeoRoleName(role) ||
+  legacyAccessDecision() ?? (isCeoRoleName(role) ||
   isPrincipalFamilyRoleName(role) ||
   isSuperAdminRoleName(role) ||
-  isAccountsRoleName(role);
+  isAccountsRoleName(role));
 
 export const canDecideRefundRequest = (role) =>
   canCreateRefundRequest(role);
 
 /** Super Admin only — edit payout method / screenshot after refund. */
-export const canUpdateRefundPayout = (role) => isSuperAdminRoleName(role);
+export const canUpdateRefundPayout = (role) => legacyAccessDecision() ?? isSuperAdminRoleName(role);
 
 export const getRequestRoleName = (req) =>
   resolveRoleName(req.user?.user?.role);

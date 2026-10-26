@@ -126,7 +126,7 @@ const uploadSubmissionFiles = async (files = [], studentId) => {
   return uploaded;
 };
 
-const parseAssignmentBody = (body) => {
+const parseAssignmentBody = (body, partial = false) => {
   const payload = { ...body };
   if (typeof payload.attachments === "string") {
     try {
@@ -169,6 +169,7 @@ const parseAssignmentBody = (body) => {
   if (!payload.availability_date) {
     payload.availability_date = new Date();
   }
+  if (partial) for (const key of Object.keys(payload)) if (!Object.hasOwn(body, key)) delete payload[key];
   return payload;
 };
 
@@ -198,6 +199,9 @@ export const createAssignment = async (req, res) => {
 
   try {
     const payload = parseAssignmentBody(req.body);
+    if (payload.attachments && (!Array.isArray(payload.attachments) || payload.attachments.length)) {
+      return res.status(400).json({ message: 'Upload assignment attachments instead of referencing stored file URLs' });
+    }
     if (!(await canAccessBatch(req, payload.batch))) {
       return res.status(403).json({ message: "You cannot create assignments for this batch" });
     }
@@ -468,7 +472,13 @@ export const updateAssignment = async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    const payload = parseAssignmentBody(req.body);
+    const payload = parseAssignmentBody(req.body, true);
+    if (payload.attachments !== undefined) {
+      if (!Array.isArray(payload.attachments)) return res.status(400).json({ message: 'Invalid retained assignment attachments' });
+      const retained = payload.attachments.map((item) => assignment.attachments.find((original) => item?._id && String(original._id) === String(item._id)));
+      if (retained.some((item) => !item)) return res.status(400).json({ message: 'Only this assignment\'s existing attachments may be retained' });
+      payload.attachments = retained.map((item) => item.toObject());
+    }
     const targetBatch = payload.batch || assignment.batch;
     const targetCourse = payload.course || assignment.course;
     if (!(await canAccessCourse(req, targetCourse, targetBatch))) {

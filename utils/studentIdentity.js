@@ -2,11 +2,12 @@ import Student from '../models/students.js';
 import User from '../models/users.js';
 import Fee from '../models/fees.js';
 import { canAccessBatch, isInstitutionAdmin } from './lmsAccess.js';
+import { accessContext } from './accessContext.js';
 
 export const normalizedStudentPhone = (value) => String(value || '').replace(/\D/g, '').slice(-10);
 const failure = (message, code = 'IDENTITY_CONFLICT') => Object.assign(new Error(message), { status: 409, code });
 
-export async function resolveStudentIdentity(phone) {
+async function resolveIdentityUnscoped(phone) {
   const normalized = normalizedStudentPhone(phone);
   if (normalized.length !== 10) throw Object.assign(new Error('Enter a valid phone number with at least ten digits'), { status: 400 });
   const regex = new RegExp(`${normalized.split('').join('\\D*')}$`);
@@ -29,7 +30,9 @@ export async function resolveStudentIdentity(phone) {
   return { normalized, student, user };
 }
 
-export async function pendingStudentDues(studentId) {
+export const resolveStudentIdentity = (phone) => accessContext.run(undefined, () => resolveIdentityUnscoped(phone));
+
+async function pendingDuesUnscoped(studentId) {
   const dues = await Fee.aggregate([
     { $match: { student: studentId, status: 'Pending', amount: { $gt: 0 } } },
     { $group: { _id: '$batch', pending: { $sum: '$amount' }, due_date: { $min: '$due_date' } } },
@@ -42,6 +45,8 @@ export async function pendingStudentDues(studentId) {
   }
   return dues;
 }
+
+export const pendingStudentDues = (studentId) => accessContext.run(undefined, () => pendingDuesUnscoped(studentId));
 
 export async function identityForRequest(req) {
   const actor = await User.findById(req.user?.user?.id).select('role').lean();

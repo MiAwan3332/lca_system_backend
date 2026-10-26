@@ -310,7 +310,7 @@ export const updateBatch = async (req, res) => {
     }
 
     const parsedFees = parseBatchSpecialFees(
-      req.body,
+      { ...existingBatch.toObject(), ...req.body },
       isSpecialBatch,
       isPaidBatch
     );
@@ -387,6 +387,15 @@ export const updateBatch = async (req, res) => {
       is_paid_batch: isPaidBatch,
       special_fee_options: parsedFees.fees,
     };
+    // A partial edit must not rewrite unrelated fields from a stale form snapshot.
+    const dependencies = {
+      special_fee_options: ['special_fee_options', 'is_special_batch', 'is_paid_batch'],
+      batch_fee: ['batch_fee', 'is_special_batch', 'is_paid_batch'],
+      class_start_time: ['class_start_time'], class_end_time: ['class_end_time'],
+    };
+    for (const key of Object.keys(updatePayload)) {
+      if (!(dependencies[key] || [key]).some((input) => Object.hasOwn(req.body, input))) delete updatePayload[key];
+    }
     let studentsDeactivated = 0;
     if (is_active !== undefined) {
       const nextActive = is_active === true || is_active === "true";

@@ -341,6 +341,7 @@ export const addStudent = async (req, res) => {
     });
 
     const newStudent = new Student({
+      created_by: req.user.user.id,
       roll_number: rollNumber,
       name,
       email,
@@ -1493,6 +1494,7 @@ export const getStudent = async (req, res) => {
     }
 
     const student = await Student.findById(id);
+    if (!student) return res.status(404).json({ message: 'Student not found' });
     res.status(200).json(student);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -1667,114 +1669,32 @@ export const changeStudentPassword = async (req, res) => {
 
 export const updateStudent = async (req, res) => {
   const { id } = req.params;
-  const {
-    name,
-    email,
-    phone,
-    cnic,
-    admission_date,
-    city,
-    province,
-    date_of_birth,
-    father_name,
-    father_phone,
-    latest_degree,
-    university,
-    completion_year,
-    marks_cgpa,
-    batch,
-    paid_fee,
-    pending_fee,
-    total_fee,
-  } = req.body;
-  const { image, cnic_image, cnic_back_image, latest_degree_image } = req.files;
-
   try {
     const student = await Student.findById(id);
-    if (!student) {
-      return res.status(404).json({ message: "Student not found" });
+    if (!student) return res.status(404).json({ message: "Student not found" });
+    const fields = ['name', 'email', 'phone', 'cnic', 'admission_date', 'city', 'province', 'date_of_birth',
+      'father_name', 'father_phone', 'latest_degree', 'university', 'completion_year', 'marks_cgpa',
+      'batch', 'paid_fee', 'pending_fee', 'total_fee'];
+    const updateData = Object.fromEntries(fields.filter((key) => Object.hasOwn(req.body, key)).map((key) => [key, req.body[key]]));
+    if (updateData.email && updateData.email !== student.email && await Student.exists({ email: updateData.email, _id: { $ne: id } })) {
+      return res.status(400).json({ message: "Email already exists" });
     }
-
-    // Check if the new email is already in use by another student
-    if (email && email !== student.email) {
-      const existingStudent = await Student.findOne({ email });
-      if (existingStudent) {
-        return res.status(400).json({ message: "Email already exists" });
-      }
+    if (updateData.admission_date) updateData.admission_date = normalizeAdmissionDate(updateData.admission_date);
+    const uploads = { image: ['avatars', 'avatar'], cnic_image: ['cnic_images', 'cnic_front'],
+      cnic_back_image: ['cnic_images', 'cnic_back'], latest_degree_image: ['latest_degree', 'latest_degree'] };
+    for (const [field, [folder, prefix]] of Object.entries(uploads)) {
+      const file = req.files?.[field];
+      if (!file) continue;
+      const fileName = `${prefix}_${id}${path.extname(file.name) || '.jpg'}`;
+      const converted = `${prefix}_${id}.jpeg`;
+      const directory = `${process.env.FILES_STORAGE_PATH}/students/${folder}`;
+      await uploadFile(file, fileName, directory);
+      await compressImage(`${directory}/${fileName}`, `${directory}/${converted}`, 50);
+      updateData[field] = `${process.env.FILES_STORAGE_URL}/files/students/${folder}/${converted}`;
     }
-
-    const filesStorageUrl = process.env.FILES_STORAGE_URL;
-    const filesStoragePath = process.env.FILES_STORAGE_PATH;
-
-    // Save image to File Storage
-    const imageFile = image;
-    const imageFileExt = path.extname(imageFile.name);
-    const imageFileName = `avatar_${id}${imageFileExt}`;
-    await uploadFile(imageFile, imageFileName, `${filesStoragePath}/students/avatars`);
-    const imageWebpFileName = `avatar_${id}.jpeg`;
-    await compressImage(`${filesStoragePath}/students/avatars/${imageFileName}`, `${filesStoragePath}/students/avatars/${imageWebpFileName}`, 50);
-    const imagePath = `${filesStorageUrl}/files/students/avatars/${imageWebpFileName}`
-
-    // Save CNIC image to Firebase storage
-    const cnicImageFile = cnic_image;
-    const cnicImageFileExt = path.extname(cnicImageFile.name);
-    const cnicImageFileName = `cnic_front_${id}${cnicImageFileExt}`;
-    await uploadFile(cnicImageFile, cnicImageFileName, `${filesStoragePath}/students/cnic_images`);
-    const cnicImageWebpFileName = `cnic_front_${id}.jpeg`;
-    await compressImage(`${filesStoragePath}/students/cnic_images/${cnicImageFileName}`, `${filesStoragePath}/students/cnic_images/${cnicImageWebpFileName}`, 50);
-    const cnic_imagePath = `${filesStorageUrl}/files/students/cnic_images/${cnicImageWebpFileName}`
-
-    // Save CNIC back image to Firebase storage
-    const cnicBackImageFile = cnic_back_image;
-    const cnicBackImageFileExt = path.extname(cnicBackImageFile.name);
-    const cnicBackImageFileName = `cnic_back_${id}${cnicBackImageFileExt}`;
-    await uploadFile(cnicBackImageFile, cnicBackImageFileName, `${filesStoragePath}/students/cnic_images`);
-    const cnicBackImageWebpFileName = `cnic_back_${id}.jpeg`;
-    await compressImage(`${filesStoragePath}/students/cnic_images/${cnicBackImageFileName}`, `${filesStoragePath}/students/cnic_images/${cnicBackImageWebpFileName}`, 50);
-    const cnic_back_imagePath = `${filesStorageUrl}/files/students/cnic_images/${cnicBackImageWebpFileName}`
-
-
-    // Save Letest Degree image to Firebase storage
-    const latestDegreeImageFile = latest_degree_image;
-    const latestDegreeImageFileExt = path.extname(latestDegreeImageFile.name);
-    const latestDegreeImageFileName = `latest_degree_${id}${latestDegreeImageFileExt}`;
-    await uploadFile(latestDegreeImageFile, latestDegreeImageFileName, `${filesStoragePath}/students/latest_degree`);
-    const latestDegreeImageWebpFileName = `latest_degree_${id}.jpeg`;
-    await compressImage(`${filesStoragePath}/students/latest_degree/${latestDegreeImageFileName}`, `${filesStoragePath}/students/latest_degree/${latestDegreeImageWebpFileName}`, 50);
-    const latest_degree_imagePath = `${filesStorageUrl}/files/students/latest_degree/${latestDegreeImageWebpFileName}`
-
-    // Update the student record
-    await Student.findByIdAndUpdate(id, {
-      name,
-      email,
-      phone,
-      cnic,
-      admission_date: admission_date
-        ? normalizeAdmissionDate(admission_date)
-        : admission_date,
-      city,
-      province,
-      date_of_birth,
-      father_name,
-      father_phone,
-      latest_degree,
-      university,
-      completion_year,
-      marks_cgpa,
-      batch,
-      cnic_image: cnic_imagePath,
-      image: imagePath,
-      cnic_back_image: cnic_back_imagePath,
-      latest_degree_image: latest_degree_imagePath,
-      paid_fee,
-      pending_fee,
-      total_fee,
-    });
-
+    await Student.findByIdAndUpdate(id, updateData);
     res.status(200).json("Student updated successfully");
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+  } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
 const generateQrCode = async (studentId) => {

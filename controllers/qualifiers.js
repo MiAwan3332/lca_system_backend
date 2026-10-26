@@ -1024,7 +1024,7 @@ export const updateQualifier = async (req, res) => {
         return res.status(400).json({ message: "Latest degree is required" });
       }
       qualifier.latest_degree = trimmedDegree;
-    } else if (isSelfQualifier) {
+    } else if (isSelfQualifier && !qualifier.latest_degree) {
       return res.status(400).json({ message: "Latest degree is required" });
     }
     if (education_background !== undefined) {

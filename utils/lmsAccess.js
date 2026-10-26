@@ -48,6 +48,7 @@ const normalizeRole = (role) =>
     .replace(/\s+/g, " ");
 
 export const isFullAccessRole = (req) => {
+  if (req.access?.enforced) return Boolean(req.access.routeAllowed);
   const role = normalizeRole(getRequestRole(req));
   if (!role) return false;
   const compact = role.replace(/\s+/g, "");
@@ -63,6 +64,7 @@ export const isFullAccessRole = (req) => {
 
 /** Strict platform superadmin roles (system pages). */
 export const isPlatformSuperAdminRole = (req) => {
+  if (req.access?.enforced) return Boolean(req.access.routeAllowed);
   const role = normalizeRole(getRequestRole(req));
   if (!role) return false;
   const compact = role.replace(/\s+/g, "");
@@ -88,6 +90,7 @@ export const isPlatformSuperAdminRole = (req) => {
 
 /** Super Admin, Super Admin Development, Secrate Super Admin, or Secrate Admin. */
 export const isStrictSuperAdminRole = (req) => {
+  if (req.access?.enforced) return Boolean(req.access.routeAllowed);
   const role = normalizeRole(getRequestRole(req));
   if (!role) return false;
   const compact = role.replace(/\s+/g, "");
@@ -114,6 +117,7 @@ export const isStrictSuperAdminRole = (req) => {
 
 /** Secret platform owner — can see/manage all superadmin accounts in Users. */
 export const isSecrateSuperAdminRole = (req) => {
+  if (req.access?.enforced) return Boolean(req.access.owner);
   const role = normalizeRole(getRequestRole(req));
   if (!role) return false;
   const compact = role.replace(/\s+/g, "");
@@ -128,6 +132,7 @@ export const isSecrateSuperAdminRole = (req) => {
 
 /** Delete / shift student — VP, Principal, CEO, Super Admin, Accounts. */
 export const canDeleteStudentRole = (req) => {
+  if (req.access?.enforced) return Boolean(req.access.routeAllowed);
   const role = normalizeRole(getRequestRole(req));
   if (!role) return false;
   const compact = role.replace(/\s+/g, "");
@@ -180,15 +185,15 @@ export const denyUnlessCanShiftStudentBatch = (req, res) => {
   return true;
 };
 
-export const isInstitutionAdmin = (req) =>
-  !isStudentRole(req) &&
-  !isTeacherRole(req) &&
-  !isQualifierRole(req) &&
-  String(req.user?.user?.role || "")
-    .trim()
-    .toLowerCase() !== "panelist";
+export const isInstitutionAdmin = (req) => {
+  if (req.access?.enforced) return Boolean(req.access.routeAllowed);
+  return ['admin', 'administrator', 'superadmin', 'superadmindevelopment', 'secrateadmin', 'secratesuperadmin',
+    'ceo', 'principal', 'principle', 'viceprincipal', 'viceprinciple', 'accounts', 'informationoffice', 'financeadministrator']
+    .includes(String(req.user?.user?.role || '').toLowerCase().replace(/[\s_-]/g, ''));
+};
 
 export const canManageLmsContent = (req) => {
+  if (req.access?.enforced) return Boolean(req.access.routeAllowed);
   if (isStudentRole(req)) return false;
   if (isFullAccessRole(req) || isTeacherRole(req)) return true;
   const role = normalizeRole(getRequestRole(req));
@@ -206,6 +211,7 @@ export const canManageLmsContent = (req) => {
 export const getRequestUserId = (req) => req.user?.user?.id || null;
 
 export const getManagedBatchIds = async (req) => {
+  if (req.access?.enforced) return req.access.scopeBatchIds;
   if (isFullAccessRole(req)) return null;
   // Accounts, Principal, VP, Information Office, and other institution staff
   // manage students across all batches (e.g. shift batch).
@@ -218,6 +224,7 @@ export const getManagedBatchIds = async (req) => {
 };
 
 export const getManagedCourseIds = async (req) => {
+  if (req.access?.enforced) return req.access.scopeCourseIds;
   if (isFullAccessRole(req)) return null;
   if (isInstitutionAdmin(req)) return null;
   if (isTeacherRole(req)) {
@@ -228,6 +235,7 @@ export const getManagedCourseIds = async (req) => {
 };
 
 export const canAccessBatch = async (req, batchId) => {
+  if (req.access?.enforced) return req.access.scopeBatchIds === null || req.access.scopeBatchIds?.includes(String(batchId));
   if (!batchId) return false;
   if (isFullAccessRole(req)) return true;
   const allowed = await getManagedBatchIds(req);
@@ -236,6 +244,8 @@ export const canAccessBatch = async (req, batchId) => {
 };
 
 export const canAccessCourse = async (req, courseId, batchId) => {
+  if (req.access?.enforced) return (req.access.scopeCourseIds === null || req.access.scopeCourseIds?.includes(String(courseId))) &&
+    (!batchId || req.access.scopeBatchIds === null || req.access.scopeBatchIds?.includes(String(batchId)));
   if (!courseId) return false;
   if (isFullAccessRole(req)) return true;
   if (isTeacherRole(req)) {

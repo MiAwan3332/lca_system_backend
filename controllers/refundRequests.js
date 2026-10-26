@@ -368,7 +368,7 @@ export const processRefundRequest = async (req, res) => {
     }
 
     const paymentMethod = normalizeRefundPaymentMethod(
-      req.body?.payment_method || req.body?.refund_payment_method
+      req.body?.payment_method ?? req.body?.refund_payment_method ?? request.refund_payment_method
     );
     if (paymentMethod !== "Cash" && paymentMethod !== "Online Payment") {
       return res.status(400).json({

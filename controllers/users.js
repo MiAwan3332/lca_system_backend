@@ -1,4 +1,5 @@
 import User from "../models/users.js";
+import { repairDefaultAccess } from '../utils/defaultAccess.js';
 import CreationRequest from '../models/creationRequests.js';
 import { DEFAULT_STAFF_PASSWORD } from '../utils/creationDefaults.js';
 import { prepareCreation, commitCreation, creationResponse, tombstoneCreation } from '../utils/creationService.js';
@@ -24,7 +25,19 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const DEFAULT_AVATAR =
   "https://images.unsplash.com/photo-1619946794135-5bc917a27793?ixlib=rb-0.3.5&q=80&fm=jpg&crop=faces&fit=crop&h=200&w=200&s=b616b2c5b373a80ffc9636ba24f7a4a9";
 import Role from "../models/roles.js";
+import AccessAssignment from '../models/accessAssignment.js';
 import Permission from "../models/permissions.js";
+import { resolveLegacyLoginRole, loginRoleIdentity } from '../utils/legacyLoginRole.js';
+import { loadAccessContext, accessMode } from '../utils/accessRuntime.js';
+import { redactAccessFields } from '../utils/accessCatalog.js';
+
+async function resolveLoginRole(user) {
+  if (user.platformOwner) return { name: user.role || 'Platform Owner', permissions: [] };
+  if (!user.accessManaged) return loginRoleIdentity(user, await resolveLegacyLoginRole(user.role));
+  const roles = await AccessAssignment.distinct('role', { user: user._id, revokedAt: null,
+    $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] });
+  return loginRoleIdentity(user, await Role.findOne({ _id: { $in: roles }, managed: true, active: true }));
+}
 import { compressImage, uploadFile } from "../utils/fileStorage.js";
 import { JWT_EXPIRES_IN, JWT_COOKIE_MAX_AGE_MS } from "../utils/jwtConfig.js";
 import { logLoginActivity } from "../utils/activityLogger.js";
@@ -135,6 +148,7 @@ const findPanelistByPhone = async (rawPhone) => {
 /** Ensure Role document exists for qualifier logins. */
 const ensureQualifierRole = async () => {
   let role = await Role.findOne({
+    managed: { $ne: true },
     name: { $regex: /^qualifier$/i },
   });
   if (!role) {
@@ -150,6 +164,7 @@ const ensureQualifierRole = async () => {
 /** Ensure Role document exists for panelist logins. */
 const ensurePanelistRole = async () => {
   let role = await Role.findOne({
+    managed: { $ne: true },
     name: { $regex: /^panelist$/i },
   });
   if (!role) {
@@ -346,28 +361,7 @@ const resolveLoginUser = async ({ email, phone, identifier }) => {
 };
 
 export const register = async (req, res) => {
-  const { name, email, password, role } = req.body;
-  try {
-    const user = await User.findOne({ email });
-    if (user) {
-      return res.status(400).json({ message: "User already exists" });
-    }
-    const hashedPassword = await bcrypt.hash(password, 12);
-    const newUser = new User({
-      name,
-      email,
-      password: hashedPassword,
-      role,
-      avatar: DEFAULT_AVATAR,
-    });
-    await newUser.save();
-    const data = { user: { id: newUser._id } };
-    const authToken = jwt.sign(data, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
-
-    res.status(200).json({ authToken });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+  return res.status(403).json({ message: 'Public registration is disabled. Ask an authorized administrator to create an account.' });
 };
 
 const resolveTeacherLoginContext = async (user) => {
@@ -414,17 +408,19 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
+    await repairDefaultAccess(user);
     // Fetch the role associated with the user
-    let role = await Role.findOne({ name: user.role });
-    if (!role && String(user.role).toLowerCase() === "qualifier") {
+    if (user.disabledAt) return res.status(403).json({ message: 'Account is disabled' });
+    let role = await resolveLoginRole(user);
+    if (!role && !user.accessManaged && String(user.role).toLowerCase() === "qualifier") {
       role = await ensureQualifierRole();
     }
-    if (!role && String(user.role).toLowerCase() === "panelist") {
+    if (!role && !user.accessManaged && String(user.role).toLowerCase() === "panelist") {
       role = await ensurePanelistRole();
     }
 
     if (!role) {
-      return res.status(500).json({ message: "Role not found" });
+      return res.status(403).json({ message: "No active role is assigned. Contact an access administrator." });
     }
 
     // Fetch the permissions associated with the role
@@ -539,6 +535,13 @@ export const login = async (req, res) => {
       maxAge: JWT_COOKIE_MAX_AGE_MS,
     });
 
+    if (user.accessManaged || accessMode() === 'enforce') {
+      const context = await loadAccessContext(user);
+      studentData = redactAccessFields(studentData, context);
+      teacherData = redactAccessFields(teacherData, context);
+      qualifierData = redactAccessFields(qualifierData, context);
+      panelistData = redactAccessFields(panelistData, context);
+    }
     res.status(200).json({
       authToken,
       permissions: permissions.map((permission) => permission.name),
@@ -590,10 +593,12 @@ export const adminlogin = async (req, res) => {
     }
 
     // Fetch the role associated with the user
-    const role = await Role.findOne({ name: user.role });
+    await repairDefaultAccess(user);
+    if (user.disabledAt) return res.status(403).json({ message: 'Account is disabled' });
+    const role = await resolveLoginRole(user);
 
     if (!role) {
-      return res.status(500).json({ message: "Role not found" });
+      return res.status(403).json({ message: "No active role is assigned. Contact an access administrator." });
     }
 
     // Fetch the permissions associated with the role
@@ -639,6 +644,7 @@ export const adminlogin = async (req, res) => {
       maxAge: JWT_COOKIE_MAX_AGE_MS,
     });
 
+    if (user.accessManaged || accessMode() === 'enforce') teacherData = redactAccessFields(teacherData, await loadAccessContext(user));
     res.status(200).json({
       authToken,
       permissions: permissions.map((permission) => permission.name),
@@ -657,7 +663,7 @@ export const getUsers = async (req, res) => {
   try {
     if (isStudentRole(req)) {
       const userId = req.user?.user?.id;
-      const user = await User.findById(userId);
+      const user = await User.findById(userId).select('-password');
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -677,7 +683,7 @@ export const getUsers = async (req, res) => {
 
     if (isTeacherRole(req)) {
       const userId = req.user?.user?.id;
-      const user = await User.findById(userId);
+      const user = await User.findById(userId).select('-password');
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -736,6 +742,7 @@ export const getUsers = async (req, res) => {
       {
         page: parseInt(req.query.page),
         limit: parseInt(req.query.limit),
+        select: '-password',
       }
     );
     res.status(200).json(users);
@@ -762,6 +769,10 @@ export const addUser = async (req, res) => {
         message: "Contact number is required",
       });
     }
+
+    const selectedRole = await Role.findOne({ name: trimmedRole, managed: { $ne: true } });
+    if (!selectedRole || selectedRole.managed) return res.status(400).json({ message: 'Choose an existing account category; assign managed access roles in Access Management after creation' });
+    if (/secrate|super.?admin/i.test(trimmedRole) && !req.access?.owner) return res.status(403).json({ message: 'Protected administrator category' });
 
     const user = await User.findOne({ email: trimmedEmail });
     if (user) {
@@ -802,9 +813,12 @@ export const updateUser = async (req, res) => {
       return res.status(400).json({ message: "User does not exist" });
     }
 
+    if (user.platformOwner || /secrate|super.?admin/i.test(user.role || '')) return res.status(403).json({ message: 'Protected owner accounts must be maintained through the offline recovery procedure' });
+    if (password) return res.status(403).json({ message: 'Use the dedicated password-change procedure' });
+
     if (name !== undefined) user.name = String(name || "").trim();
     if (email !== undefined) user.email = String(email || "").trim().toLowerCase();
-    if (role !== undefined) user.role = String(role || "").trim();
+    if (role !== undefined && String(role).trim() !== user.role) return res.status(403).json({ message: 'Use Access Management to change role assignments' });
     if (phone !== undefined) {
       const trimmedPhone = String(phone || "").trim();
       if (!trimmedPhone) {
@@ -831,6 +845,7 @@ export const deleteUser = async (req, res) => {
     if (!user) {
       return res.status(400).json({ message: "User does not exist" });
     }
+    if (user.platformOwner || /secrate|super.?admin/i.test(user.role || '')) return res.status(403).json({ message: 'Protected platform administrator cannot be deleted through this endpoint' });
     if (user.creation_pending) return res.status(409).json({ message: 'Account creation must finish before deletion. Inspect its processing status.' });
     const creation = user.creation_request ? await CreationRequest.findById(user.creation_request).select('state') : null;
     if (creation && !['complete', 'deleted'].includes(creation.state)) return res.status(409).json({ message: 'Creation recovery must finish before account deletion.' });
@@ -849,7 +864,7 @@ export const getUser = async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    const user = await User.findById(id);
+    const user = await User.findById(id).select('-password');
     if (!user) {
       return res.status(400).json({ message: "User does not exist" });
     }
