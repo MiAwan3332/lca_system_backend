@@ -88,8 +88,17 @@ router.put('/defaults', requireAccess('access.manage'), run(async (req, res) => 
     { $set: { roles }, $inc: { revision: 1 } }, { upsert: !previous, new: true });
   if (!result) throw fail(409, 'Defaults changed. Reload.'); res.json(result);
 }));
-router.get('/roles', requireAccess('access.read'), run(async (req, res) => res.json(await page(Role, { managed: true }, req))));
+router.get('/roles', requireAccess('access.read'), run(async (req, res) => {
+  const query = String(req.query.query || '').trim().slice(0, 100).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const result = await page(Role, { managed: true, ...(query ? { name: new RegExp(query, 'i') } : {}) }, req);
+  const counts = await Assignment.aggregate([
+    { $match: { role: { $in: result.docs.map((role) => role._id) }, revokedAt: null, $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] } },
+    { $group: { _id: { role: '$role', user: '$user' } } }, { $group: { _id: '$_id.role', count: { $sum: 1 } } },
+  ]);
+  res.json({ ...result, docs: result.docs.map((role) => ({ ...role, memberCount: counts.find((item) => String(item._id) === String(role._id))?.count || 0 })) });
+}));
 router.get('/roles/:id', requireAccess('access.read'), run(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw fail(400, 'Invalid role');
   const role = await Role.findOne({ _id: req.params.id, managed: true }).lean();
   if (!role) throw fail(404, 'Role not found'); res.json(role);
 }));
@@ -102,17 +111,50 @@ router.get('/scopes/:type', requireAccess('access.assign'), run(async (req, res)
 router.get('/users', requireAccess('access.assign'), run(async (req, res) => {
   const query = String(req.query.query || '').trim().slice(0, 100).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const filter = query ? { $or: [{ name: new RegExp(query, 'i') }, { email: new RegExp(query, 'i') }] } : {};
-  res.json(await page(User, filter, req, safeUser));
+  const result = await page(User, filter, req, safeUser);
+  const assignments = await Assignment.find({ user: { $in: result.docs.map((user) => user._id) }, revokedAt: null,
+    $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }).populate('role', 'name active code').lean();
+  res.json({ ...result, docs: result.docs.map((user) => ({ ...user, accessRoles: assignments.filter((item) => String(item.user) === String(user._id) && item.role?.active).map((item) => ({ _id: item.role._id, name: item.role.name, code: item.role.code })) })) });
+}));
+router.get('/users/:id/effective', requireAccess('access.assign'), run(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw fail(400, 'Invalid user');
+  const user = await User.findById(req.params.id).select(safeUser).lean();
+  if (!user) throw fail(404, 'User not found');
+  const context = await loadAccessContext(user, { repair: false });
+  res.json({ user, managed: context.enforced, owner: context.owner, disabled: context.disabled, grants: context.grants, roles: context.roles });
 }));
 router.get('/assignments/:userId', requireAccess('access.assign'), run(async (req, res) => {
-  res.json(await page(Assignment, { user: req.params.userId, revokedAt: null }, req, undefined, { path: 'role', select: 'name code active revision' }));
+  if (!mongoose.isValidObjectId(req.params.userId)) throw fail(400, 'Invalid user');
+  const result = await page(Assignment, { user: req.params.userId, revokedAt: null }, req, undefined, { path: 'role', select: 'name code active revision' });
+  const batchIds = result.docs.flatMap((item) => item.batchIds), courseIds = result.docs.flatMap((item) => item.courseIds);
+  const [batches, courses] = await Promise.all([
+    mongoose.models.Batch.find({ _id: { $in: batchIds } }).select('_id name').lean(),
+    mongoose.models.Course.find({ _id: { $in: courseIds } }).select('_id name').lean(),
+  ]);
+  res.json({ ...result, docs: result.docs.map((item) => ({ ...item,
+    batches: item.batchIds.map((id) => ({ _id: id, name: batches.find((batch) => String(batch._id) === String(id))?.name || 'Unavailable batch' })),
+    courses: item.courseIds.map((id) => ({ _id: id, name: courses.find((course) => String(course._id) === String(id))?.name || 'Unavailable course' })),
+  })) });
 }));
-router.get('/audit', requireAccess('access.audit'), run(async (req, res) => res.json(await page(Audit, {}, req, undefined, { path: 'actor', select: 'name email' }))));
+router.get('/audit', requireAccess('access.audit'), run(async (req, res) => {
+  const result = await page(Audit, {}, req, undefined, { path: 'actor', select: 'name email' });
+  const sides = result.docs.flatMap((item) => [item.before, item.after]).filter(Boolean);
+  const validIds = (values) => [...new Set(values.filter((value) => mongoose.isValidObjectId(value)).map(String))];
+  const roleIds = validIds(sides.flatMap((side) => [side.role, ...(!Array.isArray(side.roles) ? Object.values(side.roles || {}) : [])]));
+  const userIds = validIds(sides.map((side) => side.user));
+  const [roles, users] = await Promise.all([Role.find({ _id: { $in: roleIds } }).select('_id name').lean(), User.find({ _id: { $in: userIds } }).select('_id name').lean()]);
+  const named = (side) => side ? { ...side,
+    ...(side.role ? { roleName: roles.find((role) => String(role._id) === String(side.role))?.name || 'Unavailable role' } : {}),
+    ...(side.user ? { userName: users.find((user) => String(user._id) === String(side.user))?.name || 'Unavailable person' } : {}),
+    ...(!Array.isArray(side.roles) && side.roles ? { defaultNames: Object.fromEntries(Object.entries(side.roles).map(([type, id]) => [type, roles.find((role) => String(role._id) === String(id))?.name || 'Unavailable role'])) } : {}),
+  } : side;
+  res.json({ ...result, docs: result.docs.map((item) => ({ ...item, before: named(item.before), after: named(item.after) })) });
+}));
 router.post('/explain', requireAccess('access.explain'), run(async (req, res) => {
   if (!permissionKeys.has(req.body.permission)) throw fail(400, 'Unknown permission');
   const user = await User.findById(req.body.userId).select('-password').lean();
   if (!user) throw fail(404, 'User not found');
-  const context = await loadAccessContext(user);
+  const context = await loadAccessContext(user, { repair: false });
   res.json({ ...evaluateAccess(context, req.body.permission, req.body.resource || {}), enforced: context.enforced,
     roles: context.roles, note: 'This explains the supplied record context; actual operations also enforce ownership and business invariants.' });
 }));

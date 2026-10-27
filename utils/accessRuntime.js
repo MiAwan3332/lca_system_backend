@@ -12,8 +12,8 @@ import { scopedModelFilters } from './accessScopeAdapters.js';
 export const accessMode = () => ['legacy', 'observe', 'enforce'].includes(process.env.AUTHORIZATION_MODE) ? process.env.AUTHORIZATION_MODE : 'legacy';
 const denied = (message = 'Permission denied') => Object.assign(new Error(message), { status: 403, code: 'ACCESS_DENIED' });
 const objectId = (id) => new mongoose.Types.ObjectId(String(id));
-export async function loadAccessContext(user) {
-  if (!user.accessManaged && !user.platformOwner && accessMode() === 'enforce') await repairDefaultAccess(user);
+export async function loadAccessContext(user, { repair = true } = {}) {
+  if (repair && !user.accessManaged && !user.platformOwner && accessMode() === 'enforce') await repairDefaultAccess(user);
   const owner = Boolean(user.platformOwner || (accessMode() !== 'enforce' && !user.accessManaged && legacyOwner(user.role)));
   const resolveGrants = !owner && (user.accessManaged || accessMode() !== 'legacy');
   const assignments = resolveGrants ? await Assignment.find({ user: user._id, revokedAt: null }).lean() : [];
