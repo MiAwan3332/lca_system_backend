@@ -35,7 +35,7 @@ const qualifierOps = ['getQualifiers', 'getQualifier', 'addQualifier', 'bulkImpo
 const financialFields = accessCatalog.fieldGroups.financial.filter((name) => !/discount|salary|expense|refund|profit|revenue|\bnet\b/i.test(name));
 const writableFinance = accessCatalog.fieldGroups.financial.filter((name) => !/discount|salary/i.test(name));
 const admission = () => [
-  ...baseline(), field('contact', 'write'), ...googleOwn(), ...operation('students', [...studentReads, ...admissionCommands]),
+  ...baseline(), field('contact', 'write'), ...googleOwn(), ...operation('users', ['getFeeCollectors']), ...operation('students', [...studentReads, ...admissionCommands]),
   ...operation('batches', batchReads), ...operation('courses', ['getCourses', 'getCourse']),
   ...operation('teachers', ['getTeachers', 'getTeacher']),
   ...operation('enrollments', ['getEnrollments', 'getEntrollmentbyStudent', 'createEnrollment']),
@@ -54,7 +54,7 @@ const oversight = () => [
   ...baseline(), field('contact', 'write'), ...googleOwn(), ...operation('students', [...studentReads, 'lookupStudentIdentity', 'addStudent', 'updateStudent',
     'basicStudentUpdate', 'bulkImportStudents', 'getCreationByKey', 'getCreationStatus', 'retryCreation', 'toggleStudentStatus',
     'transferStudentBatch', 'getBatchShifts', 'getPendingFeeSlip', 'getOrCreatePendingFeeSlip', 'latestFeeReceipt', 'listEvidencePayments']),
-  ...operation('users', ['getUsers', 'addUser', 'updateUser', 'deleteUser', 'getCreationByKey', 'getCreationStatus', 'retryCreation']),
+  ...operation('users', ['getUsers', 'getFeeCollectors', 'addUser', 'updateUser', 'deleteUser', 'getCreationByKey', 'getCreationStatus', 'retryCreation']),
   ...operation('batches', batchReads), ...teachingReads(), ...operation('qualifiers', qualifierOps),
   ...operation('panelists', ['getPanelists', 'getPanelist', 'addPanelist', 'updatePanelist']),
   ...operation('interview-panels', ['getInterviewPanels', 'getInterviewPanel', 'addInterviewPanel', 'updateInterviewPanel',

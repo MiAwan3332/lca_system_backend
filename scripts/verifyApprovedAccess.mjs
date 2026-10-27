@@ -83,10 +83,14 @@ try {
     assert.equal((await request(user, 'POST', '/students/add', { paying_now: '1' })).status, 403); checks++;
   }
   for (const user of [ceo, principal, admissions, finance]) {
+    const collectors = await request(user, 'GET', '/users/fee-collectors?limit=1');
+    assert.equal(collectors.status, 200); assert.equal(collectors.data.docs.length, 1);
+    assert.deepEqual(Object.keys(collectors.data.docs[0]).sort(), ['_id', 'name']); checks++;
     for (const path of ['/students/students/graph', '/students/students/Batchesgraph']) {
       assert.equal((await request(user, 'GET', path)).status, 200); checks++;
     }
   }
+  assert.equal((await request(learner, 'GET', '/users/fee-collectors')).status, 403); checks++;
   let result = await request(teacher, 'GET', '/students'); assert.equal(result.status, 200); assert.equal(result.data.docs.length, 1);
   assert.equal(result.data.docs[0].cnic, undefined); assert.equal(result.data.docs[0].cnic_image, undefined); checks++;
   result = await request(learner, 'GET', '/students'); assert.equal(result.status, 200); assert.equal(result.data.docs.length, 1); assert.equal(result.data.docs[0]._id, String(sa._id)); checks++;

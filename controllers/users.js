@@ -31,6 +31,7 @@ import { resolveLegacyLoginRole, loginRoleIdentity } from '../utils/legacyLoginR
 import { loadAccessContext, accessMode } from '../utils/accessRuntime.js';
 import { redactAccessFields } from '../utils/accessCatalog.js';
 import { legacyAccountType } from '../utils/accessPolicy.js';
+import { getPagination } from '../utils/pagination.js';
 
 async function resolveLoginRole(user) {
   if (user.platformOwner) return { name: user.role || 'Platform Owner', permissions: [] };
@@ -657,6 +658,17 @@ export const adminlogin = async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
+};
+
+export const getFeeCollectors = async (req, res) => {
+  if (!req.access?.owner && req.access?.accountType !== 'staff') return res.status(403).json({ message: 'Staff finance access is required' });
+  try {
+    const { page, limit } = getPagination({ page: req.query.page, limit: req.query.limit });
+    const filter = { accountType: 'staff', creation_pending: { $ne: true } };
+    const query = String(req.query.query || '').trim().slice(0, 100);
+    if (query) filter.name = { $regex: query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+    return res.json(await User.paginate(filter, { page, limit, select: '_id name', sort: { name: 1, _id: 1 }, lean: true, leanWithId: false }));
+  } catch { return res.status(500).json({ message: 'Unable to load fee collectors' }); }
 };
 
 export const getUsers = async (req, res) => {

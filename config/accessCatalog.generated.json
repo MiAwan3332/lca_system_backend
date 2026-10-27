@@ -12,6 +12,15 @@
     },
     {
       "method": "GET",
+      "path": "/users/fee-collectors",
+      "permission": "users.get.fee.collectors",
+      "resource": "users",
+      "handler": "getFeeCollectors",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
       "path": "/users/by-key/:key",
       "permission": "users.get.creation.by.key",
       "resource": "users",
@@ -2437,6 +2446,12 @@
       "key": "users.get.users",
       "group": "users",
       "label": "get Users",
+      "type": "action"
+    },
+    {
+      "key": "users.get.fee.collectors",
+      "group": "users",
+      "label": "get Fee Collectors",
       "type": "action"
     },
     {
