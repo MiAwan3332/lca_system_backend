@@ -30,6 +30,7 @@ import Permission from "../models/permissions.js";
 import { resolveLegacyLoginRole, loginRoleIdentity } from '../utils/legacyLoginRole.js';
 import { loadAccessContext, accessMode } from '../utils/accessRuntime.js';
 import { redactAccessFields } from '../utils/accessCatalog.js';
+import { legacyAccountType } from '../utils/accessPolicy.js';
 
 async function resolveLoginRole(user) {
   if (user.platformOwner) return { name: user.role || 'Platform Owner', permissions: [] };
@@ -814,6 +815,8 @@ export const updateUser = async (req, res) => {
     }
 
     if (user.platformOwner || /secrate|super.?admin/i.test(user.role || '')) return res.status(403).json({ message: 'Protected owner accounts must be maintained through the offline recovery procedure' });
+    if (req.access?.enforced && !req.access.owner && (user.accountType || legacyAccountType(user.role)) !== 'staff' && String(user._id) !== req.access.userId)
+      return res.status(403).json({ message: 'Use the dedicated student/teacher/qualifier profile workflow for linked accounts' });
     if (password) return res.status(403).json({ message: 'Use the dedicated password-change procedure' });
 
     if (name !== undefined) user.name = String(name || "").trim();
@@ -846,6 +849,8 @@ export const deleteUser = async (req, res) => {
       return res.status(400).json({ message: "User does not exist" });
     }
     if (user.platformOwner || /secrate|super.?admin/i.test(user.role || '')) return res.status(403).json({ message: 'Protected platform administrator cannot be deleted through this endpoint' });
+    if (req.access?.enforced && !req.access.owner && (user.accountType || legacyAccountType(user.role)) !== 'staff')
+      return res.status(403).json({ message: 'Linked learning accounts cannot be deleted through staff management' });
     if (user.creation_pending) return res.status(409).json({ message: 'Account creation must finish before deletion. Inspect its processing status.' });
     const creation = user.creation_request ? await CreationRequest.findById(user.creation_request).select('state') : null;
     if (creation && !['complete', 'deleted'].includes(creation.state)) return res.status(409).json({ message: 'Creation recovery must finish before account deletion.' });

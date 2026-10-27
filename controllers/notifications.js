@@ -1,4 +1,5 @@
 import Notification from "../models/notifications.js";
+import { accessContext } from '../utils/accessContext.js';
 import moment from "moment-timezone";
 import {
   isStudentRole,
@@ -39,9 +40,9 @@ const buildRecipientFilter = async (req) => {
 
 export const getNotifications = async (req, res) => {
   try {
-    processInstallmentReminders().catch(() => {});
+    accessContext.run(undefined, () => processInstallmentReminders()).catch(() => {});
     if (isInstitutionAdmin(req)) {
-      processDailyFeeDueReportNotifications().catch(() => {});
+      accessContext.run(undefined, () => processDailyFeeDueReportNotifications()).catch(() => {});
     }
 
     const baseFilter = await buildRecipientFilter(req);

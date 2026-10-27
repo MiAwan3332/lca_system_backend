@@ -169,7 +169,7 @@ try {
   const panelistContext = await loadAccessContext(panelistUser.toObject());
   assert.equal(panelistContext.panelistId, String(ownPanelist._id));
   const ownFilters = await buildModelFilters(panelistContext, { resource: 'panelists', handler: 'getPanelists' }, [{ scope: 'own' }]);
-  assert.equal(String(ownFilters.Panelist.$or[0]._id), String(ownPanelist._id)); checks++;
+  assert.equal(String(ownFilters.Panelist._id), String(ownPanelist._id)); checks++;
   result = await request(staff, 'GET', '/access/account-categories'); assert.equal(result.status, 403); checks++;
   await Role.updateOne({ _id: role._id }, { $push: { grants: { permission: 'users.add.user', scope: 'all' } } });
   result = await request(staff, 'GET', '/access/account-categories');

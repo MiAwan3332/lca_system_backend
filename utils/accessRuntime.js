@@ -7,6 +7,7 @@ import { accessContext } from './accessContext.js';
 import { creationAudit } from './creationAudit.js';
 import { accessCatalog, classifyAccessRoute, FIELD_GROUPS, canAccessField, redactAccessFields } from './accessCatalog.js';
 import { effectiveGrants, permissionGrants, evaluateAccess, legacyAccountType, legacyOwner, legacyStaffManager } from './accessPolicy.js';
+import { scopedModelFilters } from './accessScopeAdapters.js';
 
 export const accessMode = () => ['legacy', 'observe', 'enforce'].includes(process.env.AUTHORIZATION_MODE) ? process.env.AUTHORIZATION_MODE : 'legacy';
 const denied = (message = 'Permission denied') => Object.assign(new Error(message), { status: 403, code: 'ACCESS_DENIED' });
@@ -49,8 +50,12 @@ export async function loadAccessContext(user) {
   for (const [category, modelName, key] of [['qualifier', 'Qualifier', 'qualifierId'], ['panelist', 'Panelist', 'panelistId']]) {
     if (!context.enforced && accessMode() === 'legacy') continue;
     if (context.accountType !== category || !mongoose.models[modelName] || !String(user.email || '').trim()) continue;
-    const profiles = await mongoose.models[modelName].find({ email: user.email }).select('_id').limit(2).lean();
-    if (profiles.length === 1) context[key] = String(profiles[0]._id);
+    const profiles = await mongoose.models[modelName].find({ email: user.email }).select('_id batch is_active').limit(2).lean();
+    if (profiles.length === 1) {
+      context[key] = String(profiles[0]._id);
+      if (profiles[0].is_active === false) context.disabled = true;
+      if (category === 'qualifier' && profiles[0].batch) context.assignedBatchIds = [String(profiles[0].batch)];
+    }
   }
   return context;
 }
@@ -67,6 +72,7 @@ const primaryModels = {
 };
 export async function buildModelFilters(context, route, grants) {
   if (grants.some((grant) => grant.scope === 'all')) return {};
+  if (context.accountType !== 'staff' || grants.every((grant) => grant.scope === 'own')) return scopedModelFilters(context, route, grants);
   if (!primaryModels[route.resource]) throw denied('This operation currently requires an all-records grant');
   if (/Archive|Deleted/.test(route.handler) || route.handler === 'latestFeeReceipt' || (route.resource === 'refund-requests' && grants.some((grant) => grant.scope !== 'own'))) {
     throw denied('Historical archives and cross-batch snapshots require an all-records grant');
@@ -162,6 +168,10 @@ export async function authorizeApplicationRequest(req, res, next) {
   context.scopeCourseIds = all ? null : [...new Set(grants.flatMap((grant) => grant.scope === 'selected' ? grant.courseIds : context.assignedCourseIds))];
   context.modelFilters = await buildModelFilters(context, route, grants);
   if (!['GET', 'HEAD'].includes(req.method)) {
+    if (Number(req.body?.paying_now ?? req.body?.payingNow ?? 0) > 0 && !context.owner &&
+      !permissionGrants(context, 'fees.pay.fee').length && !permissionGrants(context, 'fees.collect.pending.fee').length) {
+      throw denied('A fee-collection permission is required to record an admission payment');
+    }
     if (Object.keys(req.body || {}).some((key) => accessCatalog.readOnlyFields.includes(key))) throw denied('Server-managed record metadata cannot be changed through this operation');
     for (const key of [...Object.keys(req.body || {}), ...Object.keys(req.files || {})]) {
       const group = Object.entries(FIELD_GROUPS).find(([, fields]) => fields.has(key))?.[0] || 'general';
@@ -169,23 +179,29 @@ export async function authorizeApplicationRequest(req, res, next) {
     }
     const amount = Number(req.body?.amount ?? req.body?.paymentAmount ?? req.body?.requested_amount);
     if (Number.isFinite(amount) && !grants.some((grant) => grant.maxAmount == null || Math.abs(amount) <= grant.maxAmount)) throw denied('Amount exceeds your authorization limit');
-    const requestedBatch = req.body?.batch || req.body?.batchId;
+    const requestedBatch = req.body?.batch || req.body?.batchId || req.body?.batch_id;
     if (requestedBatch && !grants.some((grant) => grant.scope === 'all' ||
-      (grant.scope === 'assigned' ? context.assignedBatchIds : grant.batchIds || []).includes(String(requestedBatch)))) throw denied('Destination batch is outside your scope');
-    const requestedCourse = req.body?.course || req.body?.courseId;
+      (['assigned', 'own'].includes(grant.scope) ? context.assignedBatchIds : grant.batchIds || []).includes(String(requestedBatch)))) throw denied('Destination batch is outside your scope');
+    const requestedCourse = req.body?.course || req.body?.courseId || req.body?.course_id;
     if (requestedBatch || requestedCourse) {
-      if (!evaluateAccess(context, route.permission, { batchId: requestedBatch, courseId: requestedCourse,
+      if (requestedCourse && !grants.some((grant) => grant.scope === 'all' || (['own', 'assigned'].includes(grant.scope) ? context.assignedCourseIds : grant.courseIds || []).includes(String(requestedCourse)))) throw denied('Destination course is outside your scope');
+      if (!evaluateAccess(context, route.permission, { batchId: requestedBatch, courseId: requestedCourse, ownerId: context.userId,
         amount: Number.isFinite(amount) ? amount : undefined }).allowed) throw denied('The batch/course combination is outside your grant');
     }
     const routeParts = route.path.split('/'), actualParts = path.split('/');
     const params = Object.fromEntries(routeParts.flatMap((part, index) => part.startsWith(':') ? [[part.slice(1), actualParts[index]]] : []));
-    const targetId = params.studentId || params.student_id || params.id || params.assignmentId || params.timetableId || params.attemptId ||
+    const targetId = params.studentId || params.student_id || params.id || params.assignmentId || params.timetableId || params.attemptId || params.batchId ||
+      (route.handler === 'createAttendence' ? req.body?.student_id : null) ||
       (route.handler === 'changeAvatar' ? req.body?.id : null);
     if (targetId && mongoose.isValidObjectId(targetId)) {
       const models = primaryModels[route.resource] || [];
       let modelName = (params.studentId || params.student_id) ? 'Student' : models[0];
+      if (route.handler === 'createAttendence') modelName = 'Student';
+      if (route.resource === 'google') modelName = route.handler === 'syncBatchClassroomCourse' ? 'Batch' : route.handler === 'syncAssignmentCoursework' ? 'Assignment' : 'TimeTable';
       if (route.handler.toLowerCase().includes('submission')) modelName = 'AssignmentSubmission';
       if (route.handler.toLowerCase().includes('attempt')) modelName = route.resource === 'quiz' ? 'QuizAttempt' : 'CourseQuizAttempt';
+      if (route.handler === 'startCourseQuizAttempt') modelName = 'CourseQuiz';
+      if (route.handler === 'saveCourseQuizAnswer') modelName = 'CourseQuizAttempt';
       const model = mongoose.models[modelName];
       if (model) {
         const record = await accessContext.run(context, () => model.findById(targetId).lean());
@@ -195,7 +211,9 @@ export async function authorizeApplicationRequest(req, res, next) {
         if (!grants.some((grant) => (!grant.noSelfApproval || (createdBy && String(createdBy) !== context.userId)) &&
           (grant.maxAmount == null || !Number.isFinite(recordAmount) || Math.abs(recordAmount) <= grant.maxAmount))) throw denied('Approval constraints are not satisfied');
       } else if (!all) throw denied('This operation requires an explicit record-scope adapter');
-    } else if (!all && route.handler !== 'changePassword' && (!requestedBatch || !mongoose.models[primaryModels[route.resource]?.[0]]?.schema.path('batch'))) {
+    } else if (!all && !['changePassword', 'markAllAsRead', 'disconnectGoogle'].includes(route.handler) &&
+      !(route.handler === 'startQuiz' && context.studentId && requestedCourse) &&
+      (!requestedBatch || !mongoose.models[primaryModels[route.resource]?.[0]]?.schema.path('batch'))) {
       throw denied('Scoped creation requires an explicit destination batch; this operation needs an all-records grant');
     }
     if (route.resource === 'users' && ['role', 'accountType', 'accessManaged', 'platformOwner', 'disabledAt'].some((key) => req.body?.[key] !== undefined) && route.handler !== 'addUser') {

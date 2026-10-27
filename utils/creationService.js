@@ -277,6 +277,7 @@ async function authorizedRequest(req, kind) {
     ...(req.query?.request_id ? { _id: req.query.request_id } : {}),
     ...(req.get?.('Idempotency-Key') ? { aliases: req.get('Idempotency-Key') } : {}) }).sort({ createdAt: -1 });
   if (!request) return null;
+    if (req.access?.enforced && req.access.routeAllowed) return request;
   const actor = await User.findById(req.user.user.id).select('role').lean();
   const role = String(actor?.role || '').trim().toLowerCase();
   const schoolAdministrator = kind === 'student' && ['admin', 'administrator'].includes(role);

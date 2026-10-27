@@ -1,4 +1,5 @@
 import Student from "../models/students.js";
+import { permissionGrants } from '../utils/accessPolicy.js';
 import { stageCreationFiles, prepareCreation, commitCreation, creationResponse } from '../utils/creationService.js';
 import CreationRequest from '../models/creationRequests.js';
 import { pendingStudentDues, normalizedStudentPhone } from '../utils/studentIdentity.js';
@@ -657,6 +658,12 @@ export const bulkImportStudents = async (req, res) => {
     }
 
     const actionUserId = req.user?.user?.id;
+    if (req.access?.enforced && !req.access.owner) {
+      const collecting = students.some((row) => Number(row?.paid_fee) > 0);
+      const discounting = students.some((row) => Number.isFinite(Number(row?.total_fee)) && Number(row.total_fee) < Number(batchRecord.batch_fee));
+      if (collecting && !permissionGrants(req.access, 'fees.pay.fee').length) return res.status(403).json({ message: 'Importing paid amounts requires fee-collection permission' });
+      if (discounting && !permissionGrants(req.access, 'fees.discount.fee').length) return res.status(403).json({ message: 'Importing a discounted fee requires discount authority' });
+    }
     const results = {
       imported: 0,
       failed: [],

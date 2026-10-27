@@ -30,10 +30,17 @@ export function redactAccessFields(value, context) {
   if (Array.isArray(value)) return value.map((item) => redactAccessFields(item, context));
   if (!value || typeof value !== 'object' || value instanceof Date || value._bsontype || Buffer.isBuffer(value)) return value;
   const source = typeof value.toObject === 'function' ? value.toObject() : value;
+  const ownIds = [context.userId, context.studentId, context.teacherId, context.qualifierId, context.panelistId].filter(Boolean).map(String);
+  const recordOwner = source.user || source.recipient_user || source.student;
+  const owned = recordOwner && ownIds.includes(String(recordOwner._id || recordOwner));
+  const ownGoogleStatus = context.route?.resource === 'google' && context.route?.handler === 'getGoogleStatus';
+  const foreignRecord = source._id && !owned && !ownGoogleStatus && !ownIds.includes(String(source._id)) && ['student', 'teacher', 'qualifier', 'panelist'].includes(context.accountType);
   const result = {};
   for (const [key, child] of Object.entries(source)) {
     if (SECRET_FIELDS.test(key)) continue;
     const group = !STRUCTURAL_FIELDS.has(key) && (Object.entries(FIELD_GROUPS).find(([, fields]) => fields.has(key))?.[0] || 'general');
+    if (foreignRecord && ['contact', 'identity'].includes(group) && !(context.accountType === 'teacher' && ['phone', 'email'].includes(key))) continue;
+    if (foreignRecord && group === 'evidence' && ['phone', 'email', 'cnic', 'resume'].some((field) => Object.hasOwn(source, field)) && !['image', 'avatar', 'photo'].includes(key)) continue;
     if (group && !canAccessField(context, group, key)) continue;
     result[key] = typeof child === 'string' ? privateMediaUrl(child, context) : redactAccessFields(child, context);
   }
