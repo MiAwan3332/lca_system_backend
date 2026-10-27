@@ -82,6 +82,11 @@ try {
     assert.equal((await request(user, 'POST', '/fees/collect-pending/' + sa._id, {})).status, 403); checks++;
     assert.equal((await request(user, 'POST', '/students/add', { paying_now: '1' })).status, 403); checks++;
   }
+  for (const user of [ceo, principal, admissions, finance]) {
+    for (const path of ['/students/students/graph', '/students/students/Batchesgraph']) {
+      assert.equal((await request(user, 'GET', path)).status, 200); checks++;
+    }
+  }
   let result = await request(teacher, 'GET', '/students'); assert.equal(result.status, 200); assert.equal(result.data.docs.length, 1);
   assert.equal(result.data.docs[0].cnic, undefined); assert.equal(result.data.docs[0].cnic_image, undefined); checks++;
   result = await request(learner, 'GET', '/students'); assert.equal(result.status, 200); assert.equal(result.data.docs.length, 1); assert.equal(result.data.docs[0]._id, String(sa._id)); checks++;

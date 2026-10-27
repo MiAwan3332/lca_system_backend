@@ -20,7 +20,7 @@ const baseline = () => [
   field('credentials', 'write', ['currentPassword', 'newPassword', 'password']), output('files', 'download'),
 ];
 const googleOwn = () => operation('google', ['getGoogleStatus', 'getGoogleConnectUrl', 'disconnectGoogle'], 'own');
-const studentReads = ['getStudents', 'getStudent', 'getStudentsByBatch', 'getStudentPaymentLogs', 'getStudentHistory', 'getQrCode', 'checkStudentFields'];
+const studentReads = ['getStudents', 'getStudent', 'getStudentsByBatch', 'getStudentPaymentLogs', 'getStudentHistory', 'getQrCode', 'checkStudentFields', 'getStudentsGraph', 'getStudentsByBatchesGraph'];
 const admissionCommands = ['lookupStudentIdentity', 'addStudent', 'updateStudent', 'basicStudentUpdate', 'bulkImportStudents',
   'editPaymentEvidence', 'getCreationByKey', 'getCreationStatus', 'retryCreation', 'ensureStudentRollNumber',
   'getPendingFeeSlip', 'getOrCreatePendingFeeSlip', 'latestFeeReceipt', 'listEvidencePayments'];
