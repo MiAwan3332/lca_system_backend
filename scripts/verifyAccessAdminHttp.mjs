@@ -105,7 +105,7 @@ try {
   result = await request(people[1], 'GET', '/access/me');
   assert.deepEqual(result.data.communication.processes.sort(), ['qualifier_welcome', 'student_admission']); assert.equal(result.data.communication.savedTemplatesOnly, true);
   result = await request(people[1], 'POST', `/users/update/${people[1]._id}`, { name: 'Staff 2', discount_amount: 5 });
-  assert.equal(result.status, 403); assert.match(result.data.message, /Discounts must be applied by the protected owner/); check('the copied role enforces the same safeguards as the original');
+  assert.equal(result.status, 403); assert.match(result.data.message, /Discount permission/); check('the copied role enforces the same safeguards as the original');
 
   const deskB = await Role.create({ name: 'Desk copy B', code: 'test-desk-b', managed: true, grants: desk.grants });
   result = await request(owner, 'POST', '/access/assignments/bulk', { roleId: deskB._id, userIds: [people[0]._id], replaceRoleIds: [copy._id], reason });

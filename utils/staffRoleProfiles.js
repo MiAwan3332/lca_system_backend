@@ -66,7 +66,7 @@ const deskGeneral = ['student_name', 'batch_name', 'class_time', 'authorized_by'
 const accountGeneral = ['payment_log_id', 'receipt_id', 'student_name', 'batch_name', 'class_time', 'authorized_by', 'slip_type', 'verify_base_url', 'name', 'student_id', 'studentId', 'batch', 'batch_id', 'description', 'title', 'category', 'next_installment_date', 'reason',
   'payment_option', 'source', 'template_key', 'template_id', 'audience', 'body', 'recipients', 'vars', 'notification_id', 'keep_evidence', 'replace_evidence'];
 
-// User-approved separation of duties. Refund/expense approvals and direct discounts remain with the owner.
+// Initial role templates omit approvals and discounts; administrators can grant them through role permissions.
 export function staffRoleProfiles() {
   const commonReads = [field('general', 'read'), field('contact', 'read'), field('identity', 'read'),
     ...ops('announcements', ['getAnnouncements', 'getAnnouncementById', 'markAnnouncementAsRead']), ...ops('statistics', ['getStatistics'])];
@@ -119,9 +119,9 @@ export function staffRoleProfiles() {
     ...ops('complaints', ['getComplaintMeta']), ...ops('complaints', ['getComplaints', 'getComplaintById', 'createComplaint'], 'own'),
     ...messageOps(), ...output('admission-slips', 'print'), ...output('students', 'print'), ...output('qualifiers', 'print')];
   return [
-    { code: STAFF_ROLE_CODES.principle, name: 'Principle', description: 'Institution-wide oversight and academic operations. Owner retains approvals, discounts and access administration.', grants: unique(principle) },
-    { code: STAFF_ROLE_CODES.vice, name: 'Vice Principle', description: 'Institution-wide academic operations, student administration and financial summaries; no collections or approvals.', grants: unique(academic) },
-    { code: STAFF_ROLE_CODES.accounts, name: 'Account Officer', description: 'Institution-wide collections, receipts, financial reporting, pending expenses and approved refund payouts; no approvals or ledger rewrites.', grants: unique(accounts) },
+    { code: STAFF_ROLE_CODES.principle, name: 'Principle', description: 'Institution-wide oversight and academic operations. Approvals and discounts follow assigned permissions.', grants: unique(principle) },
+    { code: STAFF_ROLE_CODES.vice, name: 'Vice Principle', description: 'Institution-wide academic operations, student administration and financial summaries; no collections by default. Approvals and discounts follow assigned permissions.', grants: unique(academic) },
+    { code: STAFF_ROLE_CODES.accounts, name: 'Account Officer', description: 'Institution-wide collections, receipts, financial reporting, pending expenses and approved refund payouts; no approvals by default and no ledger rewrites.', grants: unique(accounts) },
     { code: STAFF_ROLE_CODES.desk, name: 'Information Desk', description: 'Institution-wide admissions, profile information, schedules and interview bookings; no collections or financial changes.', grants: unique(desk) },
   ];
 }
@@ -134,7 +134,7 @@ export function staffProfileCodes(context) {
 // Plain-language summary of the safeguards each profile adds on top of its permissions (see staffRoleGuards.js).
 export function staffProfileRules() {
   const slips = 'Admission slips are issued from the saved student record';
-  const discounts = 'Cannot apply discounts (owner only)';
+  const discounts = 'Approvals and discounts follow the permissions and limits assigned to this role';
   return [
     { code: STAFF_ROLE_CODES.principle, name: staffProfileNames[STAFF_ROLE_CODES.principle], rules: [discounts, 'WhatsApp: custom, admission, qualifier welcome and fee messages', slips] },
     { code: STAFF_ROLE_CODES.vice, name: staffProfileNames[STAFF_ROLE_CODES.vice], rules: [discounts, 'WhatsApp: custom messages only', slips] },

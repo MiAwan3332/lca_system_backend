@@ -9,6 +9,7 @@ import { accessCatalog, classifyAccessRoute, FIELD_GROUPS, canAccessField, redac
 import { effectiveGrants, permissionGrants, evaluateAccess, legacyAccountType, legacyOwner, legacyStaffManager } from './accessPolicy.js';
 import { scopedModelFilters } from './accessScopeAdapters.js';
 import { enforceStaffMutation, staffQueryFilters } from './staffRoleGuards.js';
+import { assertDiscountAccess } from './discountAccess.js';
 
 export const accessMode = () => ['legacy', 'observe', 'enforce'].includes(process.env.AUTHORIZATION_MODE) ? process.env.AUTHORIZATION_MODE : 'legacy';
 const denied = (message = 'Permission denied') => Object.assign(new Error(message), { status: 403, code: 'ACCESS_DENIED' });
@@ -171,6 +172,14 @@ export async function authorizeApplicationRequest(req, res, next) {
   Object.assign(context.modelFilters, staffQueryFilters(context, route));
   if (!['GET', 'HEAD'].includes(req.method)) {
     await enforceStaffMutation(context, route, req.body, path);
+    const discount = req.body?.discount_amount ?? req.body?.discountAmount;
+    if (discount !== undefined && Number(discount) !== 0) {
+      const id = path.split('/').pop();
+      const model = route.resource === 'qualifiers' ? mongoose.models.Qualifier : mongoose.models.Student;
+      const record = mongoose.isValidObjectId(id) && model ? await model.findById(id).select('batch user created_by').lean() : null;
+      assertDiscountAccess(context, discount, { batchId: req.body?.batch || req.body?.batch_id || record?.batch,
+        ownerId: record?.user, createdBy: record?.created_by });
+    }
     if (Number(req.body?.paying_now ?? req.body?.payingNow ?? 0) > 0 && !context.owner &&
       !permissionGrants(context, 'fees.pay.fee').length && !permissionGrants(context, 'fees.collect.pending.fee').length) {
       throw denied('A fee-collection permission is required to record an admission payment');
@@ -213,7 +222,7 @@ export async function authorizeApplicationRequest(req, res, next) {
         const record = await accessContext.run(context, () => model.findById(targetId).lean());
         if (!record) throw denied('Record not found within your authorized scope');
         const createdBy = record.created_by || record.requested_by || record.submitted_by;
-        const recordAmount = Number(record.amount ?? record.requested_amount);
+        const recordAmount = Number(route.handler === 'discountFee' ? req.body?.amount : record.amount ?? record.requested_amount);
         if (!grants.some((grant) => (!grant.noSelfApproval || (createdBy && String(createdBy) !== context.userId)) &&
           (grant.maxAmount == null || !Number.isFinite(recordAmount) || Math.abs(recordAmount) <= grant.maxAmount))) throw denied('Approval constraints are not satisfied');
       } else if (!all) throw denied('This operation requires an explicit record-scope adapter');

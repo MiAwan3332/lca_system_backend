@@ -10,7 +10,6 @@ export function staffQueryFilters(context, route) {
 export async function enforceStaffMutation(context, route, body = {}, pathname = '') {
   const profiles = staffProfileCodes(context);
   if (!profiles.length) return;
-  if (['discount_amount', 'discountAmount'].some((key) => Number(body[key] || 0) !== 0)) deny('Discounts must be applied by the protected owner.');
   if (route.resource === 'students' && ['updateStudent', 'basicStudentUpdate', 'updateStudentinfo'].includes(route.handler) &&
     profiles.every((code) => [STAFF_ROLE_CODES.desk, STAFF_ROLE_CODES.accounts].includes(code)) && Object.hasOwn(body, 'batch')) {
     const id = pathname.split('/').pop();

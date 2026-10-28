@@ -5415,6 +5415,7 @@
         "batchWiseFeeStatistics",
         "batch_fee",
         "cash_amount",
+        "discountAmount",
         "discount_amount",
         "discount_description",
         "discount_remarks",
@@ -5489,6 +5490,7 @@
         "batchWiseFeeStatistics",
         "batch_fee",
         "cash_amount",
+        "discountAmount",
         "discount_amount",
         "discount_description",
         "discount_remarks",
@@ -6207,6 +6209,7 @@
       "batchWiseFeeStatistics",
       "batch_fee",
       "cash_amount",
+      "discountAmount",
       "discount_amount",
       "discount_description",
       "discount_remarks",
@@ -6500,6 +6503,67 @@
       "read": [
         "name",
         "pending_fee"
+      ]
+    },
+    {
+      "id": "fee-discounts",
+      "label": "Apply discounts on fees, admission and collection",
+      "any": [
+        "fees.discount.fee"
+      ],
+      "write": [
+        "amount",
+        "discount_amount",
+        "discount_description",
+        "description",
+        "remarks"
+      ],
+      "read": [
+        "amount",
+        "pending_fee",
+        "total_fee",
+        "discount_amount"
+      ]
+    },
+    {
+      "id": "expense-rejection",
+      "label": "Record expense rejection reasons",
+      "any": [
+        "expenses.reject.expense"
+      ],
+      "write": [
+        "rejection_reason"
+      ],
+      "read": [
+        "amount",
+        "status",
+        "rejection_reason"
+      ]
+    },
+    {
+      "id": "refund-decisions",
+      "label": "Approve and reject refund requests",
+      "any": [
+        "refund-requests.approve.refund.request",
+        "refund-requests.reject.refund.request"
+      ],
+      "write": [
+        "comment"
+      ],
+      "read": [
+        "amount",
+        "requested_amount",
+        "status"
+      ]
+    },
+    {
+      "id": "refund-approval-amount",
+      "label": "Confirm the approved refund amount",
+      "any": [
+        "refund-requests.approve.refund.request"
+      ],
+      "write": [
+        "amount"
       ]
     }
   ]

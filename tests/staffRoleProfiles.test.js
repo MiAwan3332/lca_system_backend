@@ -13,7 +13,7 @@ test('all four approved staff roles use explicit known permissions and system-wi
  assert.equal(profiles.length,4);
  for(const role of profiles){assert.equal(validateGrants(role.grants,permissionKeys).length,role.grants.length);for(const g of role.grants){assert.ok(['all','own'].includes(g.scope));if(g.scope==='own')assert.ok(/^(users|notifications|expenses|complaints)\./.test(g.permission));}}
 });
-test('owner retains approvals, discounts, deletion and permission administration',()=>{
+test('default templates omit approvals, discounts, deletion and permission administration',()=>{
  for(const role of profiles)for(const g of role.grants){assert.ok(!['students.delete.student','students.delete.all.students','batches.delete.batch','fees.delete.fee','fees.discount.fee','expenses.approve.expense','expenses.reject.expense','refund-requests.approve.refund.request','refund-requests.reject.refund.request','access.assign','access.manage','users.add.user','users.delete.user','users.reset.password.for.all.students'].includes(g.permission));}
 });
 test('accounts can collect, print and report while other roles cannot collect money',()=>{
@@ -24,8 +24,8 @@ test('accounts can collect, print and report while other roles cannot collect mo
 test('all roles have usable own-account access without granting staff-account mutation',()=>{
  for(const role of profiles){for(const permission of ['users.get.user','users.update.user','users.change.avatar','users.change.password'])assert.deepEqual(role.grants.filter(g=>g.permission===permission).map(g=>g.scope),['own']);assert.ok(role.grants.some(g=>g.permission==='fields.general.read'));assert.ok(role.grants.some(g=>g.permission==='fields.contact.read'));}
 });
-test('inline discounts and message-process escalation are rejected before work is queued',async()=>{
- for(const key of ['principle','vice','accounts','desk'])await assert.rejects(enforceStaffMutation(context(key),{resource:'fees',handler:'collectPendingFee'},{discount_amount:1}),{status:403});
+test('role profiles do not override discount permission decisions; message restrictions still apply',async()=>{
+ for(const key of ['principle','vice','accounts','desk'])await assert.doesNotReject(enforceStaffMutation(context(key),{resource:'fees',handler:'collectPendingFee'},{discount_amount:1}));
  assert.throws(()=>enforceStaffMessage(context('accounts'),{template_key:'fee',body:'custom'},'custom'),{status:403});
  assert.throws(()=>enforceStaffMessage(context('desk'),{template_key:'admission'},'fee_payment'),{status:403});
  assert.doesNotThrow(()=>enforceStaffMessage(context('accounts'),{template_key:'fee',audience:'pending_dues_students'},'fee_reminder'));
