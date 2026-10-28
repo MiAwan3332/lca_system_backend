@@ -45,7 +45,9 @@ export function lostSelfService(before, after) {
 }
 export const SECRET_FIELDS = /password|secret|credential|token|api[_-]?key|private[_-]?key|^plan$|fingerprint|accessOnboardingRole/i;
 const STRUCTURAL_FIELDS = new Set(['_id', 'id', 'docs', 'page', 'limit', 'totalDocs', 'totalPages', 'pagingCounter', 'hasPrevPage', 'hasNextPage', 'prevPage', 'nextPage',
-  'message', 'error', 'requestId', 'status', 'code', 'success', 'record_id', 'idempotency_key', 'submission_status', 'processing_status', 'jobs', 'protocol']);
+  'message', 'error', 'requestId', 'status', 'code', 'success', 'record_id', 'idempotency_key', 'submission_status', 'processing_status', 'jobs', 'protocol',
+  // Display names of the user's roles (utils/accessRoleNames.js); visible wherever the user record itself is.
+  'accessRoleNames']);
 export function redactAccessFields(value, context) {
   if (typeof value === 'string') return privateMediaUrl(value, context);
   if (Array.isArray(value)) return value.map((item) => redactAccessFields(item, context));

@@ -27,6 +27,7 @@ const DEFAULT_AVATAR =
   "https://images.unsplash.com/photo-1619946794135-5bc917a27793?ixlib=rb-0.3.5&q=80&fm=jpg&crop=faces&fit=crop&h=200&w=200&s=b616b2c5b373a80ffc9636ba24f7a4a9";
 import Role from "../models/roles.js";
 import AccessAssignment from '../models/accessAssignment.js';
+import { withAccessRoleNames } from '../utils/accessRoleNames.js';
 import Permission from "../models/permissions.js";
 import { resolveLegacyLoginRole, loginRoleIdentity } from '../utils/legacyLoginRole.js';
 import { loadAccessContext, accessMode } from '../utils/accessRuntime.js';
@@ -682,7 +683,7 @@ export const getUsers = async (req, res) => {
         return res.status(404).json({ message: "User not found" });
       }
       return res.status(200).json({
-        docs: [user],
+        docs: await withAccessRoleNames([user]),
         totalDocs: 1,
         limit: 1,
         totalPages: 1,
@@ -702,7 +703,7 @@ export const getUsers = async (req, res) => {
         return res.status(404).json({ message: "User not found" });
       }
       return res.status(200).json({
-        docs: [user],
+        docs: await withAccessRoleNames([user]),
         totalDocs: 1,
         limit: 1,
         totalPages: 1,
@@ -759,7 +760,7 @@ export const getUsers = async (req, res) => {
         select: '-password',
       }
     );
-    res.status(200).json(users);
+    res.status(200).json({ ...users, docs: await withAccessRoleNames(users.docs) });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -894,7 +895,7 @@ export const getUser = async (req, res) => {
     if (!user) {
       return res.status(400).json({ message: "User does not exist" });
     }
-    res.status(200).json(user);
+    res.status(200).json((await withAccessRoleNames([user]))[0]);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

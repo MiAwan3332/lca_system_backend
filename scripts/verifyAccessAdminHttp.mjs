@@ -187,6 +187,13 @@ try {
   result = await request(viewer, 'GET', `/users/${viewer._id}`);
   assert.equal(result.status, 200); assert.equal(result.data.name, 'Profile Viewer'); assert.equal(result.data.email, 'profile-viewer@example.invalid'); assert.equal(result.data.phone, '03001112223');
   check('the pending role stays when the new role cannot read profile details, and the profile still shows them');
+  assert.deepEqual(result.data.accessRoleNames, [pending.name, writesOnly.name].sort());
+  result = await request(owner, 'GET', `/users/${owner._id}`);
+  assert.equal(result.status, 200); assert.deepEqual(result.data.accessRoleNames, ['Owner']);
+  result = await request(owner, 'GET', '/users?page=1&limit=50');
+  const held = (await Role.find({ _id: { $in: await activeRoles(people[0]) } }).lean()).map((role) => role.name).sort();
+  assert.equal(result.status, 200); assert.ok(held.length); assert.deepEqual(result.data.docs.find((user) => String(user._id) === String(people[0]._id)).accessRoleNames, held);
+  check('profiles and the users list show assigned Access Management roles instead of the legacy role');
   await Role.updateOne({ _id: managerRole._id }, { $pull: { grants: { permission: 'access.assign' } } });
   result = await create(manager, { name: 'Escalation', email: 'escalation@example.invalid', phone: '0304', role: 'Staff', accessRoleId: String(pending._id) });
   assert.equal(result.status, 403, JSON.stringify(result)); assert.equal(await User.countDocuments({ email: 'escalation@example.invalid' }), 0); check('choosing a role on Add User requires assignment permission');
