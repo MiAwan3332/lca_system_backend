@@ -110,7 +110,15 @@ router.get('/scopes/:type', requireAccess('access.assign'), run(async (req, res)
 }));
 router.get('/users', requireAccess('access.assign'), run(async (req, res) => {
   const query = String(req.query.query || '').trim().slice(0, 100).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const filter = query ? { $or: [{ name: new RegExp(query, 'i') }, { email: new RegExp(query, 'i') }] } : {};
+  const filters = query ? [{ $or: [{ name: new RegExp(query, 'i') }, { email: new RegExp(query, 'i') }] }] : [];
+  const category = String(req.query.category || '');
+  const status = String(req.query.status || '');
+  if (category && !['staff', 'student', 'teacher', 'qualifier', 'panelist'].includes(category)) throw fail(400, 'Invalid account category');
+  if (status && !['active', 'inactive'].includes(status)) throw fail(400, 'Invalid account status');
+  if (category) filters.push({ $or: [{ accountType: category }, { accountType: { $in: [null, ''] },
+    role: category === 'staff' ? { $not: /^(student|teacher|qualifier|panelist)$/i } : new RegExp(`^${category}$`, 'i') }] });
+  if (status) filters.push({ disabledAt: status === 'active' ? null : { $ne: null } });
+  const filter = filters.length ? { $and: filters } : {};
   const result = await page(User, filter, req, safeUser);
   const assignments = await Assignment.find({ user: { $in: result.docs.map((user) => user._id) }, revokedAt: null,
     $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }).populate('role', 'name active code').lean();

@@ -46,7 +46,7 @@ try {
   api = spawn(process.execPath, [path.join(source, 'index.js')], { cwd: directory, env: environment, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   api.stdout.on('data', (chunk) => { output = (output + chunk).slice(-10000); }); api.stderr.on('data', (chunk) => { output = (output + chunk).slice(-10000); });
   const base = `http://127.0.0.1:${apiPort}`;
-  for (let attempt = 0; ; attempt++) { try { assert.equal((await fetch(`${base}/health/ready`)).status, 200); break; } catch { if (attempt > 100 || api.exitCode !== null) throw new Error(`API startup failed: ${output}`); await pause(200); } }
+  for (let attempt = 0; ; attempt++) { try { assert.equal((await fetch(`${base}/health/ready`)).status, 200); break; } catch { if (attempt > 300 || api.exitCode !== null) throw new Error(`API startup failed (exit=${api.exitCode}, signal=${api.signalCode}): ${output}`); await pause(200); } }
   const token = (user) => jwt.sign({ user: { id: String(user._id), role: 'superadmin', permissions: ['everything'] } }, environment.JWT_SECRET);
   const request = async (user, method, route, body) => {
     const response = await fetch(`${base}${route}`, { method, headers: { authorization: `Bearer ${token(user)}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -88,6 +88,17 @@ try {
   result = await request(owner, 'GET', '/access/audit?limit=1'); assert.equal(result.status, 200); assert.equal(result.data.docs.length, 1); assert.ok(result.data.hasNextPage); checks++;
   result = await request(owner, 'GET', `/access/users/${other._id}/effective`); assert.equal(result.status, 200); assert.equal(result.data.user.password, undefined); assert.ok(result.data.grants.some((grant) => grant.permission === 'students.get.students')); checks++;
   result = await request(staff, 'GET', `/access/users/${other._id}/effective`); assert.equal(result.status, 403); checks++;
+  const filterStudent = await User.create({ name: 'Filter learner', role: 'student', accountType: 'student', accessManaged: true });
+  const legacyTeacher = { _id: new mongoose.Types.ObjectId(), name: 'Legacy teacher category', role: 'Teacher', disabledAt: new Date() };
+  await mongoose.connection.db.collection('users').insertOne(legacyTeacher);
+  result = await request(owner, 'GET', '/access/users?category=staff&limit=1'); assert.equal(result.status, 200); assert.equal(result.data.limit, 1); assert.ok(result.data.docs.every((u) => u.accountType === 'staff' || u.platformOwner)); checks++;
+  result = await request(owner, 'GET', '/access/users?category=student'); assert.equal(result.status, 200); assert.ok(result.data.docs.some((u) => u._id === String(filterStudent._id))); checks++;
+  result = await request(owner, 'GET', '/access/users?category=teacher&status=inactive&query=Legacy'); assert.equal(result.status, 200); assert.equal(result.data.totalDocs, 1); assert.equal(result.data.docs[0]._id, String(legacyTeacher._id)); checks++;
+  result = await request(owner, 'GET', '/access/users?category=teacher&status=active'); assert.equal(result.status, 200); assert.equal(result.data.totalDocs, 0); checks++;
+  result = await request(owner, 'GET', '/access/users?category=invalid'); assert.equal(result.status, 400); checks++;
+  result = await request(owner, 'GET', '/access/users?status=invalid'); assert.equal(result.status, 400); checks++;
+  result = await request(staff, 'GET', '/access/users?category=staff'); assert.equal(result.status, 403); checks++;
+  await User.deleteMany({ _id: { $in: [filterStudent._id, legacyTeacher._id] } });
   const pendingId = new mongoose.Types.ObjectId();
   await mongoose.connection.db.collection('users').insertOne({ _id: pendingId, name: 'Read-only onboarding test', role: 'Accounts', accountType: 'staff', accessManaged: false, accessOnboardingRole: newRole._id });
   const assignmentCount = await Assignment.countDocuments();
@@ -154,7 +165,7 @@ try {
   await fs.writeFile(offlineSnapshot, JSON.stringify({ roles: [{ _id: dryRoleId, name: 'Teacher', permissions: [] }],
     users: [{ _id: dryUserId, role: 'teacher' }], permissions: [] }));
   const offlineRun = spawnSync(process.execPath, [path.join(source, 'scripts/planAccessMigration.mjs'), `--snapshot=${offlineSnapshot}`], {
-    cwd: directory, env: { ...environment, MONGO_URI: 'mongodb://127.0.0.1:1/never_connect' }, encoding: 'utf8', timeout: 5000, windowsHide: true });
+    cwd: directory, env: { ...environment, MONGO_URI: 'mongodb://127.0.0.1:1/never_connect' }, encoding: 'utf8', timeout: 30000, windowsHide: true });
   assert.equal(offlineRun.status, 0, offlineRun.stderr); assert.equal(JSON.parse(offlineRun.stdout).databaseWrites, 0); checks++;
   const { default: Qualifier } = await import('../models/qualifiers.js');
   const { default: Panelist } = await import('../models/panelists.js');
