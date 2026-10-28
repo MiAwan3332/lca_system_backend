@@ -20,6 +20,9 @@ export async function scopedModelFilters(context, route, grants) {
   const teacher = context.accountType === 'teacher';
   const self = oid(context.userId);
   filters.User = { _id: self };
+  filters.Complaint = { submitted_by: self };
+  filters.Expense = { created_by: self };
+  if (route.handler === 'createComplaint') filters.User = {}; // Recipients are chosen by the server, not the submitter.
   filters.Batch = { _id: { $in: batchIds } }; filters.Course = { _id: { $in: courseIds } };
   const scopeStudent = own && context.studentId ? { _id: oid(context.studentId) } : teacher ? { batch: { $in: batchIds } } : none();
   filters.Student = scopeStudent;

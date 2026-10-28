@@ -8,6 +8,7 @@ import { creationAudit } from './creationAudit.js';
 import { accessCatalog, classifyAccessRoute, FIELD_GROUPS, canAccessField, redactAccessFields } from './accessCatalog.js';
 import { effectiveGrants, permissionGrants, evaluateAccess, legacyAccountType, legacyOwner, legacyStaffManager } from './accessPolicy.js';
 import { scopedModelFilters } from './accessScopeAdapters.js';
+import { enforceStaffMutation, staffQueryFilters } from './staffRoleGuards.js';
 
 export const accessMode = () => ['legacy', 'observe', 'enforce'].includes(process.env.AUTHORIZATION_MODE) ? process.env.AUTHORIZATION_MODE : 'legacy';
 const denied = (message = 'Permission denied') => Object.assign(new Error(message), { status: 403, code: 'ACCESS_DENIED' });
@@ -21,7 +22,7 @@ export async function loadAccessContext(user, { repair = true } = {}) {
   const context = { userId: String(user._id), owner,
     accountType: user.accountType || legacyAccountType(user.role), disabled: Boolean(user.disabledAt),
     enforced: Boolean(user.accessManaged || accessMode() === 'enforce'), grants: effectiveGrants(assignments, roles),
-    roles: roles.map(({ _id, name, revision }) => ({ _id, name, revision })), assignedBatchIds: [], assignedCourseIds: [] };
+    roles: roles.map(({ _id, name, code, revision }) => ({ _id, name, code, revision })), assignedBatchIds: [], assignedCourseIds: [] };
   if (context.accountType === 'teacher' && mongoose.models.Teacher && mongoose.models.Batch) {
     const teacher = await mongoose.models.Teacher.findOne({ $or: [{ user: user._id }, { email: user.email }] }).select('_id').lean();
     if (teacher) {
@@ -167,7 +168,9 @@ export async function authorizeApplicationRequest(req, res, next) {
   context.scopeBatchIds = all ? null : [...new Set(grants.flatMap((grant) => grant.scope === 'selected' ? grant.batchIds : context.assignedBatchIds))];
   context.scopeCourseIds = all ? null : [...new Set(grants.flatMap((grant) => grant.scope === 'selected' ? grant.courseIds : context.assignedCourseIds))];
   context.modelFilters = await buildModelFilters(context, route, grants);
+  Object.assign(context.modelFilters, staffQueryFilters(context, route));
   if (!['GET', 'HEAD'].includes(req.method)) {
+    await enforceStaffMutation(context, route, req.body, path);
     if (Number(req.body?.paying_now ?? req.body?.payingNow ?? 0) > 0 && !context.owner &&
       !permissionGrants(context, 'fees.pay.fee').length && !permissionGrants(context, 'fees.collect.pending.fee').length) {
       throw denied('A fee-collection permission is required to record an admission payment');
@@ -211,7 +214,7 @@ export async function authorizeApplicationRequest(req, res, next) {
         if (!grants.some((grant) => (!grant.noSelfApproval || (createdBy && String(createdBy) !== context.userId)) &&
           (grant.maxAmount == null || !Number.isFinite(recordAmount) || Math.abs(recordAmount) <= grant.maxAmount))) throw denied('Approval constraints are not satisfied');
       } else if (!all) throw denied('This operation requires an explicit record-scope adapter');
-    } else if (!all && !['changePassword', 'markAllAsRead', 'disconnectGoogle'].includes(route.handler) &&
+    } else if (!all && !['changePassword', 'markAllAsRead', 'disconnectGoogle', 'createComplaint', 'addExpense'].includes(route.handler) &&
       !(route.handler === 'startQuiz' && context.studentId && requestedCourse) &&
       (!requestedBatch || !mongoose.models[primaryModels[route.resource]?.[0]]?.schema.path('batch'))) {
       throw denied('Scoped creation requires an explicit destination batch; this operation needs an all-records grant');

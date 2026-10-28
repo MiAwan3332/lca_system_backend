@@ -1,3 +1,5 @@
+import { accessContext } from './accessContext.js';
+import { staffCommunication } from './staffRoleProfiles.js';
 import moment from "moment";
 import WhatsAppTemplate from "../models/whatsappTemplate.js";
 import User from "../models/users.js";
@@ -628,7 +630,9 @@ const DEFAULT_TEMPLATES = [
 
 export const ensureDefaultWhatsAppTemplates = async () => {
   const results = [];
+  const allowed = staffCommunication(accessContext.getStore());
   for (const def of DEFAULT_TEMPLATES) {
+    if (allowed && !allowed.processes.includes(def.process)) continue;
     let existing = await WhatsAppTemplate.findOne({ key: def.key });
     if (!existing) {
       existing = await WhatsAppTemplate.create({

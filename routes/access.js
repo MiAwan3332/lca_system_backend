@@ -12,6 +12,7 @@ import { evaluateAccess, validateGrants, permissionGrants, legacyStaffManager } 
 import { loadAccessContext } from '../utils/accessRuntime.js';
 import { verifyMediaTicket, policyFingerprint } from '../utils/accessMedia.js';
 import { serveAuthorizedObject } from '../utils/fileStorage.js';
+import { staffCommunication } from '../utils/staffRoleProfiles.js';
 
 const router = express.Router();
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -68,7 +69,7 @@ router.get('/account-categories', run(async (req, res) => {
 }));
 router.get('/me', run(async (req, res) => {
   res.set('Cache-Control', 'no-store').json({ userId: req.access.userId, managed: req.access.enforced, owner: req.access.owner,
-    accountType: req.access.accountType, roles: req.access.roles, grants: req.access.grants,
+    accountType: req.access.accountType, roles: req.access.roles, grants: req.access.grants, communication: staffCommunication(req.access),
     routes: accessCatalog.routes.filter((route) => !route.public && !route.blocked && permissionGrants(req.access, route.permission).length)
       .map(({ method, path, resource, permission }) => ({ method, path, resource, permission })) });
 }));

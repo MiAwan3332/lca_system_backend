@@ -4,6 +4,7 @@ import Batch from "../models/batches.js";
 import Fee from "../models/fees.js";
 import WhatsAppQueuedMessage from "../models/whatsappQueuedMessage.js";
 import moment from "moment-timezone";
+import { enforceStaffMessage } from '../utils/staffRoleGuards.js';
 import {
   buildQualifierTemplateVars,
   buildStudentTemplateVars,
@@ -358,6 +359,8 @@ export const enqueueBulkWhatsApp = async (req, res) => {
       return res.status(400).json({ message: templateResult.error });
     }
 
+    enforceStaffMessage(req.access, req.body || {}, templateResult.process);
+
     const loaded = await loadAudienceRecipients({
       audience,
       batch_id: batchId,
@@ -441,6 +444,6 @@ export const enqueueBulkWhatsApp = async (req, res) => {
       stats,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(error.status || 500).json({ message: error.message });
   }
 };
