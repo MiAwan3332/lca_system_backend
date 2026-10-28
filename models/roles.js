@@ -8,6 +8,7 @@ const roleSchema = mongoose.Schema({
   active: { type: Boolean, default: true },
   managed: { type: Boolean, default: false },
   revision: { type: Number, default: 1 },
+  profile: { type: String, default: null },
   grants: [{ _id: false, permission: { type: String, required: true },
     scope: { type: String, enum: ['all', 'own', 'assigned', 'selected'], default: 'all' },
     maxAmount: { type: Number, default: null }, noSelfApproval: { type: Boolean, default: false }, fields: [String] }],

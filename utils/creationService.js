@@ -164,12 +164,12 @@ export async function tombstoneCreation(kind, recordId) {
 }
 
 // Persist the entire recoverable DB plan before writing any account, student, or fee.
-export async function prepareCreation(request, { user, student, fee, assets = [], existingStudent, existingUser }) {
+export async function prepareCreation(request, { user, student, fee, assets = [], existingStudent, existingUser, access }) {
   const recordId = existingStudent?._id || request.recordId;
   const userId = existingUser?._id || (student ? id() : recordId);
   const plan = { user: { ...user, _id: userId }, student: student ? { ...student, _id: recordId, user: userId } : null,
     reuseStudent: Boolean(existingStudent), reuseUser: Boolean(existingUser), assets, fee: null };
-  if (!existingUser) plan.defaultAccess = await defaultAccessPlan(plan.user);
+  if (!existingUser) plan.defaultAccess = access || await defaultAccessPlan(plan.user);
   if (existingStudent) {
     const dues = await pendingStudentDues(existingStudent._id);
     if (dues.length) throw Object.assign(new Error('Pending dues must be cleared before admission'), { status: 409, code: 'PENDING_FEE_BLOCK' });

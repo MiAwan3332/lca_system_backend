@@ -1,5 +1,6 @@
 import User from "../models/users.js";
-import { repairDefaultAccess } from '../utils/defaultAccess.js';
+import { repairDefaultAccess, chosenAccessPlan } from '../utils/defaultAccess.js';
+import AccessAudit from '../models/accessAudit.js';
 import CreationRequest from '../models/creationRequests.js';
 import { DEFAULT_STAFF_PASSWORD } from '../utils/creationDefaults.js';
 import { prepareCreation, commitCreation, creationResponse, tombstoneCreation } from '../utils/creationService.js';
@@ -803,7 +804,15 @@ export const addUser = async (req, res) => {
       avatar: DEFAULT_AVATAR,
     });
     const { _id, ...userPlan } = newUser.toObject();
-    const prepared = await prepareCreation(req.creationRequest, { user: userPlan });
+    let access = null;
+    if (req.body.accessRoleId) {
+      try { access = await chosenAccessPlan(req.access, userPlan, { roleId: String(req.body.accessRoleId), batchIds: req.body.accessBatchIds || [], courseIds: req.body.accessCourseIds || [] }); }
+      catch (error) { return res.status(error.status || 400).json({ message: error.message }); }
+      await new AccessAudit({ actor: req.access.userId, action: 'assignment.create.intent', target: `onboarding:${req.creationRequest.recordId}`, requestId: req.requestId,
+        after: { user: req.creationRequest.recordId, role: access.role, batchIds: access.batchIds, courseIds: access.courseIds },
+        reason: 'Access role chosen when the account was created' }).save({ writeConcern: { w: 1, j: true } });
+    }
+    const prepared = await prepareCreation(req.creationRequest, { user: userPlan, access });
     await commitCreation(prepared);
     res.status(201).json(await creationResponse(prepared));
   } catch (error) {

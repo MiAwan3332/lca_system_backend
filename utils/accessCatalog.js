@@ -22,6 +22,27 @@ for (const [group, fields] of Object.entries(accessCatalog.fieldGroups || {})) f
 export function canAccessField(context, group, key, action = 'read') {
   return context.owner || context.grants.some((grant) => grant.permission === `fields.${group}.${action}` && (!grant.fields?.length || grant.fields.includes(key)));
 }
+export const fieldGroupOf = (key) => Object.entries(FIELD_GROUPS).find(([, fields]) => fields.has(key))?.[0] || 'general';
+// Own-account requests as the portal sends them: the operation, the fields it writes and the fields the response must show
+// (responses drop unreadable fields, see redactAccessFields). Checked with the same rules as the API middleware.
+const SELF_SERVICE = {
+  'view their own profile': ['users.get.user', [], ['name', 'email', 'phone', 'avatar']],
+  'edit their own profile': ['users.update.user', ['name', 'phone']],
+  'change their own photo': ['users.change.avatar', ['id', 'avatar']],
+  'change their own password': ['users.change.password', ['email', 'currentPassword', 'newPassword']],
+  'read their notifications': ['notifications.get.notifications', []],
+};
+export function selfService(grants) {
+  const context = { owner: false, grants };
+  return Object.fromEntries(Object.entries(SELF_SERVICE).map(([name, [permission, writes, reads = []]]) => [name,
+    grants.some((grant) => grant.permission === permission && ['own', 'all'].includes(grant.scope)) &&
+    writes.every((key) => canAccessField(context, fieldGroupOf(key), key, 'write')) && reads.every((key) => canAccessField(context, fieldGroupOf(key), key, 'read'))]));
+}
+// What a change would take away; anything the person could not do before is not counted.
+export function lostSelfService(before, after) {
+  const was = selfService(before), now = selfService(after);
+  return Object.keys(was).filter((name) => was[name] && !now[name]);
+}
 export const SECRET_FIELDS = /password|secret|credential|token|api[_-]?key|private[_-]?key|^plan$|fingerprint|accessOnboardingRole/i;
 const STRUCTURAL_FIELDS = new Set(['_id', 'id', 'docs', 'page', 'limit', 'totalDocs', 'totalPages', 'pagingCounter', 'hasPrevPage', 'hasNextPage', 'prevPage', 'nextPage',
   'message', 'error', 'requestId', 'status', 'code', 'success', 'record_id', 'idempotency_key', 'submission_status', 'processing_status', 'jobs', 'protocol']);

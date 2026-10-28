@@ -126,8 +126,23 @@ export function staffRoleProfiles() {
   ];
 }
 
+// A role follows a profile through its built-in code or, for copies, its stored profile, so cloning keeps the same safeguards.
+export const roleProfile = (role) => [role?.code, role?.profile].find((code) => Object.values(STAFF_ROLE_CODES).includes(code)) || null;
 export function staffProfileCodes(context) {
-  return context?.owner ? [] : (context?.roles || []).map((role) => role.code).filter((code) => Object.values(STAFF_ROLE_CODES).includes(code));
+  return context?.owner ? [] : [...new Set((context?.roles || []).map(roleProfile).filter(Boolean))];
+}
+// Plain-language summary of the safeguards each profile adds on top of its permissions (see staffRoleGuards.js).
+export function staffProfileRules() {
+  const slips = 'Admission slips are issued from the saved student record';
+  const discounts = 'Cannot apply discounts (owner only)';
+  return [
+    { code: STAFF_ROLE_CODES.principle, name: staffProfileNames[STAFF_ROLE_CODES.principle], rules: [discounts, 'WhatsApp: custom, admission, qualifier welcome and fee messages', slips] },
+    { code: STAFF_ROLE_CODES.vice, name: staffProfileNames[STAFF_ROLE_CODES.vice], rules: [discounts, 'WhatsApp: custom messages only', slips] },
+    { code: STAFF_ROLE_CODES.accounts, name: staffProfileNames[STAFF_ROLE_CODES.accounts], rules: [discounts, 'Cannot move a student to another batch while editing',
+      'WhatsApp: fee payment, reminder and overdue messages from saved templates, to students only', slips] },
+    { code: STAFF_ROLE_CODES.desk, name: staffProfileNames[STAFF_ROLE_CODES.desk], rules: [discounts, 'Cannot move a student to another batch while editing',
+      'WhatsApp: admission and qualifier welcome messages from saved templates', slips] },
+  ];
 }
 export function staffCommunication(context) {
   const codes = staffProfileCodes(context);

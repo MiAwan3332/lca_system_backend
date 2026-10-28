@@ -11,6 +11,7 @@
     "access:catalog": "node scripts/buildAccessCatalog.mjs",
     "access:check": "node scripts/buildAccessCatalog.mjs --check",
     "verify:access": "node scripts/verifyAccessHttp.mjs",
+    "verify:access-admin": "node scripts/verifyAccessAdminHttp.mjs",
     "reset-superadmin": "node scripts/resetSuperAdminPassword.js",
     "backfill-roll-numbers": "node scripts/backfillRollNumbers.js",
     "update-roll-numbers": "node scripts/updateStudentRollNumbers.js"

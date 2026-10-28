@@ -50,6 +50,20 @@ export function evaluateAccess(context, permission, resource = {}) {
   return { allowed: matches.length > 0, reason: matches.length ? 'Matching permission and scope' : 'No matching permission within this scope', matches };
 }
 
+// Administrators can only hand out access they hold institution-wide themselves.
+export function assertDelegable(context, grants) {
+  if (context.owner) return;
+  for (const grant of grants) {
+    if (!context.grants.some((held) => held.permission === grant.permission && held.scope === 'all' &&
+      (held.maxAmount == null || (grant.maxAmount != null && grant.maxAmount <= held.maxAmount)) && (!held.noSelfApproval || grant.noSelfApproval) &&
+      (!held.fields?.length || (grant.fields?.length && grant.fields.every((field) => held.fields.includes(field)))))) {
+      throw Object.assign(new Error(`You cannot delegate broader access than you hold: ${grant.permission}`), { status: 403 });
+    }
+  }
+}
+export const canAssignAccess = (context) => Boolean(context?.owner || (context?.accountType === 'staff' &&
+  permissionGrants(context, 'access.assign').some((grant) => grant.scope === 'all')));
+
 export function permissionGrants(context, permission) {
   return context?.owner ? [{ permission, scope: 'all' }] : (context?.grants || []).filter((grant) => grant.permission === permission);
 }

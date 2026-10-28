@@ -22,7 +22,7 @@ export async function loadAccessContext(user, { repair = true } = {}) {
   const context = { userId: String(user._id), owner,
     accountType: user.accountType || legacyAccountType(user.role), disabled: Boolean(user.disabledAt),
     enforced: Boolean(user.accessManaged || accessMode() === 'enforce'), grants: effectiveGrants(assignments, roles),
-    roles: roles.map(({ _id, name, code, revision }) => ({ _id, name, code, revision })), assignedBatchIds: [], assignedCourseIds: [] };
+    roles: roles.map(({ _id, name, code, profile, revision }) => ({ _id, name, code, profile, revision })), assignedBatchIds: [], assignedCourseIds: [] };
   if (context.accountType === 'teacher' && mongoose.models.Teacher && mongoose.models.Batch) {
     const teacher = await mongoose.models.Teacher.findOne({ $or: [{ user: user._id }, { email: user.email }] }).select('_id').lean();
     if (teacher) {
@@ -176,7 +176,10 @@ export async function authorizeApplicationRequest(req, res, next) {
       throw denied('A fee-collection permission is required to record an admission payment');
     }
     if (Object.keys(req.body || {}).some((key) => accessCatalog.readOnlyFields.includes(key))) throw denied('Server-managed record metadata cannot be changed through this operation');
+    // Access-role choices on Add User are authorized by the controller's assignment and delegation checks, not field grants.
+    const assignmentKeys = route.handler === 'addUser' ? ['accessRoleId', 'accessBatchIds', 'accessCourseIds'] : [];
     for (const key of [...Object.keys(req.body || {}), ...Object.keys(req.files || {})]) {
+      if (assignmentKeys.includes(key)) continue;
       const group = Object.entries(FIELD_GROUPS).find(([, fields]) => fields.has(key))?.[0] || 'general';
       if (!canAccessField(context, group, key, 'write')) throw denied(`Missing field permission: ${group} write (${key})`);
     }
