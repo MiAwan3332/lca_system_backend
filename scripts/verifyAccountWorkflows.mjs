@@ -71,7 +71,7 @@ try {
   const policy = await Role.create({...profile,grants:original,managed:true});
   await Assignment.create({user:account._id,role:policy._id,assignedBy:owner._id});
   const check = async(user,method,route,body,status=200)=>{const r=await request(user,method,route,body);assert.equal(r.status,status,`${method} ${route}: ${JSON.stringify(r)}`);checks++;return r.data;};
-  await check(account,'POST',`/students/transfer-batch/${sa._id}`,{batch:String(b._id)},403);
+  await check(account,'POST',`/students/transfer-batch/${sa._id}`,{batch:String(b._id),assign_new_fee:true},403);
   await check(account,'GET',`/batches/assignment-options/${a._id}`,null,403);
   await Role.updateOne({_id:policy._id},{$set:{grants:completeWorkflowAccess(original,catalog)},$inc:{revision:1}});
   const teacher = await Teacher.create({name:'Fixture teacher',email:'private@example.invalid',phone:'private',resume:'private.pdf'});
@@ -102,7 +102,7 @@ try {
   const imported=await check(account,'POST','/students/bulk-import',{batch_id:String(createdBatch._id),students:[{name:'Workflow import',phone:'03000000998',cnic:'1234512345672',total_fee:250,paid_fee:0,pending_fee:250,online_amount:0,cash_amount:0}]});
   assert.equal(imported.imported,1,JSON.stringify(imported));checks++;
   await check(account,'POST',`/students/basic-update/${admitted._id}`,{paid_fee:0},403);
-  await check(account,'POST',`/students/basic-update/${admitted._id}`,{batch:String(b._id)},403);
+  await check(account,'POST',`/students/basic-update/${admitted._id}`,{batch:String(b._id),assign_new_fee:true},403);
   await check(account,'POST',`/fees/discount/${fee._id}`,{amount:1},403);
   await check(account,'POST',`/expenses/approve/${fee._id}`,{},403);
   await check(account,'POST',`/refund-requests/approve/${fee._id}`,{},403);
@@ -118,6 +118,7 @@ try {
   await mongoose.disconnect(); mongo.kill('SIGTERM'); await new Promise((resolve) => mongo.exitCode !== null ? resolve() : mongo.once('exit', resolve));
   process.chdir(os.tmpdir()); await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
+
 
 
 
