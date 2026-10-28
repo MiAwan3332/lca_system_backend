@@ -33,7 +33,30 @@
     "write": [
       "paying_now",
       "payment_method",
-      "next_installment_date"
+      "next_installment_date",
+      "payment_evidence"
+    ],
+    "read": [
+      "batch_fee",
+      "pending_fee",
+      "paid_fee",
+      "total_fee"
+    ]
+  },
+  {
+    "id": "qualifier-admission-collection",
+    "label": "Collect a payment when adding a qualifier",
+    "all": [
+      "qualifiers.add.qualifier"
+    ],
+    "any": [
+      "fees.pay.fee",
+      "fees.collect.pending.fee"
+    ],
+    "write": [
+      "paying_now",
+      "payment_method",
+      "payment_evidence"
     ],
     "read": [
       "batch_fee",

@@ -36,7 +36,7 @@ const classifyField = (name) => /secret|token|lease|fingerprint|^plan$|migration
   : /evidence|attachment|resume|avatar|photo|image/i.test(name) ? 'evidence'
   : /cnic|birth|nationality/i.test(name) ? 'identity'
   : /phone|email|contact|address|^city$/i.test(name) ? 'contact'
-  : /fee|cash|payment|amount|refund|discount|salary|balance|revenue|expense|paid|recovered|finance|^net$|received|^online$|^pending$/i.test(name) ? 'financial'
+  : /fee(?!dback)|cash|payment|amount|refund|discount|salary|balance|revenue|expense|paid|recovered|finance|^net$|received|^online$|^pending$/i.test(name) ? 'financial'
   : /remarks|internal|approval_comment|rejection/i.test(name) ? 'internal'
   : /google|calendar|classroom|meeting/i.test(name) ? 'integration' : 'general';
 for (const file of (await fs.readdir(path.join(root, 'models'))).sort()) {
@@ -50,9 +50,12 @@ for (const file of (await fs.readdir(path.join(root, 'models'))).sort()) {
     }
   });
 }
+const handlerSources = new Map();
 for (const mount of mounts) {
   if (mount.file === './routes/access.js') continue;
   const tree = ast(await fs.readFile(path.join(root, mount.file), 'utf8'));
+  const routeImports = new Map();
+  walk(tree, (node) => { if (node.type === 'ImportDeclaration') for (const item of node.specifiers) routeImports.set(item.local.name, path.join(path.dirname(mount.file), node.source.value)); });
   walk(tree, (node) => {
     if (node.type !== 'CallExpression' || node.callee?.object?.name !== 'router' ||
       !['get', 'post', 'put', 'patch', 'delete'].includes(node.callee.property?.name)) return;
@@ -64,6 +67,7 @@ for (const mount of mounts) {
     const permission = `${resource}.${handler.replace(/([a-z0-9])([A-Z])/g, '$1.$2').toLowerCase()}`;
     routes.push({ method: node.callee.property.name.toUpperCase(), path: `${mount.prefix}${node.arguments[0].value === '/' ? '' : node.arguments[0].value}`,
       permission, resource, handler, public: publicHandlers.has(handler), blocked: handler === 'register' });
+    handlerSources.set(permission, { file: routeImports.get(handler) || mount.file, handler });
   });
 }
 for (const file of (await fs.readdir(path.join(root, 'controllers'))).sort()) {
@@ -114,6 +118,55 @@ for (const key of ['access.read', 'access.manage', 'access.assign', 'access.audi
 const workflows = JSON.parse(await fs.readFile(path.join(root, 'config/accessWorkflows.json'), 'utf8'));
 for (const rule of workflows) for (const key of [...(rule.all || []), ...rule.any, ...(rule.permissions || [])]) {
   if (!permissions.some(p => p.key === key)) throw new Error(`Unknown workflow permission: ${key}`);
+}
+// Every form action also gets a rule listing the request fields its handler reads, so granting the action
+// can include those fields and roles missing them are flagged. Fields that another permission controls are left out.
+const requestFields = async (file, handler) => {
+  let fields = null;
+  walk(ast(await fs.readFile(path.join(root, file), 'utf8')), (node) => {
+    const fn = node.type === 'VariableDeclarator' && node.id?.name === handler && ['ArrowFunctionExpression', 'FunctionExpression'].includes(node.init?.type) ? node.init
+      : node.type === 'FunctionDeclaration' && node.id?.name === handler ? node : null;
+    if (!fn || fields) return;
+    const found = new Set(), lists = []; let computed = false;
+    const requestObject = (item) => ['MemberExpression', 'OptionalMemberExpression'].includes(item?.type) && item.object?.name === 'req' && ['body', 'files'].includes(item.property?.name);
+    walk(fn, (child) => {
+      if (['MemberExpression', 'OptionalMemberExpression'].includes(child.type) && requestObject(child.object)) {
+        if (!child.computed) found.add(child.property.name); else if (child.property.type === 'StringLiteral') found.add(child.property.value); else computed = true;
+      }
+      if (child.type === 'CallExpression' && child.arguments.some(requestObject) && child.callee?.property?.name === 'hasOwn') computed = true;
+      if (child.type === 'VariableDeclarator' && child.id?.type === 'ObjectPattern' && (requestObject(child.init) || requestObject(child.init?.left))) {
+        for (const property of child.id.properties) if (property.key) found.add(property.key.name || property.key.value);
+      }
+      if (child.type === 'VariableDeclarator' && child.init?.type === 'ArrayExpression' && child.init.elements.length && child.init.elements.every((item) => item?.type === 'StringLiteral')) lists.push(child.init.elements.map((item) => item.value));
+    });
+    // Handlers that copy an allowed-field list from the body (Object.hasOwn(req.body, key)) accept every listed field.
+    if (computed) for (const list of lists) list.forEach((key) => found.add(key));
+    fields = [...found];
+  });
+  return fields || [];
+};
+const toggledResources = new Set(routes.filter((route) => /^toggle.*Status$/.test(route.handler)).map((route) => route.resource));
+const SEPARATELY_GRANTED = new Set(['paid_fee', 'pending_fee', 'total_fee', 'cash_amount', 'online_amount', 'discount_amount', 'discount_description',
+  'role', 'accessRoleId', 'accessBatchIds', 'accessCourseIds']);
+const ADMISSION_PAYMENT = new Set(['paying_now', 'payment_method', 'next_installment_date', 'payment_evidence']);
+// Own-account requests are covered by the role editor's own-account basics; template previews only carry sample values.
+const SKIPPED_HANDLERS = new Set(['updateUser', 'changeAvatar', 'changePassword', 'previewWhatsAppTemplate', 'testWhatsAppTemplate']);
+for (const route of routes) {
+  if (route.public || route.blocked || route.method === 'GET' || SKIPPED_HANDLERS.has(route.handler) || workflows.some((rule) => rule.id === `fields:${route.permission}`)) continue;
+  const source = handlerSources.get(route.permission);
+  const keys = (await requestFields(source.file, source.handler)).filter((key) => {
+    const group = Object.entries(fieldGroups).find(([, fields]) => fields.includes(key))?.[0];
+    if (!group || readOnlyFields.includes(key) || SEPARATELY_GRANTED.has(key)) return false;
+    if (group === 'credentials') return /password/i.test(route.handler);
+    if (/^add(Student|Qualifier)$/.test(route.handler) && ADMISSION_PAYMENT.has(key)) return false;
+    if (key === 'is_active' && toggledResources.has(route.resource) && !/^toggle/.test(route.handler)) return false;
+    if (key === 'batch' && route.resource === 'students' && !['addStudent', 'transferStudentBatch'].includes(route.handler)) return false;
+    return true;
+  }).sort();
+  if (!keys.length) continue;
+  const groupOf = (key) => Object.entries(fieldGroups).find(([, fields]) => fields.includes(key))[0];
+  workflows.push({ id: `fields:${route.permission}`, label: `Form fields for ${route.handler.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()}`, any: [route.permission],
+    write: keys, read: keys.filter((key) => groupOf(key) !== 'credentials') });
 }
 const output = `${JSON.stringify({ version: 1, routes, permissions, fieldGroups, readOnlyFields, workflows }, null, 2)}\n`;
 const destination = path.join(root, 'config/accessCatalog.generated.json');

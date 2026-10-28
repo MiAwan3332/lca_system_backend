@@ -1,4 +1,5 @@
 import { accessCatalog } from './accessCatalog.js';
+import { completeWorkflowAccess } from './accessWorkflowRules.js';
 
 export const STAFF_ROLE_CODES = {
   principle: 'lca-staff-principle', vice: 'lca-staff-vice-principle',
@@ -19,7 +20,8 @@ const output = (resource, ...actions) => actions.map((action) => {
   if (!accessCatalog.permissions.some((item) => item.key === permission)) throw new Error(`Unknown output: ${permission}`);
   return { permission, scope: 'all' };
 });
-const unique = (grants) => [...new Map(grants.map((grant) => [`${grant.permission}:${grant.scope}`, grant])).values()];
+// Templates include the form fields their actions send (see catalog workflows), so a fresh role has no locked inputs.
+const unique = (grants) => completeWorkflowAccess([...new Map(grants.map((grant) => [`${grant.permission}:${grant.scope}`, grant])).values()], accessCatalog);
 const self = () => [
   ...ops('users', ['getUser', 'updateUser', 'changeAvatar', 'changePassword'], 'own'),
   ...ops('notifications', ['getNotifications', 'markAsRead', 'markAllAsRead'], 'own'),

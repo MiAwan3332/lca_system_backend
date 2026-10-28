@@ -4555,6 +4555,8 @@
         "exam_type_counts",
         "expiry_date",
         "father_name",
+        "feedback",
+        "feedback_updates",
         "field",
         "field_label",
         "file",
@@ -5024,6 +5026,8 @@
         "exam_type_counts",
         "expiry_date",
         "father_name",
+        "feedback",
+        "feedback_updates",
         "field",
         "field_label",
         "file",
@@ -5427,8 +5431,6 @@
         "fee_log",
         "fee_overdue_days",
         "fee_overview",
-        "feedback",
-        "feedback_updates",
         "fees",
         "finance",
         "has_pending_fee_slip",
@@ -5502,8 +5504,6 @@
         "fee_log",
         "fee_overdue_days",
         "fee_overview",
-        "feedback",
-        "feedback_updates",
         "fees",
         "finance",
         "has_pending_fee_slip",
@@ -5866,6 +5866,8 @@
       "exam_type_counts",
       "expiry_date",
       "father_name",
+      "feedback",
+      "feedback_updates",
       "field",
       "field_label",
       "file",
@@ -6221,8 +6223,6 @@
       "fee_log",
       "fee_overdue_days",
       "fee_overview",
-      "feedback",
-      "feedback_updates",
       "fees",
       "finance",
       "has_pending_fee_slip",
@@ -6362,7 +6362,30 @@
       "write": [
         "paying_now",
         "payment_method",
-        "next_installment_date"
+        "next_installment_date",
+        "payment_evidence"
+      ],
+      "read": [
+        "batch_fee",
+        "pending_fee",
+        "paid_fee",
+        "total_fee"
+      ]
+    },
+    {
+      "id": "qualifier-admission-collection",
+      "label": "Collect a payment when adding a qualifier",
+      "all": [
+        "qualifiers.add.qualifier"
+      ],
+      "any": [
+        "fees.pay.fee",
+        "fees.collect.pending.fee"
+      ],
+      "write": [
+        "paying_now",
+        "payment_method",
+        "payment_evidence"
       ],
       "read": [
         "batch_fee",
@@ -6564,6 +6587,1648 @@
       ],
       "write": [
         "amount"
+      ]
+    },
+    {
+      "id": "fields:users.add.user",
+      "label": "Form fields for add user",
+      "any": [
+        "users.add.user"
+      ],
+      "write": [
+        "email",
+        "name",
+        "phone"
+      ],
+      "read": [
+        "email",
+        "name",
+        "phone"
+      ]
+    },
+    {
+      "id": "fields:courses.add.course",
+      "label": "Form fields for add course",
+      "any": [
+        "courses.add.course"
+      ],
+      "write": [
+        "description",
+        "fee",
+        "name"
+      ],
+      "read": [
+        "description",
+        "fee",
+        "name"
+      ]
+    },
+    {
+      "id": "fields:courses.update.course",
+      "label": "Form fields for update course",
+      "any": [
+        "courses.update.course"
+      ],
+      "write": [
+        "description",
+        "fee",
+        "name"
+      ],
+      "read": [
+        "description",
+        "fee",
+        "name"
+      ]
+    },
+    {
+      "id": "fields:teachers.add.teacher",
+      "label": "Form fields for add teacher",
+      "any": [
+        "teachers.add.teacher"
+      ],
+      "write": [
+        "email",
+        "name",
+        "phone"
+      ],
+      "read": [
+        "email",
+        "name",
+        "phone"
+      ]
+    },
+    {
+      "id": "fields:teachers.update.teacher",
+      "label": "Form fields for update teacher",
+      "any": [
+        "teachers.update.teacher"
+      ],
+      "write": [
+        "email",
+        "image",
+        "name",
+        "phone",
+        "resume"
+      ],
+      "read": [
+        "email",
+        "image",
+        "name",
+        "phone",
+        "resume"
+      ]
+    },
+    {
+      "id": "fields:batches.add.batch",
+      "label": "Form fields for add batch",
+      "any": [
+        "batches.add.batch"
+      ],
+      "write": [
+        "batch_fee",
+        "batch_type",
+        "class_end_time",
+        "class_start_time",
+        "description",
+        "enddate",
+        "is_interview_batch",
+        "is_paid_batch",
+        "is_special_batch",
+        "name",
+        "roll_nickname",
+        "startdate"
+      ],
+      "read": [
+        "batch_fee",
+        "batch_type",
+        "class_end_time",
+        "class_start_time",
+        "description",
+        "enddate",
+        "is_interview_batch",
+        "is_paid_batch",
+        "is_special_batch",
+        "name",
+        "roll_nickname",
+        "startdate"
+      ]
+    },
+    {
+      "id": "fields:batches.update.batch",
+      "label": "Form fields for update batch",
+      "any": [
+        "batches.update.batch"
+      ],
+      "write": [
+        "batch_fee",
+        "batch_type",
+        "class_end_time",
+        "class_start_time",
+        "description",
+        "enddate",
+        "is_interview_batch",
+        "is_paid_batch",
+        "is_special_batch",
+        "name",
+        "roll_nickname",
+        "startdate"
+      ],
+      "read": [
+        "batch_fee",
+        "batch_type",
+        "class_end_time",
+        "class_start_time",
+        "description",
+        "enddate",
+        "is_interview_batch",
+        "is_paid_batch",
+        "is_special_batch",
+        "name",
+        "roll_nickname",
+        "startdate"
+      ]
+    },
+    {
+      "id": "fields:batches.toggle.batch.status",
+      "label": "Form fields for toggle batch status",
+      "any": [
+        "batches.toggle.batch.status"
+      ],
+      "write": [
+        "is_active"
+      ],
+      "read": [
+        "is_active"
+      ]
+    },
+    {
+      "id": "fields:batches.assign.courses.to.batch",
+      "label": "Form fields for assign courses to batch",
+      "any": [
+        "batches.assign.courses.to.batch"
+      ],
+      "write": [
+        "batchId",
+        "courseIds"
+      ],
+      "read": [
+        "batchId",
+        "courseIds"
+      ]
+    },
+    {
+      "id": "fields:batches.assign.teachers.to.batch",
+      "label": "Form fields for assign teachers to batch",
+      "any": [
+        "batches.assign.teachers.to.batch"
+      ],
+      "write": [
+        "batchId",
+        "teacherIds"
+      ],
+      "read": [
+        "batchId",
+        "teacherIds"
+      ]
+    },
+    {
+      "id": "fields:batches.assign.teacher.courses.to.batch",
+      "label": "Form fields for assign teacher courses to batch",
+      "any": [
+        "batches.assign.teacher.courses.to.batch"
+      ],
+      "write": [
+        "assignments",
+        "batchId"
+      ],
+      "read": [
+        "assignments",
+        "batchId"
+      ]
+    },
+    {
+      "id": "fields:students.edit.payment.evidence",
+      "label": "Form fields for edit payment evidence",
+      "any": [
+        "students.edit.payment.evidence"
+      ],
+      "write": [
+        "keep_evidence",
+        "payment_evidence"
+      ],
+      "read": [
+        "keep_evidence",
+        "payment_evidence"
+      ]
+    },
+    {
+      "id": "fields:students.change.student.password",
+      "label": "Form fields for change student password",
+      "any": [
+        "students.change.student.password"
+      ],
+      "write": [
+        "password"
+      ],
+      "read": []
+    },
+    {
+      "id": "fields:students.toggle.batch.students.status",
+      "label": "Form fields for toggle batch students status",
+      "any": [
+        "students.toggle.batch.students.status"
+      ],
+      "write": [
+        "is_active"
+      ],
+      "read": [
+        "is_active"
+      ]
+    },
+    {
+      "id": "fields:students.bulk.import.students",
+      "label": "Form fields for bulk import students",
+      "any": [
+        "students.bulk.import.students"
+      ],
+      "write": [
+        "batch_id",
+        "students"
+      ],
+      "read": [
+        "batch_id",
+        "students"
+      ]
+    },
+    {
+      "id": "fields:students.fill.null.student.field",
+      "label": "Form fields for fill null student field",
+      "any": [
+        "students.fill.null.student.field"
+      ],
+      "write": [
+        "batch_id",
+        "field",
+        "preview",
+        "value"
+      ],
+      "read": [
+        "batch_id",
+        "field",
+        "preview",
+        "value"
+      ]
+    },
+    {
+      "id": "fields:students.toggle.student.status",
+      "label": "Form fields for toggle student status",
+      "any": [
+        "students.toggle.student.status"
+      ],
+      "write": [
+        "is_active"
+      ],
+      "read": [
+        "is_active"
+      ]
+    },
+    {
+      "id": "fields:students.transfer.student.batch",
+      "label": "Form fields for transfer student batch",
+      "any": [
+        "students.transfer.student.batch"
+      ],
+      "write": [
+        "assign_new_fee",
+        "batch",
+        "special_selected_options"
+      ],
+      "read": [
+        "assign_new_fee",
+        "batch",
+        "special_selected_options"
+      ]
+    },
+    {
+      "id": "fields:students.get.or.create.pending.fee.slip",
+      "label": "Form fields for get or create pending fee slip",
+      "any": [
+        "students.get.or.create.pending.fee.slip"
+      ],
+      "write": [
+        "file",
+        "slip"
+      ],
+      "read": [
+        "file",
+        "slip"
+      ]
+    },
+    {
+      "id": "fields:students.add.student",
+      "label": "Form fields for add student",
+      "any": [
+        "students.add.student"
+      ],
+      "write": [
+        "admission_date",
+        "batch",
+        "cnic",
+        "name",
+        "phone",
+        "remarks"
+      ],
+      "read": [
+        "admission_date",
+        "batch",
+        "cnic",
+        "name",
+        "phone",
+        "remarks"
+      ]
+    },
+    {
+      "id": "fields:students.update.student",
+      "label": "Form fields for update student",
+      "any": [
+        "students.update.student"
+      ],
+      "write": [
+        "admission_date",
+        "city",
+        "cnic",
+        "completion_year",
+        "date_of_birth",
+        "email",
+        "father_name",
+        "father_phone",
+        "latest_degree",
+        "marks_cgpa",
+        "name",
+        "phone",
+        "province",
+        "university"
+      ],
+      "read": [
+        "admission_date",
+        "city",
+        "cnic",
+        "completion_year",
+        "date_of_birth",
+        "email",
+        "father_name",
+        "father_phone",
+        "latest_degree",
+        "marks_cgpa",
+        "name",
+        "phone",
+        "province",
+        "university"
+      ]
+    },
+    {
+      "id": "fields:students.delete.student",
+      "label": "Form fields for delete student",
+      "any": [
+        "students.delete.student"
+      ],
+      "write": [
+        "reason"
+      ],
+      "read": [
+        "reason"
+      ]
+    },
+    {
+      "id": "fields:students.update.studentinfo",
+      "label": "Form fields for update studentinfo",
+      "any": [
+        "students.update.studentinfo"
+      ],
+      "write": [
+        "city",
+        "cnic",
+        "completion_year",
+        "date_of_birth",
+        "father_name",
+        "father_phone",
+        "latest_degree",
+        "marks_cgpa",
+        "province",
+        "university"
+      ],
+      "read": [
+        "city",
+        "cnic",
+        "completion_year",
+        "date_of_birth",
+        "father_name",
+        "father_phone",
+        "latest_degree",
+        "marks_cgpa",
+        "province",
+        "university"
+      ]
+    },
+    {
+      "id": "fields:students.basic.student.update",
+      "label": "Form fields for basic student update",
+      "any": [
+        "students.basic.student.update"
+      ],
+      "write": [
+        "cnic",
+        "email",
+        "image",
+        "name",
+        "phone",
+        "remarks",
+        "skip_profile_completion"
+      ],
+      "read": [
+        "cnic",
+        "email",
+        "image",
+        "name",
+        "phone",
+        "remarks",
+        "skip_profile_completion"
+      ]
+    },
+    {
+      "id": "fields:seminars.add.seminar",
+      "label": "Form fields for add seminar",
+      "any": [
+        "seminars.add.seminar"
+      ],
+      "write": [
+        "date",
+        "description",
+        "name",
+        "time"
+      ],
+      "read": [
+        "date",
+        "description",
+        "name",
+        "time"
+      ]
+    },
+    {
+      "id": "fields:seminars.update.seminar",
+      "label": "Form fields for update seminar",
+      "any": [
+        "seminars.update.seminar"
+      ],
+      "write": [
+        "date",
+        "description",
+        "name",
+        "time"
+      ],
+      "read": [
+        "date",
+        "description",
+        "name",
+        "time"
+      ]
+    },
+    {
+      "id": "fields:roles.add.role",
+      "label": "Form fields for add role",
+      "any": [
+        "roles.add.role"
+      ],
+      "write": [
+        "description",
+        "name"
+      ],
+      "read": [
+        "description",
+        "name"
+      ]
+    },
+    {
+      "id": "fields:roles.update.role",
+      "label": "Form fields for update role",
+      "any": [
+        "roles.update.role"
+      ],
+      "write": [
+        "description",
+        "name"
+      ],
+      "read": [
+        "description",
+        "name"
+      ]
+    },
+    {
+      "id": "fields:roles.assign.permissions.to.role",
+      "label": "Form fields for assign permissions to role",
+      "any": [
+        "roles.assign.permissions.to.role"
+      ],
+      "write": [
+        "permissionIds",
+        "roleId"
+      ],
+      "read": [
+        "permissionIds",
+        "roleId"
+      ]
+    },
+    {
+      "id": "fields:permissions.add.permission",
+      "label": "Form fields for add permission",
+      "any": [
+        "permissions.add.permission"
+      ],
+      "write": [
+        "description",
+        "name"
+      ],
+      "read": [
+        "description",
+        "name"
+      ]
+    },
+    {
+      "id": "fields:permissions.update.permission",
+      "label": "Form fields for update permission",
+      "any": [
+        "permissions.update.permission"
+      ],
+      "write": [
+        "description",
+        "name"
+      ],
+      "read": [
+        "description",
+        "name"
+      ]
+    },
+    {
+      "id": "fields:attendees.create.attendee",
+      "label": "Form fields for create attendee",
+      "any": [
+        "attendees.create.attendee"
+      ],
+      "write": [
+        "age",
+        "city",
+        "email",
+        "name",
+        "phone",
+        "qualification",
+        "seminar_id"
+      ],
+      "read": [
+        "age",
+        "city",
+        "email",
+        "name",
+        "phone",
+        "qualification",
+        "seminar_id"
+      ]
+    },
+    {
+      "id": "fields:attendees.update.attendee",
+      "label": "Form fields for update attendee",
+      "any": [
+        "attendees.update.attendee"
+      ],
+      "write": [
+        "city",
+        "email",
+        "name",
+        "phone",
+        "qualification",
+        "seminar_id"
+      ],
+      "read": [
+        "city",
+        "email",
+        "name",
+        "phone",
+        "qualification",
+        "seminar_id"
+      ]
+    },
+    {
+      "id": "fields:attendence.create.attendence",
+      "label": "Form fields for create attendence",
+      "any": [
+        "attendence.create.attendence"
+      ],
+      "write": [
+        "student_id"
+      ],
+      "read": [
+        "student_id"
+      ]
+    },
+    {
+      "id": "fields:timetable.create.time.table",
+      "label": "Form fields for create time table",
+      "any": [
+        "timetable.create.time.table"
+      ],
+      "write": [
+        "batch",
+        "course",
+        "day",
+        "end_time",
+        "start_time",
+        "teacher"
+      ],
+      "read": [
+        "batch",
+        "course",
+        "day",
+        "end_time",
+        "start_time",
+        "teacher"
+      ]
+    },
+    {
+      "id": "fields:timetable.update.time.table",
+      "label": "Form fields for update time table",
+      "any": [
+        "timetable.update.time.table"
+      ],
+      "write": [
+        "batch",
+        "course",
+        "day",
+        "end_time",
+        "start_time",
+        "teacher"
+      ],
+      "read": [
+        "batch",
+        "course",
+        "day",
+        "end_time",
+        "start_time",
+        "teacher"
+      ]
+    },
+    {
+      "id": "fields:enrollments.create.enrollment",
+      "label": "Form fields for create enrollment",
+      "any": [
+        "enrollments.create.enrollment"
+      ],
+      "write": [
+        "enrollments",
+        "student_id"
+      ],
+      "read": [
+        "enrollments",
+        "student_id"
+      ]
+    },
+    {
+      "id": "fields:mcqs.create.mcq",
+      "label": "Form fields for create mcq",
+      "any": [
+        "mcqs.create.mcq"
+      ],
+      "write": [
+        "correct_option",
+        "courseId",
+        "option1",
+        "option2",
+        "option3",
+        "option4",
+        "question"
+      ],
+      "read": [
+        "correct_option",
+        "courseId",
+        "option1",
+        "option2",
+        "option3",
+        "option4",
+        "question"
+      ]
+    },
+    {
+      "id": "fields:mcqs.bulk.import.mcqs",
+      "label": "Form fields for bulk import mcqs",
+      "any": [
+        "mcqs.bulk.import.mcqs"
+      ],
+      "write": [
+        "mcqs"
+      ],
+      "read": [
+        "mcqs"
+      ]
+    },
+    {
+      "id": "fields:mcqs.update.mcq",
+      "label": "Form fields for update mcq",
+      "any": [
+        "mcqs.update.mcq"
+      ],
+      "write": [
+        "correct_option",
+        "courseId",
+        "option1",
+        "option2",
+        "option3",
+        "option4",
+        "question"
+      ],
+      "read": [
+        "correct_option",
+        "courseId",
+        "option1",
+        "option2",
+        "option3",
+        "option4",
+        "question"
+      ]
+    },
+    {
+      "id": "fields:pastPapers.create.past.paper",
+      "label": "Form fields for create past paper",
+      "any": [
+        "pastPapers.create.past.paper"
+      ],
+      "write": [
+        "courseId",
+        "questions",
+        "year"
+      ],
+      "read": [
+        "courseId",
+        "questions",
+        "year"
+      ]
+    },
+    {
+      "id": "fields:pastPapers.update.past.paper",
+      "label": "Form fields for update past paper",
+      "any": [
+        "pastPapers.update.past.paper"
+      ],
+      "write": [
+        "courseId",
+        "questions",
+        "year"
+      ],
+      "read": [
+        "courseId",
+        "questions",
+        "year"
+      ]
+    },
+    {
+      "id": "fields:pastPapers.get.past.paper.by.course.and.year",
+      "label": "Form fields for get past paper by course and year",
+      "any": [
+        "pastPapers.get.past.paper.by.course.and.year"
+      ],
+      "write": [
+        "courseId",
+        "year"
+      ],
+      "read": [
+        "courseId",
+        "year"
+      ]
+    },
+    {
+      "id": "fields:fees.collect.pending.fee",
+      "label": "Form fields for collect pending fee",
+      "any": [
+        "fees.collect.pending.fee"
+      ],
+      "write": [
+        "amount",
+        "next_installment_date",
+        "payment_evidence",
+        "payment_method",
+        "payment_option",
+        "remarks"
+      ],
+      "read": [
+        "amount",
+        "next_installment_date",
+        "payment_evidence",
+        "payment_method",
+        "payment_option",
+        "remarks"
+      ]
+    },
+    {
+      "id": "fields:fees.pay.fee",
+      "label": "Form fields for pay fee",
+      "any": [
+        "fees.pay.fee"
+      ],
+      "write": [
+        "amount",
+        "description",
+        "next_installment_date",
+        "payment_evidence",
+        "payment_method",
+        "student_id"
+      ],
+      "read": [
+        "amount",
+        "description",
+        "next_installment_date",
+        "payment_evidence",
+        "payment_method",
+        "student_id"
+      ]
+    },
+    {
+      "id": "fields:fees.discount.fee",
+      "label": "Form fields for discount fee",
+      "any": [
+        "fees.discount.fee"
+      ],
+      "write": [
+        "amount",
+        "description"
+      ],
+      "read": [
+        "amount",
+        "description"
+      ]
+    },
+    {
+      "id": "fields:fees.create.fee",
+      "label": "Form fields for create fee",
+      "any": [
+        "fees.create.fee"
+      ],
+      "write": [
+        "amount",
+        "batch_id",
+        "student_id"
+      ],
+      "read": [
+        "amount",
+        "batch_id",
+        "student_id"
+      ]
+    },
+    {
+      "id": "fields:expenses.add.expense",
+      "label": "Form fields for add expense",
+      "any": [
+        "expenses.add.expense"
+      ],
+      "write": [
+        "amount",
+        "category",
+        "description",
+        "expense_date",
+        "payment_method",
+        "title"
+      ],
+      "read": [
+        "amount",
+        "category",
+        "description",
+        "expense_date",
+        "payment_method",
+        "title"
+      ]
+    },
+    {
+      "id": "fields:expenses.reject.expense",
+      "label": "Form fields for reject expense",
+      "any": [
+        "expenses.reject.expense"
+      ],
+      "write": [
+        "rejection_reason"
+      ],
+      "read": [
+        "rejection_reason"
+      ]
+    },
+    {
+      "id": "fields:expenses.update.expense",
+      "label": "Form fields for update expense",
+      "any": [
+        "expenses.update.expense"
+      ],
+      "write": [
+        "amount",
+        "category",
+        "description",
+        "expense_date",
+        "payment_method",
+        "title"
+      ],
+      "read": [
+        "amount",
+        "category",
+        "description",
+        "expense_date",
+        "payment_method",
+        "title"
+      ]
+    },
+    {
+      "id": "fields:refund-requests.create.refund.request",
+      "label": "Form fields for create refund request",
+      "any": [
+        "refund-requests.create.refund.request"
+      ],
+      "write": [
+        "amount",
+        "reason",
+        "studentId"
+      ],
+      "read": [
+        "amount",
+        "reason",
+        "studentId"
+      ]
+    },
+    {
+      "id": "fields:refund-requests.approve.refund.request",
+      "label": "Form fields for approve refund request",
+      "any": [
+        "refund-requests.approve.refund.request"
+      ],
+      "write": [
+        "amount",
+        "comment"
+      ],
+      "read": [
+        "amount",
+        "comment"
+      ]
+    },
+    {
+      "id": "fields:refund-requests.reject.refund.request",
+      "label": "Form fields for reject refund request",
+      "any": [
+        "refund-requests.reject.refund.request"
+      ],
+      "write": [
+        "comment"
+      ],
+      "read": [
+        "comment"
+      ]
+    },
+    {
+      "id": "fields:refund-requests.process.refund.request",
+      "label": "Form fields for process refund request",
+      "any": [
+        "refund-requests.process.refund.request"
+      ],
+      "write": [
+        "amount",
+        "payment_evidence",
+        "payment_method",
+        "refund_payment_method"
+      ],
+      "read": [
+        "amount",
+        "payment_evidence",
+        "payment_method",
+        "refund_payment_method"
+      ]
+    },
+    {
+      "id": "fields:refund-requests.update.refund.payout",
+      "label": "Form fields for update refund payout",
+      "any": [
+        "refund-requests.update.refund.payout"
+      ],
+      "write": [
+        "payment_evidence",
+        "payment_method",
+        "refund_payment_method",
+        "replace_evidence"
+      ],
+      "read": [
+        "payment_evidence",
+        "payment_method",
+        "refund_payment_method",
+        "replace_evidence"
+      ]
+    },
+    {
+      "id": "fields:quiz.start.quiz",
+      "label": "Form fields for start quiz",
+      "any": [
+        "quiz.start.quiz"
+      ],
+      "write": [
+        "course_id",
+        "pattern",
+        "question_count",
+        "timer_enabled",
+        "timer_seconds"
+      ],
+      "read": [
+        "course_id",
+        "pattern",
+        "question_count",
+        "timer_enabled",
+        "timer_seconds"
+      ]
+    },
+    {
+      "id": "fields:quiz.save.quiz.answer",
+      "label": "Form fields for save quiz answer",
+      "any": [
+        "quiz.save.quiz.answer"
+      ],
+      "write": [
+        "is_skipped",
+        "question_order",
+        "selected_option"
+      ],
+      "read": [
+        "is_skipped",
+        "question_order",
+        "selected_option"
+      ]
+    },
+    {
+      "id": "fields:assignments.create.assignment",
+      "label": "Form fields for create assignment",
+      "any": [
+        "assignments.create.assignment"
+      ],
+      "write": [
+        "attachments"
+      ],
+      "read": [
+        "attachments"
+      ]
+    },
+    {
+      "id": "fields:assignments.update.assignment",
+      "label": "Form fields for update assignment",
+      "any": [
+        "assignments.update.assignment"
+      ],
+      "write": [
+        "attachments"
+      ],
+      "read": [
+        "attachments"
+      ]
+    },
+    {
+      "id": "fields:assignments.submit.assignment",
+      "label": "Form fields for submit assignment",
+      "any": [
+        "assignments.submit.assignment"
+      ],
+      "write": [
+        "submission_files",
+        "submission_text"
+      ],
+      "read": [
+        "submission_files",
+        "submission_text"
+      ]
+    },
+    {
+      "id": "fields:assignments.grade.submission",
+      "label": "Form fields for grade submission",
+      "any": [
+        "assignments.grade.submission"
+      ],
+      "write": [
+        "feedback",
+        "marks_obtained",
+        "resubmission_requested",
+        "status"
+      ],
+      "read": [
+        "feedback",
+        "marks_obtained",
+        "resubmission_requested",
+        "status"
+      ]
+    },
+    {
+      "id": "fields:course-quizzes.save.course.quiz.answer",
+      "label": "Form fields for save course quiz answer",
+      "any": [
+        "course-quizzes.save.course.quiz.answer"
+      ],
+      "write": [
+        "question_id",
+        "selected_answers",
+        "text_answer"
+      ],
+      "read": [
+        "question_id",
+        "selected_answers",
+        "text_answer"
+      ]
+    },
+    {
+      "id": "fields:course-quizzes.review.course.quiz.attempt",
+      "label": "Form fields for review course quiz attempt",
+      "any": [
+        "course-quizzes.review.course.quiz.attempt"
+      ],
+      "write": [
+        "feedback_updates",
+        "manual_score",
+        "publish_result"
+      ],
+      "read": [
+        "feedback_updates",
+        "manual_score",
+        "publish_result"
+      ]
+    },
+    {
+      "id": "fields:complaints.create.complaint",
+      "label": "Form fields for create complaint",
+      "any": [
+        "complaints.create.complaint"
+      ],
+      "write": [
+        "category",
+        "description",
+        "subject",
+        "target_role"
+      ],
+      "read": [
+        "category",
+        "description",
+        "subject",
+        "target_role"
+      ]
+    },
+    {
+      "id": "fields:complaints.respond.to.complaint",
+      "label": "Form fields for respond to complaint",
+      "any": [
+        "complaints.respond.to.complaint"
+      ],
+      "write": [
+        "response",
+        "status"
+      ],
+      "read": [
+        "response",
+        "status"
+      ]
+    },
+    {
+      "id": "fields:announcements.create.announcement",
+      "label": "Form fields for create announcement",
+      "any": [
+        "announcements.create.announcement"
+      ],
+      "write": [
+        "batch_ids",
+        "message",
+        "title"
+      ],
+      "read": [
+        "batch_ids",
+        "message",
+        "title"
+      ]
+    },
+    {
+      "id": "fields:announcements.update.announcement",
+      "label": "Form fields for update announcement",
+      "any": [
+        "announcements.update.announcement"
+      ],
+      "write": [
+        "batch_ids",
+        "message",
+        "title"
+      ],
+      "read": [
+        "batch_ids",
+        "message",
+        "title"
+      ]
+    },
+    {
+      "id": "fields:interview-panels.start.interview",
+      "label": "Form fields for start interview",
+      "any": [
+        "interview-panels.start.interview"
+      ],
+      "write": [
+        "schedule_index"
+      ],
+      "read": [
+        "schedule_index"
+      ]
+    },
+    {
+      "id": "fields:interview-panels.submit.interview.evaluation",
+      "label": "Form fields for submit interview evaluation",
+      "any": [
+        "interview-panels.submit.interview.evaluation"
+      ],
+      "write": [
+        "final_remarks",
+        "improvement_since_last_mock",
+        "key_strength",
+        "major_weakness",
+        "schedule_index",
+        "verdict"
+      ],
+      "read": [
+        "final_remarks",
+        "improvement_since_last_mock",
+        "key_strength",
+        "major_weakness",
+        "schedule_index",
+        "verdict"
+      ]
+    },
+    {
+      "id": "fields:interview-panels.add.interview.panel",
+      "label": "Form fields for add interview panel",
+      "any": [
+        "interview-panels.add.interview.panel"
+      ],
+      "write": [
+        "date",
+        "description",
+        "members",
+        "schedules",
+        "status",
+        "title",
+        "venue"
+      ],
+      "read": [
+        "date",
+        "description",
+        "members",
+        "schedules",
+        "status",
+        "title",
+        "venue"
+      ]
+    },
+    {
+      "id": "fields:interview-panels.update.interview.panel",
+      "label": "Form fields for update interview panel",
+      "any": [
+        "interview-panels.update.interview.panel"
+      ],
+      "write": [
+        "append_schedules",
+        "date",
+        "description",
+        "end_time",
+        "members",
+        "schedules",
+        "start_time",
+        "status",
+        "time",
+        "title",
+        "venue"
+      ],
+      "read": [
+        "append_schedules",
+        "date",
+        "description",
+        "end_time",
+        "members",
+        "schedules",
+        "start_time",
+        "status",
+        "time",
+        "title",
+        "venue"
+      ]
+    },
+    {
+      "id": "fields:interview-panels.book.interview.slot",
+      "label": "Form fields for book interview slot",
+      "any": [
+        "interview-panels.book.interview.slot"
+      ],
+      "write": [
+        "booked_for",
+        "booked_notes",
+        "booked_phone",
+        "booked_user_id",
+        "date",
+        "schedule_index",
+        "start_time"
+      ],
+      "read": [
+        "booked_for",
+        "booked_notes",
+        "booked_phone",
+        "booked_user_id",
+        "date",
+        "schedule_index",
+        "start_time"
+      ]
+    },
+    {
+      "id": "fields:panelists.add.panelist",
+      "label": "Form fields for add panelist",
+      "any": [
+        "panelists.add.panelist"
+      ],
+      "write": [
+        "description",
+        "image",
+        "is_active",
+        "name",
+        "phone",
+        "photo"
+      ],
+      "read": [
+        "description",
+        "image",
+        "is_active",
+        "name",
+        "phone",
+        "photo"
+      ]
+    },
+    {
+      "id": "fields:panelists.update.panelist",
+      "label": "Form fields for update panelist",
+      "any": [
+        "panelists.update.panelist"
+      ],
+      "write": [
+        "description",
+        "image",
+        "is_active",
+        "name",
+        "phone",
+        "photo"
+      ],
+      "read": [
+        "description",
+        "image",
+        "is_active",
+        "name",
+        "phone",
+        "photo"
+      ]
+    },
+    {
+      "id": "fields:panelists.change.panelist.password",
+      "label": "Form fields for change panelist password",
+      "any": [
+        "panelists.change.panelist.password"
+      ],
+      "write": [
+        "password"
+      ],
+      "read": []
+    },
+    {
+      "id": "fields:qualifiers.add.qualifier",
+      "label": "Form fields for add qualifier",
+      "any": [
+        "qualifiers.add.qualifier"
+      ],
+      "write": [
+        "batch",
+        "city",
+        "class_type",
+        "cnic",
+        "css_pms_roll_no",
+        "description",
+        "education_background",
+        "email",
+        "exam_type",
+        "father_name",
+        "father_phone",
+        "image",
+        "latest_degree",
+        "name",
+        "no_of_attempts",
+        "optional_subjects",
+        "phone",
+        "photo",
+        "province"
+      ],
+      "read": [
+        "batch",
+        "city",
+        "class_type",
+        "cnic",
+        "css_pms_roll_no",
+        "description",
+        "education_background",
+        "email",
+        "exam_type",
+        "father_name",
+        "father_phone",
+        "image",
+        "latest_degree",
+        "name",
+        "no_of_attempts",
+        "optional_subjects",
+        "phone",
+        "photo",
+        "province"
+      ]
+    },
+    {
+      "id": "fields:qualifiers.bulk.import.qualifiers",
+      "label": "Form fields for bulk import qualifiers",
+      "any": [
+        "qualifiers.bulk.import.qualifiers"
+      ],
+      "write": [
+        "batch_id",
+        "qualifiers"
+      ],
+      "read": [
+        "batch_id",
+        "qualifiers"
+      ]
+    },
+    {
+      "id": "fields:qualifiers.fill.null.qualifier.field",
+      "label": "Form fields for fill null qualifier field",
+      "any": [
+        "qualifiers.fill.null.qualifier.field"
+      ],
+      "write": [
+        "batch_id",
+        "field",
+        "preview",
+        "value"
+      ],
+      "read": [
+        "batch_id",
+        "field",
+        "preview",
+        "value"
+      ]
+    },
+    {
+      "id": "fields:qualifiers.update.qualifier",
+      "label": "Form fields for update qualifier",
+      "any": [
+        "qualifiers.update.qualifier"
+      ],
+      "write": [
+        "batch",
+        "city",
+        "class_type",
+        "cnic",
+        "css_pms_roll_no",
+        "description",
+        "education_background",
+        "email",
+        "exam_type",
+        "father_name",
+        "father_phone",
+        "image",
+        "latest_degree",
+        "name",
+        "no_of_attempts",
+        "optional_subjects",
+        "phone",
+        "photo",
+        "province"
+      ],
+      "read": [
+        "batch",
+        "city",
+        "class_type",
+        "cnic",
+        "css_pms_roll_no",
+        "description",
+        "education_background",
+        "email",
+        "exam_type",
+        "father_name",
+        "father_phone",
+        "image",
+        "latest_degree",
+        "name",
+        "no_of_attempts",
+        "optional_subjects",
+        "phone",
+        "photo",
+        "province"
+      ]
+    },
+    {
+      "id": "fields:qualifiers.toggle.qualifier.status",
+      "label": "Form fields for toggle qualifier status",
+      "any": [
+        "qualifiers.toggle.qualifier.status"
+      ],
+      "write": [
+        "is_active"
+      ],
+      "read": [
+        "is_active"
+      ]
+    },
+    {
+      "id": "fields:qualifiers.change.qualifier.password",
+      "label": "Form fields for change qualifier password",
+      "any": [
+        "qualifiers.change.qualifier.password"
+      ],
+      "write": [
+        "password"
+      ],
+      "read": []
+    },
+    {
+      "id": "fields:whatsapp.create.whats.app.session",
+      "label": "Form fields for create whats app session",
+      "any": [
+        "whatsapp.create.whats.app.session"
+      ],
+      "write": [
+        "name"
+      ],
+      "read": [
+        "name"
+      ]
+    },
+    {
+      "id": "fields:whatsapp.connect.whats.app",
+      "label": "Form fields for connect whats app",
+      "any": [
+        "whatsapp.connect.whats.app"
+      ],
+      "write": [
+        "name"
+      ],
+      "read": [
+        "name"
+      ]
+    },
+    {
+      "id": "fields:whatsapp.request.whats.app.pairing.code",
+      "label": "Form fields for request whats app pairing code",
+      "any": [
+        "whatsapp.request.whats.app.pairing.code"
+      ],
+      "write": [
+        "phoneNumber"
+      ],
+      "read": [
+        "phoneNumber"
+      ]
+    },
+    {
+      "id": "fields:whatsapp.enqueue.bulk.whats.app",
+      "label": "Form fields for enqueue bulk whats app",
+      "any": [
+        "whatsapp.enqueue.bulk.whats.app"
+      ],
+      "write": [
+        "audience",
+        "batch_id",
+        "body",
+        "recipients",
+        "source",
+        "template_id",
+        "template_key"
+      ],
+      "read": [
+        "audience",
+        "batch_id",
+        "body",
+        "recipients",
+        "source",
+        "template_id",
+        "template_key"
+      ]
+    },
+    {
+      "id": "fields:whatsapp.cancel.all.whats.app.queue",
+      "label": "Form fields for cancel all whats app queue",
+      "any": [
+        "whatsapp.cancel.all.whats.app.queue"
+      ],
+      "write": [
+        "campaign_id"
+      ],
+      "read": [
+        "campaign_id"
       ]
     }
   ]
