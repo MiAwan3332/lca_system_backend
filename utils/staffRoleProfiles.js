@@ -75,7 +75,7 @@ export function staffRoleProfiles() {
     field('evidence', 'read'), field('evidence', 'write'), field('integration', 'read'), field('integration', 'write'),
     field('internal', 'read'), field('internal', 'write'), field('financial', 'read', financialSummary), field('financial', 'write', pricingWrites),
     ...ops('students', [...studentReads, ...admissions, 'toggleStudentStatus', 'toggleBatchStudentsStatus', 'transferStudentBatch', 'getBatchShifts']),
-    ...academicReads(), ...academicManage(), ...ops('qualifiers', [...qualifierReads, ...qualifierWrites]),
+    ...academicReads(), ...academicManage(), ...ops('statistics', ['getBatchFinanceStats']), ...ops('qualifiers', [...qualifierReads, ...qualifierWrites]),
     ...ops('panelists', ['getPanelists', 'getPanelist', 'addPanelist', 'updatePanelist']),
     ...ops('interview-panels', ['getInterviewPanels', 'getInterviewPanel', 'addInterviewPanel', 'updateInterviewPanel', 'bookInterviewSlot', 'getConductInterview', 'getInterviewEvaluationDetails', 'startInterview', 'submitInterviewEvaluation']),
     ...ops('enrollments', ['getEnrollments', 'getEntrollmentbyStudent']), ...ops('admission-slips', ['issueAdmissionSlipVerification']),

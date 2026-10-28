@@ -90,7 +90,7 @@ try {
   for(const person of [principal,vice]){
     await check(person,'POST',`/batches/update/${a._id}`,{description:'Academic edit'});
     await check(person,'POST',`/students/basic-update/${sa._id}`,{name:'Allowed student'});
-    await check(person,'GET','/fees/report');
+    await check(person,'GET','/fees/report');await check(person,'GET','/statistics/batch-finance');
   }
   await check(accounts,'GET','/fees/report');
   await check(accounts,'POST',`/fees/pay/${fee._id}`,{student_id:String(sa._id),amount:25,description:'Isolated cash collection',payment_method:'Cash',next_installment_date:'2035-01-01'});
