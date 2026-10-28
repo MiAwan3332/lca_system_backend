@@ -88,6 +88,7 @@ try {
   await check(accounts,'POST',`/students/basic-update/${sa._id}`,{phone:'0000000008'});
   for(const person of [desk,accounts])await check(person,'POST',`/students/basic-update/${sa._id}`,{batch:String(b._id)},403);
   for(const person of [principal,vice]){
+    await check(person,'GET',`/batches/assignment-options/${a._id}`);
     await check(person,'POST',`/batches/update/${a._id}`,{description:'Academic edit'});
     await check(person,'POST',`/students/basic-update/${sa._id}`,{name:'Allowed student'});
     await check(person,'GET','/fees/report');await check(person,'GET','/statistics/batch-finance');

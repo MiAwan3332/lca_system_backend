@@ -10,6 +10,9 @@ const officer = () => {
   for (const p of accessCatalog.permissions.filter(p => ['students', 'batches'].includes(p.group))) if (!grants.some(g => g.permission === p.key)) grants.push({ permission: p.key, scope: 'all' });
   return grants;
 };
+test('all four default staff profiles have complete supported workflows', () => {
+  for (const role of staffRoleProfiles()) assert.deepEqual(workflowGaps(role.grants, accessCatalog), [], role.name);
+});
 test('complete student/batch workflows add precise fields without ledger edits or new approvals', () => {
   const original = officer(), saved = JSON.stringify(original);
   assert.ok(workflowGaps(original, accessCatalog).some(r => r.id === 'student-admission'));

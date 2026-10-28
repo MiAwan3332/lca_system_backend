@@ -42,7 +42,7 @@ const academicReads = () => [
   ...ops('attendence', ['getAttendences', 'getTodayAttendenceByStudentId']),
 ];
 const academicManage = () => [
-  ...ops('batches', ['addBatch', 'updateBatch', 'toggleBatchStatus', 'assignCoursesToBatch', 'assignTeachersToBatch', 'assignTeacherCoursesToBatch']),
+  ...ops('batches', ['addBatch', 'updateBatch', 'toggleBatchStatus', 'assignCoursesToBatch', 'assignTeachersToBatch', 'assignTeacherCoursesToBatch', 'getBatchAssignmentOptions']),
   ...ops('courses', ['addCourse', 'updateCourse']), ...ops('teachers', ['addTeacher', 'updateTeacher']),
   ...ops('timetable', ['createTimeTable', 'updateTimeTable', 'deleteTimeTable']), ...ops('attendence', ['createAttendence']),
   ...ops('assignments', ['getAssignments', 'getAssignmentById', 'getBatchCoursesForAssignment', 'getAssignmentSubmissions', 'createAssignment', 'updateAssignment', 'publishAssignment', 'gradeSubmission', 'deleteAssignment']),
@@ -63,7 +63,7 @@ const deskGeneral = ['student_name', 'batch_name', 'class_time', 'authorized_by'
   'education_background', 'optional_subjects', 'special_selected_options', 'reuse_existing', 'qualifier_id', 'schedule_index', 'booked_for',
   'booked_notes', 'forSelf', 'source', 'template_key', 'template_id', 'audience', 'body', 'recipients', 'vars', 'notification_id', 'reason',
   'subject', 'category', 'target_role', 'description'];
-const accountGeneral = ['payment_log_id', 'receipt_id', 'student_name', 'batch_name', 'class_time', 'authorized_by', 'slip_type', 'verify_base_url', 'name', 'student_id', 'studentId', 'batch_id', 'description', 'title', 'category', 'next_installment_date', 'reason',
+const accountGeneral = ['payment_log_id', 'receipt_id', 'student_name', 'batch_name', 'class_time', 'authorized_by', 'slip_type', 'verify_base_url', 'name', 'student_id', 'studentId', 'batch', 'batch_id', 'description', 'title', 'category', 'next_installment_date', 'reason',
   'payment_option', 'source', 'template_key', 'template_id', 'audience', 'body', 'recipients', 'vars', 'notification_id', 'keep_evidence', 'replace_evidence'];
 
 // User-approved separation of duties. Refund/expense approvals and direct discounts remain with the owner.
