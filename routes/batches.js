@@ -14,6 +14,7 @@ import {
   assignTeacherCoursesToBatch,
   getDeletedBatches,
   getDeletedBatchArchive,
+  getBatchAssignmentOptions,
 } from "../controllers/batches.js";
 import auth from "../middlewares/auth.js";
 
@@ -25,6 +26,7 @@ router.get("/deletion-archives/:id", auth, getDeletedBatchArchive);
 router.get("/courses/:id", auth, getBatchCourses);
 router.get("/teachers/:id", auth, getBatchTeachers);
 router.get("/teacher-assignments/:id", auth, getBatchTeacherAssignments);
+router.get('/assignment-options/:id', auth, getBatchAssignmentOptions);
 router.get("/:id", auth, getBatch);
 router.post("/add", auth, addBatch);
 router.post("/update/:id", auth, updateBatch);

@@ -300,6 +300,15 @@
     },
     {
       "method": "GET",
+      "path": "/batches/assignment-options/:id",
+      "permission": "batches.get.batch.assignment.options",
+      "resource": "batches",
+      "handler": "getBatchAssignmentOptions",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "GET",
       "path": "/batches/:id",
       "permission": "batches.get.batch",
       "resource": "batches",
@@ -2614,6 +2623,12 @@
       "key": "batches.get.batch.teacher.assignments",
       "group": "batches",
       "label": "get Batch Teacher Assignments",
+      "type": "action"
+    },
+    {
+      "key": "batches.get.batch.assignment.options",
+      "group": "batches",
+      "label": "get Batch Assignment Options",
       "type": "action"
     },
     {
@@ -6308,5 +6323,184 @@
     "creation_request",
     "creation_worker_epoch",
     "processing_status"
+  ],
+  "workflows": [
+    {
+      "id": "student-admission",
+      "label": "Admit students and choose their batch",
+      "any": [
+        "students.add.student"
+      ],
+      "write": [
+        "name",
+        "phone",
+        "batch",
+        "reuse_existing",
+        "special_selected_options",
+        "admission_date"
+      ],
+      "read": [
+        "name",
+        "phone",
+        "batch_fee",
+        "special_fee_options"
+      ]
+    },
+    {
+      "id": "admission-collection",
+      "label": "Collect a payment during admission",
+      "all": [
+        "students.add.student"
+      ],
+      "any": [
+        "fees.pay.fee",
+        "fees.collect.pending.fee"
+      ],
+      "write": [
+        "paying_now",
+        "payment_method",
+        "next_installment_date"
+      ],
+      "read": [
+        "batch_fee",
+        "pending_fee",
+        "paid_fee",
+        "total_fee"
+      ]
+    },
+    {
+      "id": "batch-transfer",
+      "label": "Transfer students, including special-batch fee options",
+      "any": [
+        "students.transfer.student.batch"
+      ],
+      "write": [
+        "batch",
+        "assign_new_fee",
+        "special_selected_options"
+      ],
+      "read": [
+        "batch_fee",
+        "special_fee_options",
+        "pending_fee"
+      ]
+    },
+    {
+      "id": "student-status",
+      "label": "Change student and batch-student status",
+      "any": [
+        "students.toggle.student.status",
+        "students.toggle.batch.students.status"
+      ],
+      "write": [
+        "is_active"
+      ]
+    },
+    {
+      "id": "student-import",
+      "label": "Import student rows into a batch",
+      "any": [
+        "students.bulk.import.students"
+      ],
+      "write": [
+        "batch",
+        "batch_id",
+        "students"
+      ],
+      "read": [
+        "name",
+        "batch_fee"
+      ]
+    },
+    {
+      "id": "batch-edit",
+      "label": "Create and edit complete batch details",
+      "any": [
+        "batches.add.batch",
+        "batches.update.batch"
+      ],
+      "write": [
+        "name",
+        "description",
+        "roll_nickname",
+        "batch_type",
+        "startdate",
+        "enddate",
+        "class_start_time",
+        "class_end_time",
+        "batch_fee",
+        "special_fee_options",
+        "is_paid_batch",
+        "is_special_batch",
+        "is_interview_batch"
+      ],
+      "read": [
+        "name",
+        "batch_fee",
+        "special_fee_options"
+      ]
+    },
+    {
+      "id": "batch-status",
+      "label": "Activate and deactivate batches",
+      "any": [
+        "batches.toggle.batch.status"
+      ],
+      "write": [
+        "is_active"
+      ]
+    },
+    {
+      "id": "batch-courses",
+      "label": "Assign courses to batches",
+      "any": [
+        "batches.assign.courses.to.batch"
+      ],
+      "write": [
+        "batchId",
+        "courseIds",
+        "courses"
+      ],
+      "read": [
+        "name"
+      ],
+      "permissions": [
+        "batches.get.batch.assignment.options"
+      ]
+    },
+    {
+      "id": "batch-teachers",
+      "label": "Assign teachers to batch courses",
+      "any": [
+        "batches.assign.teacher.courses.to.batch",
+        "batches.assign.teachers.to.batch"
+      ],
+      "write": [
+        "batchId",
+        "teacherIds",
+        "assignments"
+      ],
+      "read": [
+        "name"
+      ],
+      "permissions": [
+        "batches.get.batch.assignment.options"
+      ]
+    },
+    {
+      "id": "fee-picker",
+      "label": "Choose students and batches for fee collection",
+      "any": [
+        "fees.collect.pending.fee",
+        "students.get.or.create.pending.fee.slip"
+      ],
+      "write": [
+        "batch"
+      ],
+      "read": [
+        "name",
+        "pending_fee"
+      ]
+    }
   ]
 }

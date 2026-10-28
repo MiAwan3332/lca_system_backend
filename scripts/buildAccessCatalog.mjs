@@ -111,13 +111,22 @@ for (const group of Object.keys(fieldGroups)) {
 for (const key of ['access.read', 'access.manage', 'access.assign', 'access.audit', 'access.explain', 'files.download']) {
   permissions.push({ key, group: key.split('.')[0], label: key, type: 'action' });
 }
-const output = `${JSON.stringify({ version: 1, routes, permissions, fieldGroups, readOnlyFields }, null, 2)}\n`;
+const workflows = JSON.parse(await fs.readFile(path.join(root, 'config/accessWorkflows.json'), 'utf8'));
+for (const rule of workflows) for (const key of [...(rule.all || []), ...rule.any, ...(rule.permissions || [])]) {
+  if (!permissions.some(p => p.key === key)) throw new Error(`Unknown workflow permission: ${key}`);
+}
+const output = `${JSON.stringify({ version: 1, routes, permissions, fieldGroups, readOnlyFields, workflows }, null, 2)}\n`;
 const destination = path.join(root, 'config/accessCatalog.generated.json');
 if (process.argv.includes('--check')) {
   if (await fs.readFile(destination, 'utf8') !== output) throw new Error('Route inventory changed: regenerate and review access catalog');
 } else { await fs.mkdir(path.dirname(destination), { recursive: true }); await fs.writeFile(destination, output); }
 const browserCopy = path.join(root, '../lca_system_frontend/src/config/accessCatalog.generated.json');
 if (await fs.stat(path.join(root, '../lca_system_frontend/src')).catch(() => null)) {
+  const shared = await fs.readFile(path.join(root, 'utils/accessWorkflowRules.js'), 'utf8');
+  const sharedCopy = path.join(root, '../lca_system_frontend/src/utlls/accessWorkflowRules.js');
+  if (process.argv.includes('--check')) {
+    if (await fs.readFile(sharedCopy, 'utf8') !== shared) throw new Error('Browser workflow rules are stale');
+  } else await fs.writeFile(sharedCopy, shared);
   if (process.argv.includes('--check')) {
     if (await fs.readFile(browserCopy, 'utf8') !== output) throw new Error('Browser access catalog is stale');
   } else { await fs.mkdir(path.dirname(browserCopy), { recursive: true }); await fs.writeFile(browserCopy, output); }
