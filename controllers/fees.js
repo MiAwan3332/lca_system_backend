@@ -27,6 +27,9 @@ import {
   uploadPaymentEvidenceFiles,
 } from "../utils/paymentEvidence.js";
 import { logActivity } from "../utils/activityLogger.js";
+import AccessAudit from '../models/accessAudit.js';
+import { evaluateAccess } from '../utils/accessPolicy.js';
+import { planPaymentReversal, paymentReversalPreview, revertPayment as applyPaymentReversal } from '../utils/paymentReversal.js';
 import { sendFeePaymentWhatsApp, resolveWhatsAppSenderFromReq } from "../utils/whatsappMessaging.js";
 
 const notifyFeePaymentWhatsApp = async ({
@@ -725,7 +728,7 @@ export const collectPendingFee = async (req, res) => {
             authorizedBy: actionUser?.name || '', photoUrl: receiptStudent.image || '',
             classStartTime: receiptStudent.batch?.class_start_time || '', classEndTime: receiptStudent.batch?.class_end_time || '' };
         let receipt = null;
-        try { receipt = await FeeReceipt.create({ student: studentId, created_by: actionUser?._id, payload: receiptPayload }); }
+        try { receipt = await FeeReceipt.create({ student: studentId, created_by: actionUser?._id, payload: receiptPayload, payment_id: result.payment_id }); }
         catch {
             // A receipt failure must not report an already-recorded payment as failed.
             console.error(JSON.stringify({ event: 'receipt_snapshot_failed', requestId: req.requestId }));
@@ -1745,5 +1748,38 @@ export const getFinanceReport = async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ message: error.message });
+    }
+};
+
+/** Preview (preview: true) or revert a recorded payment with everything it created, keeping a full copy and the reason. */
+export const revertPayment = async (req, res) => {
+    try {
+        const { preview, reason, note, acknowledged } = req.body || {};
+        const plan = await planPaymentReversal(req.params.id);
+        const context = req.access;
+        // Same rule as the route check, applied to the whole collection: amount limit and "not their own payment".
+        if (context && !context.owner && context.enforced !== false &&
+            !evaluateAccess(context, 'fees.revert.payment', { batchId: plan.student.batch?._id, ownerId: plan.student.user, amount: plan.total, createdBy: plan.log.action_by }).allowed) {
+            return res.status(403).json({ message: 'Your role cannot revert this payment (amount limit, or it was collected by you).', code: 'ACCESS_DENIED' });
+        }
+        if (preview === true || preview === 'true') return res.status(200).json(await paymentReversalPreview(plan));
+
+        const actorId = req.access?.userId || req.user?.user?.id;
+        const reversal = await applyPaymentReversal({ logId: req.params.id, reasonCategory: reason, reasonNote: note,
+            acknowledged: acknowledged === true || acknowledged === 'true', actorId, ip: req.ip });
+        try {
+            await AccessAudit.create({ actor: actorId, action: 'fees.revert.payment', target: `student:${reversal.student}`, requestId: req.requestId,
+                before: { payment_log: reversal.payment_log, amount: reversal.amount, totals: reversal.totals_before },
+                after: { reversal: reversal._id, totals: reversal.totals_after }, reason: `${reversal.reason_category}: ${reversal.reason_note}` });
+            await logActivity({ req, action: 'delete', module: 'Fees', statusCode: 200, targetId: String(reversal.student), targetType: 'Student',
+                description: `Reverted Rs ${reversal.amount} payment for ${plan.student.name} (${reversal.reason_category})`,
+                metadata: { reversal_id: reversal._id, payment_log: reversal.payment_log, reason: reversal.reason_category, note: reversal.reason_note } });
+        } catch (logError) {
+            console.error('Audit log failed for payment reversal:', logError);
+        }
+        const { removed, ip, ...summary } = reversal;
+        res.status(200).json({ message: `Rs ${reversal.amount} payment reverted.`, reversal: summary });
+    } catch (error) {
+        res.status(error.status || 500).json({ message: error.message });
     }
 };

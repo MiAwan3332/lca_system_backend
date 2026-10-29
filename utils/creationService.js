@@ -185,7 +185,7 @@ export async function prepareCreation(request, { user, student, fee, assets = []
       action_type: 'Created', description: 'Fee assigned on student admission' }];
     if (fee.discountAmount > 0) logs.push({ ...base, _id: id(), amount: fee.totalFee, action_amount: fee.discountAmount,
       action_type: 'Discounted', description: fee.discountDescription });
-    if (fee.payingNow > 0) logs.push({ ...base, _id: id(), amount: net, action_amount: fee.payingNow, action_type: 'Paid',
+    if (fee.payingNow > 0) logs.push({ ...base, _id: id(), amount: net, action_amount: fee.payingNow, action_type: 'Paid', payment_id: String(id()),
       payment_method: fee.paymentMethod || 'Cash', payment_evidence: '',
       evidence_status: assets.some((asset) => asset.type === 'evidence') ? 'pending' : 'complete',
       description: `Payment received on student admission (${fee.paymentMethod || 'Cash'})` });

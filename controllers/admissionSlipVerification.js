@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import mongoose from "mongoose";
 import QRCode from "qrcode";
 import AdmissionSlipVerification from "../models/admissionSlipVerification.js";
 import Student from '../models/students.js';
@@ -20,6 +21,24 @@ const toNumber = (value) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
 };
+
+const validId = (value) => value && mongoose.isValidObjectId(String(value)) ? String(value) : null;
+
+/** The student and payment a fee slip belongs to, so reverting that payment can cancel the slip. */
+async function slipPaymentLink(body) {
+  const student = validId(body.student_id);
+  if (!student || String(body.slip_type || '').toLowerCase() !== 'fee') return { student };
+  const logId = validId(body.payment_log_id);
+  if (logId) {
+    const log = await FeeLog.findById(logId).select('payment_id').lean();
+    return { student, payment_log: log?._id || null, payment_id: log?.payment_id || null };
+  }
+  const receiptId = validId(body.receipt_id);
+  const receipt = receiptId
+    ? await FeeReceipt.findOne({ _id: receiptId, student }).select('payment_id').lean()
+    : await FeeReceipt.findOne({ student, 'payload.payingNow': toNumber(body.amount_received ?? body.payingNow) }).sort({ createdAt: -1 }).select('payment_id').lean();
+  return { student, payment_id: receipt?.payment_id || null };
+}
 
 /** Authenticated: register a slip and return verify URL + QR image. */
 export const issueAdmissionSlipVerification = async (req, res) => {
@@ -85,6 +104,7 @@ export const issueAdmissionSlipVerification = async (req, res) => {
           : "admission",
       issued_at: new Date(),
       created_by: getRequestUserId(req) || undefined,
+      ...(await slipPaymentLink(body)),
     });
 
     const qrDataUrl = await QRCode.toDataURL(verifyUrl, {
@@ -124,6 +144,14 @@ export const verifyAdmissionSlip = async (req, res) => {
         authentic: false,
         status: "fake",
         message: "No matching slip found. This slip appears to be fake or forged.",
+      });
+    }
+
+    if (record.cancelled_at) {
+      return res.status(200).json({
+        authentic: false,
+        status: "cancelled",
+        message: "This slip was cancelled because its payment was reverted by Lahore CSS Academy.",
       });
     }
 

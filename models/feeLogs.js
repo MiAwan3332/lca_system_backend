@@ -5,6 +5,8 @@ const feeLogSchema = mongoose.Schema({
     evidence_status: { type: String, enum: ['pending', 'complete', 'failed'], default: 'complete' },
     evidence_edit_request: { type: mongoose.Schema.Types.ObjectId, ref: 'CreationRequest' },
     creation_worker_epoch: { type: Number, default: 0 },
+    // Shared by every entry, receipt and slip of one collection, so the whole payment can be reverted together.
+    payment_id: { type: String, index: true },
     amount: Number,
     action_amount: Number,
     action_date: Date,

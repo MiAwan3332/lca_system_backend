@@ -217,12 +217,13 @@ export async function authorizeApplicationRequest(req, res, next) {
       if (route.handler.toLowerCase().includes('attempt')) modelName = route.resource === 'quiz' ? 'QuizAttempt' : 'CourseQuizAttempt';
       if (route.handler === 'startCourseQuizAttempt') modelName = 'CourseQuiz';
       if (route.handler === 'saveCourseQuizAnswer') modelName = 'CourseQuizAttempt';
+      if (route.handler === 'revertPayment') modelName = 'FeeLog';
       const model = mongoose.models[modelName];
       if (model) {
         const record = await accessContext.run(context, () => model.findById(targetId).lean());
         if (!record) throw denied('Record not found within your authorized scope');
-        const createdBy = record.created_by || record.requested_by || record.submitted_by;
-        const recordAmount = Number(route.handler === 'discountFee' ? req.body?.amount : record.amount ?? record.requested_amount);
+        const createdBy = record.created_by || record.requested_by || record.submitted_by || (modelName === 'FeeLog' ? record.action_by : undefined);
+        const recordAmount = Number(route.handler === 'discountFee' ? req.body?.amount : modelName === 'FeeLog' ? record.action_amount : record.amount ?? record.requested_amount);
         if (!grants.some((grant) => (!grant.noSelfApproval || (createdBy && String(createdBy) !== context.userId)) &&
           (grant.maxAmount == null || !Number.isFinite(recordAmount) || Math.abs(recordAmount) <= grant.maxAmount))) throw denied('Approval constraints are not satisfied');
       } else if (!all) throw denied('This operation requires an explicit record-scope adapter');

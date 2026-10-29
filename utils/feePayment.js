@@ -3,6 +3,7 @@ import { accessContext } from './accessContext.js';
 import FeeLog from "../models/feeLogs.js";
 import Student from "../models/students.js";
 import moment from "moment-timezone";
+import crypto from "crypto";
 import { normalizePaymentEvidenceForStorage } from "./paymentEvidence.js";
 import { isOnlinePaymentMethod } from "./paymentMethods.js";
 
@@ -113,6 +114,7 @@ export async function createStudentAdmissionFee({
     }).save();
   }
 
+  const paymentId = crypto.randomUUID();
   if (breakdownParts.length > 0) {
     let feeDoc = newFee;
     for (const part of breakdownParts) {
@@ -126,6 +128,7 @@ export async function createStudentAdmissionFee({
         paymentEvidence:
           part.paymentMethod === paymentMethod ? paymentEvidence : undefined,
         description: `Payment received on student admission (${part.paymentMethod})`,
+        paymentId,
       });
     }
 
@@ -145,6 +148,7 @@ export async function createStudentAdmissionFee({
       paymentMethod,
       paymentEvidence,
       description: `Payment received on student admission (${paymentMethod || "Cash"})`,
+      paymentId,
     });
 
     if (isPartialPayment) {
@@ -171,6 +175,7 @@ export async function recordFeePayment({
   paymentEvidence,
   description = "",
   nextInstallmentDate,
+  paymentId = crypto.randomUUID(),
 }) {
   const fee = feeDoc || (feeId ? await Fee.findById(feeId) : null);
   if (!fee) {
@@ -217,6 +222,7 @@ export async function recordFeePayment({
     payment_method: paymentMethod || "Cash",
     payment_evidence: normalizePaymentEvidenceForStorage(paymentEvidence),
     description,
+    payment_id: paymentId,
   }).save();
 
   if (resolvedStudentId) {
@@ -443,6 +449,7 @@ export async function collectStudentPendingPayment({
   }
 
   let remainingToApply = amount;
+  const paymentId = crypto.randomUUID();
   const paidFeeIds = [...discountResult.fee_ids];
 
   for (const fee of pendingFees) {
@@ -473,6 +480,7 @@ export async function collectStudentPendingPayment({
       paymentEvidence,
       description: descriptionParts.join(" | "),
       nextInstallmentDate: installmentForThisFee,
+      paymentId,
     });
 
     paidFeeIds.push(fee._id);
@@ -507,6 +515,7 @@ export async function collectStudentPendingPayment({
     payment_method: paymentMethod || null,
     remarks: trimmedRemarks,
     fee_ids: paidFeeIds,
+    payment_id: paymentId,
   };
 }
 
@@ -526,6 +535,13 @@ async function syncStudentFeeUnscoped(studentId) {
 
   const logs = await FeeLog.find(logFilter);
 
+  Object.assign(student, studentFeeTotals(fees, logs));
+  await student.save();
+  return student;
+}
+
+/** The student's cached fee totals, from their fee records (pending balances) and fee logs. */
+export function studentFeeTotals(fees, logs) {
   let totalFee = 0;
   let discountedFee = 0;
   let paidCash = 0;
@@ -575,12 +591,13 @@ async function syncStudentFeeUnscoped(studentId) {
     .filter((item) => item.status === "Pending")
     .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
 
-  student.total_fee = Math.max(totalFee - discountedFee, 0);
-  student.cash_amount = Math.max(cashAmount, 0);
-  student.online_amount = Math.max(onlineAmount, 0);
-  student.paid_fee = student.cash_amount + student.online_amount;
-  student.pending_fee = Math.max(pendingFee, 0);
-
-  await student.save();
-  return student;
+  const cash_amount = Math.max(cashAmount, 0);
+  const online_amount = Math.max(onlineAmount, 0);
+  return {
+    total_fee: Math.max(totalFee - discountedFee, 0),
+    cash_amount,
+    online_amount,
+    paid_fee: cash_amount + online_amount,
+    pending_fee: Math.max(pendingFee, 0),
+  };
 }

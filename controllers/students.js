@@ -1,6 +1,7 @@
 import Student from "../models/students.js";
 import { permissionGrants } from '../utils/accessPolicy.js';
 import { assertDiscountAccess } from '../utils/discountAccess.js';
+import { studentPaymentReversals } from '../utils/paymentReversal.js';
 import { stageCreationFiles, prepareCreation, commitCreation, creationResponse } from '../utils/creationService.js';
 import CreationRequest from '../models/creationRequests.js';
 import { pendingStudentDues, normalizedStudentPhone } from '../utils/studentIdentity.js';
@@ -1436,6 +1437,7 @@ export const getStudentHistory = async (req, res) => {
       pending_fee_slips: pendingFeeSlips,
       activity_logs: activityLogs,
       refund_requests: refundRequests || [],
+      payment_reversals: await studentPaymentReversals(id),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
