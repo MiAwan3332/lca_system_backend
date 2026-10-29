@@ -186,6 +186,14 @@ try {
   const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
   const report = await check(owner, 'GET', `/fees/report?start_date=${day}&end_date=${day}`);
   const refundBatch = report.summary.batch_wise.find((item) => String(item.batch_id) === String(refundFee.batch));
+  const freeStudent = await Student.create({ name: 'Full Scholarship', phone: '0300000077', batch: refundFee.batch, total_fee: 20000, paid_fee: 0, pending_fee: 0 });
+  const freeFee = await Fee.create({ student: freeStudent._id, batch: refundFee.batch, amount: 0, status: 'Paid', due_date: day });
+  await FeeLog.create([{ fee: freeFee._id, student: freeStudent._id, action_type: 'Created', amount: 20000, action_amount: 20000, action_by: owner._id, action_date: new Date() },
+    { fee: freeFee._id, student: freeStudent._id, action_type: 'Discounted', amount: 20000, action_amount: 20000, action_by: owner._id, action_date: new Date(), description: '100% scholarship' }]);
+  const withDiscount = await check(owner, 'GET', `/fees/report?start_date=${day}&end_date=${day}`);
+  const freeRow = withDiscount.transactions.find((item) => item.student_id === String(freeStudent._id));
+  assert.ok(freeRow, 'A fully discounted student is in the report'); assert.deepEqual([freeRow.action_type, freeRow.action_amount, freeRow.pending_amount], ['Discounted', 20000, 0]); checks++;
+  assert.ok(!withDiscount.transactions.some((item) => item.student_id === String(freeStudent._id) && item.action_type === 'Created'), 'Created entries stay out'); checks++;
   assert.ok(refundBatch, 'The refunded batch is listed'); assert.equal(refundBatch.total_refund, 1200); assert.ok(report.summary.batch_wise.every((item) => typeof item.total_refund === 'number')); checks++;
 
   console.log(JSON.stringify({ paymentReversalChecks: checks, isolatedDatabase: true, externalServicesCalled: false }));

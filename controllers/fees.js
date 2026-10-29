@@ -1481,9 +1481,10 @@ export const getFinanceReport = async (req, res) => {
             changedByIds
         );
 
+        // Discounts move no money, but a fully discounted student has no other entry and must still be listed.
         const transactionFilter = {
             ...dateFilter,
-            action_type: { $in: ["Paid", "Refund"] },
+            action_type: { $in: ["Paid", "Refund", "Discounted"] },
         };
         if (feeIds) {
             transactionFilter.fee = { $in: feeIds };
