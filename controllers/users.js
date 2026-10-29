@@ -47,6 +47,8 @@ import { JWT_EXPIRES_IN, JWT_COOKIE_MAX_AGE_MS } from "../utils/jwtConfig.js";
 import { logLoginActivity } from "../utils/activityLogger.js";
 import { sendUserWelcomeWhatsApp, resolveWhatsAppSenderFromReq } from "../utils/whatsappMessaging.js";
 
+const STAFF_CATEGORY = 'Staff';
+
 const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
 
 const looksLikePhone = (value) => {
@@ -669,7 +671,8 @@ export const getFeeCollectors = async (req, res) => {
     const filter = { accountType: 'staff', creation_pending: { $ne: true } };
     const query = String(req.query.query || '').trim().slice(0, 100);
     if (query) filter.name = { $regex: query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
-    return res.json(await User.paginate(filter, { page, limit, select: '_id name', sort: { name: 1, _id: 1 }, lean: true, leanWithId: false }));
+    const collectors = await User.paginate(filter, { page, limit, select: '_id name platformOwner', sort: { name: 1, _id: 1 }, lean: true, leanWithId: false });
+    return res.json({ ...collectors, docs: (await withAccessRoleNames(collectors.docs)).map(({ platformOwner, ...user }) => user) });
   } catch { return res.status(500).json({ message: 'Unable to load fee collectors' }); }
 };
 
@@ -772,11 +775,13 @@ export const addUser = async (req, res) => {
     const trimmedName = String(name || "").trim();
     const trimmedEmail = String(email || "").trim().toLowerCase();
     const trimmedPhone = String(phone || "").trim();
-    const trimmedRole = String(role || "").trim();
+    // The old job title is no longer asked for; what a person does comes from their access role.
+    // Staff accounts keep "Staff" as their account category.
+    const trimmedRole = String(role || "").trim() || STAFF_CATEGORY;
 
-    if (!trimmedName || !trimmedEmail || !trimmedRole) {
+    if (!trimmedName || !trimmedEmail) {
       return res.status(400).json({
-        message: "Name, email, and role are required",
+        message: "Name and email are required",
       });
     }
     if (!trimmedPhone) {
@@ -785,7 +790,7 @@ export const addUser = async (req, res) => {
       });
     }
 
-    const selectedRole = await Role.findOne({ name: trimmedRole, managed: { $ne: true } });
+    const selectedRole = trimmedRole === STAFF_CATEGORY || await Role.findOne({ name: trimmedRole, managed: { $ne: true } });
     if (!selectedRole || selectedRole.managed) return res.status(400).json({ message: 'Choose an existing account category; assign managed access roles in Access Management after creation' });
     if (/secrate|super.?admin/i.test(trimmedRole) && !req.access?.owner) return res.status(403).json({ message: 'Protected administrator category' });
 
@@ -858,6 +863,36 @@ export const updateUser = async (req, res) => {
 
     await user.save();
     res.status(200).json("User updated successfully");
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const MIN_PASSWORD_LENGTH = 8;
+
+// Access a person holds beyond their own records; someone setting their password must hold all of it themselves,
+// so this permission can never be used to sign in as a more powerful account.
+const widerAccess = (target, actor) => actor.owner ? [] : target.owner ? ['Owner access']
+  : [...new Set(target.grants.filter((grant) => grant.scope !== 'own').map((grant) => grant.permission))]
+    .filter((permission) => !actor.grants.some((held) => held.permission === permission));
+
+export const setUserPassword = async (req, res) => {
+  const { newPassword } = req.body;
+  try {
+    const password = String(newPassword || '');
+    if (password.trim().length < MIN_PASSWORD_LENGTH) return res.status(400).json({ message: `The new password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+    const user = await User.findById(req.params.id);
+    if (!user || user.creation_pending) return res.status(404).json({ message: 'User not found' });
+    if (user.platformOwner || /secrate|super.?admin/i.test(user.role || '')) return res.status(403).json({ message: 'Protected owner accounts must be maintained through the offline recovery procedure' });
+    if (req.access?.enforced) {
+      const missing = widerAccess(await loadAccessContext(user, { repair: false }), req.access);
+      if (missing.length) return res.status(403).json({ message: `${user.name} has access you do not hold, so only the Owner or someone with that access can set their password` });
+    }
+    user.password = await bcrypt.hash(password, 10);
+    await user.save();
+    await AccessAudit.create({ actor: req.access?.userId || req.user?.user?.id, action: 'users.set.user.password', target: `user:${user._id}`, requestId: req.requestId,
+      reason: String(user._id) === String(req.user?.user?.id) ? 'Set their own password' : `Password set for ${user.name}` });
+    res.status(200).json({ message: `Password updated for ${user.name}` });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

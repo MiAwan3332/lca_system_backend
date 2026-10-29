@@ -180,6 +180,14 @@ try {
   await check(owner, 'POST', `/fees/payments/${resumed._id}/revert`, {});
   assert.deepEqual([(await Reversal.findOne({ payment_log: resumed._id })).status, await FeeLog.countDocuments({ _id: resumed._id }), (await Fee.findById(resumeFee._id)).amount], ['completed', 0, 6000]); checks++;
 
+  // Finance report: refunds are shown per batch, separately from the net cash and online totals.
+  const refundFee = await Fee.findOne({ student: split._id }).lean();
+  await FeeLog.create({ fee: refundFee._id, student: split._id, action_type: 'Refund', amount: 1200, action_amount: 1200, action_by: owner._id, action_date: new Date(), payment_method: 'Cash', description: 'Verifier refund' });
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
+  const report = await check(owner, 'GET', `/fees/report?start_date=${day}&end_date=${day}`);
+  const refundBatch = report.summary.batch_wise.find((item) => String(item.batch_id) === String(refundFee.batch));
+  assert.ok(refundBatch, 'The refunded batch is listed'); assert.equal(refundBatch.total_refund, 1200); assert.ok(report.summary.batch_wise.every((item) => typeof item.total_refund === 'number')); checks++;
+
   console.log(JSON.stringify({ paymentReversalChecks: checks, isolatedDatabase: true, externalServicesCalled: false }));
 } finally {
   if (api) { api.kill('SIGTERM'); await new Promise((resolve) => api.exitCode !== null ? resolve() : api.once('exit', resolve)); }

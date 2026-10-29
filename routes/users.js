@@ -1,5 +1,5 @@
 import express from 'express';
-import {register,login,getUsers,getFeeCollectors,addUser,updateUser,deleteUser,getUser,changeAvatar, changePassword, forgotPassword, adminlogin, resetPasswordForAllStudents} from '../controllers/users.js';
+import {register,login,getUsers,getFeeCollectors,addUser,updateUser,deleteUser,getUser,changeAvatar, changePassword, setUserPassword, forgotPassword, adminlogin, resetPasswordForAllStudents} from '../controllers/users.js';
 import auth from '../middlewares/auth.js';
 import { claimCreation, getCreationByKey, getCreationStatus, retryCreation } from '../utils/creationService.js';
 
@@ -19,6 +19,7 @@ router.post('/update/:id',auth, updateUser);
 router.delete('/delete/:id',auth, deleteUser);
 router.post('/avatar', auth, changeAvatar);
 router.post('/changePassword', auth, changePassword);
+router.post('/:id/password', auth, setUserPassword);
 router.post('/forgotPassword', forgotPassword);
 router.post('/resetPasswordForAllStudents', auth, resetPasswordForAllStudents);
 

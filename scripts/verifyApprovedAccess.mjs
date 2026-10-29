@@ -85,7 +85,7 @@ try {
   for (const user of [ceo, principal, admissions, finance]) {
     const collectors = await request(user, 'GET', '/users/fee-collectors?limit=1');
     assert.equal(collectors.status, 200); assert.equal(collectors.data.docs.length, 1);
-    assert.deepEqual(Object.keys(collectors.data.docs[0]).sort(), ['_id', 'name']); checks++;
+    assert.deepEqual(Object.keys(collectors.data.docs[0]).sort(), ['_id', 'accessRoleNames', 'name']); checks++;
     for (const path of ['/students/students/graph', '/students/students/Batchesgraph']) {
       assert.equal((await request(user, 'GET', path)).status, 200); checks++;
     }
@@ -114,6 +114,30 @@ try {
   assert.equal(result.status, 201, JSON.stringify(result.data));
   const pending = await User.findOne({ email: 'pending@example.invalid' }).lean(); assert.equal(pending.accessManaged, true);
   assert.equal((await request(pending, 'GET', '/students')).status, 403); checks++;
+  // Staff are added without the old job title; they are recorded as Staff and get the default access role.
+  result = await request(ceo, 'POST', '/users/add', { name: 'New staff no title', email: 'notitle@example.invalid', phone: 'test-no-phone' });
+  assert.equal(result.status, 201, JSON.stringify(result.data));
+  const untitled = await User.findOne({ email: 'notitle@example.invalid' }).lean();
+  assert.equal(untitled.role, 'Staff'); assert.equal(untitled.accessManaged, true);
+  assert.equal(await Assignment.countDocuments({ user: untitled._id }), 1); checks++;
+  // Setting someone else's password is its own permission, and never reaches accounts with wider access.
+  assert.equal((await request(ceo, 'POST', `/users/${untitled._id}/password`, { newPassword: 'longenough1' })).status, 403); checks++;
+  assert.equal((await request(owner, 'POST', `/users/${untitled._id}/password`, { newPassword: 'short' })).status, 400); checks++;
+  assert.equal((await request(owner, 'POST', `/users/${owner._id}/password`, { newPassword: 'longenough1' })).status, 403); checks++;
+  const before = (await User.findById(untitled._id).lean()).password;
+  result = await request(owner, 'POST', `/users/${untitled._id}/password`, { newPassword: 'longenough1' });
+  assert.equal(result.status, 200, JSON.stringify(result.data));
+  assert.notEqual((await User.findById(untitled._id).lean()).password, before); checks++;
+  const ceoRole = await Role.findOne({ code: 'lca-v1-executive' });
+  await Role.updateOne({ _id: ceoRole._id }, { $push: { grants: { permission: 'users.set.user.password', scope: 'all' } } });
+  assert.equal((await request(ceo, 'POST', `/users/${untitled._id}/password`, { newPassword: 'longenough2' })).status, 200); checks++;
+  assert.equal((await request(ceo, 'POST', `/users/${owner._id}/password`, { newPassword: 'longenough2' })).status, 403); checks++;
+  const wider = await Role.create({ name: 'Wider than CEO', managed: true, active: true, grants: [{ permission: 'access.manage', scope: 'all' }] });
+  await Assignment.create({ user: untitled._id, role: wider._id, assignedBy: owner._id });
+  result = await request(ceo, 'POST', `/users/${untitled._id}/password`, { newPassword: 'longenough3' });
+  assert.equal(result.status, 403, JSON.stringify(result.data)); assert.match(result.data.message, /access you do not hold/); checks++;
+  await Assignment.deleteMany({ role: wider._id });
+  await Role.updateOne({ _id: ceoRole._id }, { $pull: { grants: { permission: 'users.set.user.password' } } });
   const work = await TeachingAssignment.create({ title: 'Assigned work', batch: a._id, course: ca._id, availability_date: new Date(Date.now() - 60000), has_deadline: false, status: 'Published', visibility_status: 'Published' });
   const otherWork = await TeachingAssignment.create({ title: 'Other batch work', batch: b._id, course: cb._id, availability_date: new Date(Date.now() - 60000), has_deadline: false, status: 'Published', visibility_status: 'Published' });
   const peer = await Student.create({ name: 'Peer in same class', phone: '0000000009', batch: a._id });

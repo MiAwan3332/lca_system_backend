@@ -129,6 +129,15 @@
     },
     {
       "method": "POST",
+      "path": "/users/:id/password",
+      "permission": "users.set.user.password",
+      "resource": "users",
+      "handler": "setUserPassword",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
       "path": "/users/forgotPassword",
       "permission": "users.forgot.password",
       "resource": "users",
@@ -2524,6 +2533,12 @@
       "key": "users.change.password",
       "group": "users",
       "label": "change Password",
+      "type": "action"
+    },
+    {
+      "key": "users.set.user.password",
+      "group": "users",
+      "label": "set User Password",
       "type": "action"
     },
     {
@@ -6683,6 +6698,17 @@
         "name",
         "phone"
       ]
+    },
+    {
+      "id": "fields:users.set.user.password",
+      "label": "Form fields for set user password",
+      "any": [
+        "users.set.user.password"
+      ],
+      "write": [
+        "newPassword"
+      ],
+      "read": []
     },
     {
       "id": "fields:courses.add.course",

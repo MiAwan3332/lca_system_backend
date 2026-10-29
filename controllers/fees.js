@@ -1044,6 +1044,13 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
                         { $toDouble: { $ifNull: ["$action_amount", 0] } }
                     ]
                 },
+                refundAmount: {
+                    $cond: [
+                        { $eq: ["$action_type", "Refund"] },
+                        { $abs: { $toDouble: { $ifNull: ["$action_amount", 0] } } },
+                        0
+                    ]
+                },
                 isOnline: isOnlinePaymentMethodExpr,
                 batchId: "$batchDoc._id",
                 batchName: {
@@ -1061,12 +1068,14 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
                     },
                 },
                 total: { $sum: "$paidAmount" },
+                refund: { $sum: "$refundAmount" },
             },
         },
     ]);
 
     let total_cash = 0;
     let total_online = 0;
+    let total_refund = 0;
     const byBatch = {};
 
     for (const row of rows) {
@@ -1084,9 +1093,13 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
                 total_cash: 0,
                 total_online: 0,
                 total_pending: 0,
+                total_refund: 0,
                 total: 0,
             };
         }
+        // Refunds are already netted into the cash/online totals; this shows how much went back out.
+        byBatch[batchKey].total_refund += Number(row.refund) || 0;
+        total_refund += Number(row.refund) || 0;
 
         if (channel === "online") {
             total_online += amount;
@@ -1149,7 +1162,8 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
             (b) =>
                 Math.abs(Number(b.total_cash) || 0) > 0 ||
                 Math.abs(Number(b.total_online) || 0) > 0 ||
-                Math.abs(Number(b.total) || 0) > 0
+                Math.abs(Number(b.total) || 0) > 0 ||
+                Number(b.total_refund) > 0
         )
         .sort((a, b) =>
             String(a.batch_name).localeCompare(String(b.batch_name), undefined, {
@@ -1161,6 +1175,7 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
         total_cash,
         total_online,
         total_pending,
+        total_refund,
         batch_wise,
     };
 };
