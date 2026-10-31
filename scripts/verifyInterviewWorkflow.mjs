@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {DEFAULT_STAFF_PASSWORD} from '../utils/creationDefaults.js';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -69,9 +70,11 @@ try {
   const p1=await Panelist.findOne({user:teacher._id});assert.ok(p1);assert.equal(await User.countDocuments(),beforeUsers);assert.equal((await User.findById(teacher._id)).password,hash);assert.equal((await User.findById(teacher._id)).accountType,'teacher');assert.equal(await Assignment.countDocuments({user:teacher._id,revokedAt:null}),2);checks+=5;
   await check(principal,'POST','/panelists/add',{name:teacher.name,phone:'+92 321 0000011',description:'Retry'});assert.equal(await Panelist.countDocuments({user:teacher._id}),1);assert.equal(await Assignment.countDocuments({user:teacher._id,role:panelRole._id,revokedAt:null}),1);checks+=2;
   const login=await check(teacher,'POST','/users/login',{phone:'03210000011',password:'fixture-unchanged-password'});assert.ok(login.authToken);checks++;
-  const fresh=await check(vice,'POST','/panelists/add',{name:'New panelist',phone:'03210000012',description:'Fixture panelist',password:'fixture-new-password'});const p2=await Panelist.findById(fresh.panelist._id);const user2=await User.findById(p2.user);assert.equal(user2.accountType,'panelist');assert.ok(await bcrypt.compare('fixture-new-password',user2.password));checks+=2;
-  await check(user2,'POST','/users/login',{phone:'03210000012',password:'fixture-new-password'});
-  const missing=await Panelist.countDocuments();await check(vice,'POST','/panelists/add',{name:'No password',phone:'03210000013',description:'Missing password'},400);assert.equal(await Panelist.countDocuments(),missing);checks++;
+  const fresh=await check(vice,'POST','/panelists/add',{name:'New panelist',phone:'03210000012',description:'Fixture panelist',password:'fixture-new-password'});const p2=await Panelist.findById(fresh.panelist._id);const user2=await User.findById(p2.user);assert.equal(user2.accountType,'panelist');assert.ok(await bcrypt.compare(DEFAULT_STAFF_PASSWORD,user2.password));checks+=2;
+  await check(user2,'POST','/users/login',{phone:'03210000012',password:DEFAULT_STAFF_PASSWORD});
+  await User.updateOne({_id:user2._id},{$set:{password:await bcrypt.hash('unusable-rollout-secret',12)}});await Panelist.updateOne({_id:p2._id},{$set:{login_setup_required:true}});
+  await check(vice,'POST','/panelists/add',{name:p2.name,phone:p2.phone,description:p2.description});assert.equal((await Panelist.findById(p2._id)).login_setup_required,false);checks++;await check(user2,'POST','/users/login',{phone:p2.phone,password:DEFAULT_STAFF_PASSWORD});
+  const missing=await Panelist.countDocuments();await check(vice,'POST','/panelists/add',{name:'No password',phone:'03210000013',description:'Uses staff default'});assert.equal(await Panelist.countDocuments(),missing+1);checks++;
   const conflict=await User.create({name:'Other identity',email:'conflict@example.invalid',phone:'03210000014',role:'Staff',accessManaged:true});await check(principal,'POST','/panelists/add',{name:'Identity mismatch',phone:'03210000011',email:conflict.email,description:'Mismatch'},409);
   const concurrent=await Promise.all([1,2].map(()=>request(principal,'POST','/panelists/add',{name:'Concurrent panelist',phone:'03210000015',description:'Fixture',password:'fixture-concurrent-password'})));assert.ok(concurrent.every(r=>r.status===200),JSON.stringify(concurrent));assert.equal(await Panelist.countDocuments({normalized_phone:'3210000015'}),1);checks+=2;
   const member=p=>({panelist_id:String(p._id),name:p.name,description:p.description,role:'Panelist'});
@@ -109,7 +112,7 @@ try {
   const customRole=await Role.create({name:'Interview coordinator fixture',code:'fixture-interview-coordinator',managed:true,active:true,grants:completeWorkflowAccess([{permission:'panelists.add.panelist',scope:'all'},{permission:'panelists.get.panelists',scope:'all'},{permission:'fields.general.read',scope:'all'},{permission:'fields.contact.read',scope:'all'}],accessCatalog)});
   const coordinator=await User.create({name:'Custom coordinator',role:'Custom coordinator',accountType:'staff',accessManaged:true});await Assignment.create({user:coordinator._id,role:customRole._id,assignedBy:owner._id});
   await check(coordinator,'POST','/panelists/identity/lookup',{phone:'03210000011'});
-  await check(coordinator,'POST','/panelists/add',{name:'Custom role panelist',phone:'03210000016',description:'Custom permissions',password:'fixture-coordinator-password'});
+  await check(coordinator,'POST','/panelists/add',{name:'Custom role panelist',phone:'03210000016',description:'Custom permissions'});
   await check(coordinator,'POST','/interview-panels/add',{title:'Not allowed',panel_type:'solo',members:[member(p1)]},403);
   const soloSchedule=await check(principal,'POST','/interview-panels/schedules/'+solo._id+'/add',{schedules:[{...slot,date:'2035-02-10'}]});const soloSid=String(soloSchedule.schedules[0]._id);
   await check(principal,'POST','/interview-panels/book/'+solo._id,{schedule_id:soloSid,booked_for:candidate.name,booked_phone:candidate.phone});

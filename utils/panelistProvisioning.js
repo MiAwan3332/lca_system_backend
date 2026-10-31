@@ -1,3 +1,4 @@
+import {DEFAULT_STAFF_PASSWORD} from './creationDefaults.js';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import Panelist from '../models/panelists.js';
@@ -38,7 +39,7 @@ export async function panelistIdentity({ phone, email }) {
   });
 }
 
-export async function provisionPanelist(req, { profileId, allowGeneratedPassword = false } = {}) {
+export async function provisionPanelist(req, { profileId } = {}) {
   return withInterviewLock('panelist-provisioning', () => accessContext.run(undefined, async () => {
     const supplied = req.body || {};
     const stored = profileId ? await Panelist.findById(profileId) : null;
@@ -57,9 +58,7 @@ export async function provisionPanelist(req, { profileId, allowGeneratedPassword
     }
     const createdUser = !user;
     if (!user) {
-      const password = String(supplied.password || '');
-      if (password.length < 8 && !allowGeneratedPassword) throw interviewError(400, 'Set an initial password of at least eight characters for the new login.');
-      const initial = password || (await import('node:crypto')).randomBytes(24).toString('base64url');
+      const initial = DEFAULT_STAFF_PASSWORD;
       user = await User.create({ name: stored?.name || supplied.name, phone: stored?.phone || supplied.phone,
         email: String(supplied.email || stored?.email || `panelist.${identity.normalized}@lca.local`).trim().toLowerCase(),
         role: 'panelist', accountType: 'panelist', password: await bcrypt.hash(initial, 12) });
@@ -71,10 +70,11 @@ export async function provisionPanelist(req, { profileId, allowGeneratedPassword
       panelist.user = user._id; panelist.email = user.email; panelist.normalized_phone = identity.normalized;
       await panelist.save();
     }
-    if(createdUser && allowGeneratedPassword && !supplied.password){panelist.login_setup_required=true;await panelist.save();}
-    if(!createdUser && panelist.login_setup_required && user.accountType==='panelist' && String(supplied.password||'').length>=8){
-      user.password=await bcrypt.hash(String(supplied.password),12);await user.save();panelist.login_setup_required=false;await panelist.save();
+    // Finish only the unusable generated login from the previous rollout. Shared logins stay unchanged.
+    if(!createdUser && panelist.login_setup_required && user.accountType==='panelist'){
+      user.password=await bcrypt.hash(DEFAULT_STAFF_PASSWORD,12);await user.save();
     }
+    if(panelist.login_setup_required){panelist.login_setup_required=false;await panelist.save();}
     let assigned = await Assignment.findOne({ user: user._id, role: role._id, revokedAt: null,
       $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] });
     if (!assigned) assigned = await Assignment.findOneAndUpdate({ migrationKey: `panelist-membership:${panelist._id}` },

@@ -175,6 +175,10 @@ if (process.argv.includes('--check')) {
 } else { await fs.mkdir(path.dirname(destination), { recursive: true }); await fs.writeFile(destination, output); }
 const browserCopy = path.join(root, '../lca_system_frontend/src/config/accessCatalog.generated.json');
 if (await fs.stat(path.join(root, '../lca_system_frontend/src')).catch(() => null)) {
+  const defaults = await fs.readFile(path.join(root, 'utils/creationDefaults.js'), 'utf8');
+  const defaultsCopy = path.join(root, '../lca_system_frontend/src/utlls/creationDefaults.js');
+  if(process.argv.includes('--check')) { if(await fs.readFile(defaultsCopy,'utf8')!==defaults)throw new Error('Browser creation defaults are stale'); }
+  else await fs.writeFile(defaultsCopy,defaults);
   const shared = await fs.readFile(path.join(root, 'utils/accessWorkflowRules.js'), 'utf8');
   const sharedCopy = path.join(root, '../lca_system_frontend/src/utlls/accessWorkflowRules.js');
   if (process.argv.includes('--check')) {

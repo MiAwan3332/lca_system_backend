@@ -39,7 +39,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   if(apply){
    const owner=await User.findOne({platformOwner:true});if(!owner)throw Error('An owner account is required');
    for(const profile of await Panelist.find({is_active:true})){
-    const result=await provisionPanelist({body:{},access:{userId:String(owner._id)}},{profileId:profile._id,allowGeneratedPassword:true});linked++;if(result.panelist.login_setup_required)initialPasswordRequired++;
+    const result=await provisionPanelist({body:{},access:{userId:String(owner._id)}},{profileId:profile._id});linked++;if(result.panelist.login_setup_required)initialPasswordRequired++;
    }
    for(const panel of await Panel.find({})){await migrateEvaluationSlotLinks(panel);if(!panel.panel_type){panel.panel_type=panelMode(panel);await panel.save();}}
   }
