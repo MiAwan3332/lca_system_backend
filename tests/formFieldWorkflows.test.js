@@ -12,7 +12,7 @@ test('every form action lists the fields its handler reads', () => {
   // Allowed-field lists copied with Object.hasOwn(req.body, key) are included.
   assert.ok(rule('students.update.student').write.includes('father_name'));
   assert.ok(rule('timetable.update.time.table').write.includes('teacher'));
-  assert.ok(rule('interview-panels.book.interview.slot').write.includes('start_time'));
+  assert.ok(catalog.workflows.find(item=>item.id==='interview-booking').write.includes('schedule_id'));
 });
 
 test('fields controlled by another permission are never pulled in by a form action', () => {

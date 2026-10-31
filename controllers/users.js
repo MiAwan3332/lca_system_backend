@@ -295,42 +295,10 @@ const resolveLoginUser = async ({ email, phone, identifier }) => {
         error: "Invalid credentials",
       };
     }
-    if (panelistFromPhone.is_active === false) {
-      return {
-        user: null,
-        studentFromPhone: null,
-        qualifierFromPhone: null,
-        panelistFromPhone,
-        error: "Your panelist account is inactive. Please contact the academy.",
-        status: 403,
-      };
-    }
-
-    await ensurePanelistRole();
-
-    const user =
-      (await User.findOne({
-        email: panelistFromPhone.email,
-        role: { $regex: /^panelist$/i },
-      })) ||
-      (await User.findOne({
-        phone: panelistFromPhone.phone,
-        role: { $regex: /^panelist$/i },
-      })) ||
-      (await User.findOne({ email: panelistFromPhone.email }));
-
-    if (!user || String(user.role).toLowerCase() !== "panelist") {
-      return {
-        user: null,
-        studentFromPhone: null,
-        qualifierFromPhone: null,
-        panelistFromPhone,
-        error:
-          "Panelist login account not found. Ask admin to set a password first.",
-        status: 403,
-      };
-    }
-
+    const user = panelistFromPhone.user ? await User.findById(panelistFromPhone.user) :
+      (await User.findOne({email:panelistFromPhone.email})) || (await User.findOne({phone:panelistFromPhone.phone}));
+    if(!user)return {user:null,studentFromPhone:null,qualifierFromPhone:null,panelistFromPhone,error:'Panelist login is not set up. Ask an administrator to complete login setup.',status:403};
+    if(panelistFromPhone.is_active===false && (user.accountType==='panelist'||String(user.role).toLowerCase()==='panelist'))return {user:null,studentFromPhone:null,qualifierFromPhone:null,panelistFromPhone,error:'Panelist access is inactive. Contact the academy.',status:403};
     return {
       user,
       studentFromPhone: null,
@@ -354,7 +322,7 @@ const resolveLoginUser = async ({ email, phone, identifier }) => {
   if (user && String(user.role).toLowerCase() === "qualifier") {
     await ensureQualifierRole();
   }
-  if (user && String(user.role).toLowerCase() === "panelist") {
+  if (user && !user.accessManaged && String(user.role).toLowerCase() === "panelist") {
     await ensurePanelistRole();
   }
   return {

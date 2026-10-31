@@ -10,12 +10,18 @@ import {
   getConductInterview,
   submitInterviewEvaluation,
   getInterviewEvaluationDetails,
+  addInterviewSchedules,
+  updateInterviewSchedules,
+  cancelInterviewSchedule,
 } from "../controllers/interviewPanel.js";
 import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
 router.get("/", auth, getInterviewPanels);
+router.post('/schedules/:id/add', auth, addInterviewSchedules);
+router.post('/schedules/:id/update', auth, updateInterviewSchedules);
+router.post('/schedules/:id/:scheduleId/cancel', auth, cancelInterviewSchedule);
 router.get("/conduct/:id/:scheduleIndex", auth, getConductInterview);
 router.get(
   "/evaluation-details/:id/:scheduleIndex",

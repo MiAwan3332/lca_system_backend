@@ -51,11 +51,13 @@ export async function loadAccessContext(user, { repair = true } = {}) {
   }
   for (const [category, modelName, key] of [['qualifier', 'Qualifier', 'qualifierId'], ['panelist', 'Panelist', 'panelistId']]) {
     if (!context.enforced && accessMode() === 'legacy') continue;
-    if (context.accountType !== category || !mongoose.models[modelName] || !String(user.email || '').trim()) continue;
-    const profiles = await mongoose.models[modelName].find({ email: user.email }).select('_id batch is_active').limit(2).lean();
+    if ((context.accountType !== category && category !== 'panelist') || !mongoose.models[modelName]) continue;
+    const profiles = await mongoose.models[modelName].find(category === 'panelist' ? { $or: [{ user: user._id }, ...(user.email ? [{ email: user.email }] : [])] } : { email: user.email }).select('_id batch is_active access_role').limit(2).lean();
     if (profiles.length === 1) {
       context[key] = String(profiles[0]._id);
-      if (profiles[0].is_active === false) context.disabled = true;
+      if (category === 'panelist') context.panelistActive = profiles[0].is_active !== false;
+      if(category==='panelist' && profiles[0].is_active===false && profiles[0].access_role)context.grants=context.grants.filter(g=>String(g.roleId)!==String(profiles[0].access_role));
+      if (profiles[0].is_active === false && context.accountType === category) context.disabled = true;
       if (category === 'qualifier' && profiles[0].batch) context.assignedBatchIds = [String(profiles[0].batch)];
     }
   }
@@ -74,6 +76,7 @@ const primaryModels = {
 };
 export async function buildModelFilters(context, route, grants) {
   if (grants.some((grant) => grant.scope === 'all')) return {};
+  if (context.panelistId && ['interview-panels', 'panelists'].includes(route.resource)) return scopedModelFilters(context, route, grants);
   if (context.accountType !== 'staff' || grants.every((grant) => grant.scope === 'own')) return scopedModelFilters(context, route, grants);
   if (!primaryModels[route.resource]) throw denied('This operation currently requires an all-records grant');
   if (/Archive|Deleted/.test(route.handler) || route.handler === 'latestFeeReceipt' || (route.resource === 'refund-requests' && grants.some((grant) => grant.scope !== 'own'))) {

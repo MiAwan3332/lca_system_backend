@@ -259,5 +259,179 @@
     "write": [
       "amount"
     ]
+  },
+  {
+    "id": "panelist-account",
+    "label": "Create or link panelist login access",
+    "any": [
+      "panelists.add.panelist"
+    ],
+    "permissions": [
+      "panelists.lookup.panelist.identity"
+    ],
+    "write": [
+      "name",
+      "phone",
+      "email",
+      "description",
+      "is_active",
+      "photo",
+      "password"
+    ],
+    "read": [
+      "name",
+      "phone",
+      "email",
+      "description"
+    ]
+  },
+  {
+    "id": "panelist-status",
+    "label": "Activate/deactivate panelist access",
+    "any": [
+      "panelists.toggle.panelist.status"
+    ],
+    "write": [
+      "is_active"
+    ]
+  },
+  {
+    "id": "panel-members",
+    "label": "Create and manage Solo/Team panels",
+    "any": [
+      "interview-panels.add.interview.panel",
+      "interview-panels.update.interview.panel"
+    ],
+    "permissions": [
+      "panelists.get.panelists"
+    ],
+    "write": [
+      "title",
+      "description",
+      "panel_type",
+      "members",
+      "status",
+      "expected_revision"
+    ],
+    "read": [
+      "name",
+      "description",
+      "panel_type",
+      "members"
+    ]
+  },
+  {
+    "id": "interview-schedules",
+    "label": "Create interview slots",
+    "any": [
+      "interview-panels.add.interview.schedules"
+    ],
+    "permissions": [
+      "interview-panels.get.interview.panels",
+      "interview-panels.get.interview.panel"
+    ],
+    "write": [
+      "schedules",
+      "expected_revision"
+    ],
+    "read": [
+      "title",
+      "members",
+      "schedules",
+      "panel_type"
+    ]
+  },
+  {
+    "id": "interview-reschedule",
+    "label": "Reschedule available or unstarted interviews",
+    "any": [
+      "interview-panels.update.interview.schedules"
+    ],
+    "permissions": [
+      "interview-panels.get.interview.panel"
+    ],
+    "write": [
+      "schedules",
+      "expected_revision"
+    ],
+    "read": [
+      "title",
+      "members",
+      "schedules",
+      "panel_type"
+    ]
+  },
+  {
+    "id": "interview-cancel",
+    "label": "Cancel an interview slot with a reason",
+    "any": [
+      "interview-panels.cancel.interview.schedule"
+    ],
+    "write": [
+      "cancellation_reason",
+      "expected_revision"
+    ],
+    "read": [
+      "schedules",
+      "title"
+    ]
+  },
+  {
+    "id": "interview-booking",
+    "label": "Book a candidate into an interview slot",
+    "any": [
+      "interview-panels.book.interview.slot"
+    ],
+    "write": [
+      "schedule_id",
+      "schedule_index",
+      "booked_for",
+      "booked_phone",
+      "booked_notes",
+      "qualifier_id",
+      "forSelf",
+      "date",
+      "start_time"
+    ],
+    "read": [
+      "schedules",
+      "title",
+      "name",
+      "phone"
+    ]
+  },
+  {
+    "id": "interview-evaluation",
+    "label": "Conduct and submit own interview evaluation",
+    "any": [
+      "interview-panels.start.interview",
+      "interview-panels.submit.interview.evaluation"
+    ],
+    "write": [
+      "schedule_id",
+      "schedule_index",
+      "knowledge",
+      "analytical_ability",
+      "communication",
+      "confidence",
+      "personality",
+      "body_language",
+      "current_affairs",
+      "ethics_decision",
+      "key_strength",
+      "major_weakness",
+      "improvement_since_last_mock",
+      "verdict",
+      "final_remarks"
+    ],
+    "read": [
+      "schedules",
+      "members",
+      "name",
+      "education_background",
+      "evaluation",
+      "verdict",
+      "final_remarks"
+    ]
   }
 ]

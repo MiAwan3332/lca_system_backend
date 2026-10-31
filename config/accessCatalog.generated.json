@@ -1856,6 +1856,33 @@
       "blocked": false
     },
     {
+      "method": "POST",
+      "path": "/interview-panels/schedules/:id/add",
+      "permission": "interview-panels.add.interview.schedules",
+      "resource": "interview-panels",
+      "handler": "addInterviewSchedules",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/interview-panels/schedules/:id/update",
+      "permission": "interview-panels.update.interview.schedules",
+      "resource": "interview-panels",
+      "handler": "updateInterviewSchedules",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/interview-panels/schedules/:id/:scheduleId/cancel",
+      "permission": "interview-panels.cancel.interview.schedule",
+      "resource": "interview-panels",
+      "handler": "cancelInterviewSchedule",
+      "public": false,
+      "blocked": false
+    },
+    {
       "method": "GET",
       "path": "/interview-panels/conduct/:id/:scheduleIndex",
       "permission": "interview-panels.get.conduct.interview",
@@ -1937,6 +1964,15 @@
       "blocked": false
     },
     {
+      "method": "POST",
+      "path": "/panelists/identity/lookup",
+      "permission": "panelists.lookup.panelist.identity",
+      "resource": "panelists",
+      "handler": "lookupPanelistIdentity",
+      "public": false,
+      "blocked": false
+    },
+    {
       "method": "GET",
       "path": "/panelists",
       "permission": "panelists.get.panelists",
@@ -1969,6 +2005,15 @@
       "permission": "panelists.update.panelist",
       "resource": "panelists",
       "handler": "updatePanelist",
+      "public": false,
+      "blocked": false
+    },
+    {
+      "method": "POST",
+      "path": "/panelists/toggle-status/:id",
+      "permission": "panelists.toggle.panelist.status",
+      "resource": "panelists",
+      "handler": "togglePanelistStatus",
       "public": false,
       "blocked": false
     },
@@ -3682,6 +3727,24 @@
       "type": "action"
     },
     {
+      "key": "interview-panels.add.interview.schedules",
+      "group": "interview-panels",
+      "label": "add Interview Schedules",
+      "type": "action"
+    },
+    {
+      "key": "interview-panels.update.interview.schedules",
+      "group": "interview-panels",
+      "label": "update Interview Schedules",
+      "type": "action"
+    },
+    {
+      "key": "interview-panels.cancel.interview.schedule",
+      "group": "interview-panels",
+      "label": "cancel Interview Schedule",
+      "type": "action"
+    },
+    {
       "key": "interview-panels.get.conduct.interview",
       "group": "interview-panels",
       "label": "get Conduct Interview",
@@ -3736,6 +3799,12 @@
       "type": "action"
     },
     {
+      "key": "panelists.lookup.panelist.identity",
+      "group": "panelists",
+      "label": "lookup Panelist Identity",
+      "type": "action"
+    },
+    {
       "key": "panelists.get.panelists",
       "group": "panelists",
       "label": "get Panelists",
@@ -3757,6 +3826,12 @@
       "key": "panelists.update.panelist",
       "group": "panelists",
       "label": "update Panelist",
+      "type": "action"
+    },
+    {
+      "key": "panelists.toggle.panelist.status",
+      "group": "panelists",
+      "label": "toggle Panelist Status",
       "type": "action"
     },
     {
@@ -4431,6 +4506,8 @@
         "accessCourseIds",
         "accessManaged",
         "accessRoleId",
+        "access_assignment",
+        "access_role",
         "account",
         "accountType",
         "acknowledged",
@@ -4459,7 +4536,6 @@
         "announcement_id",
         "answered_at",
         "answers",
-        "append_schedules",
         "approvedCount",
         "approved_at",
         "approved_by",
@@ -4505,6 +4581,7 @@
         "campaign_id",
         "can_view_all",
         "can_view_inbox",
+        "cancellation_reason",
         "cancelled",
         "cancelled_at",
         "cancelled_reason",
@@ -4536,6 +4613,7 @@
         "courseWork",
         "course_id",
         "courses",
+        "created",
         "createdAt",
         "created_by",
         "created_by_name",
@@ -4586,6 +4664,7 @@
         "event",
         "exam_type",
         "exam_type_counts",
+        "expected_revision",
         "expiry_date",
         "father_name",
         "feedback",
@@ -4649,6 +4728,8 @@
         "late_submission_policy",
         "latest_degree",
         "limit",
+        "login",
+        "login_setup_required",
         "major_weakness",
         "managed",
         "managed_by",
@@ -4697,6 +4778,7 @@
         "pagingCounter",
         "panel",
         "panel_id",
+        "panel_type",
         "panelist",
         "panelistData",
         "panelistId",
@@ -4793,9 +4875,11 @@
         "revision",
         "role",
         "roleId",
+        "role_name",
         "roll_nickname",
         "roll_number",
         "runtime_status",
+        "schedule_id",
         "schedule_index",
         "schedules",
         "scope",
@@ -4952,7 +5036,6 @@
         "announcement_id",
         "answered_at",
         "answers",
-        "append_schedules",
         "approvedCount",
         "approved_at",
         "approved_by",
@@ -4998,8 +5081,8 @@
         "campaign_id",
         "can_view_all",
         "can_view_inbox",
+        "cancellation_reason",
         "cancelled",
-        "cancelled_at",
         "cancelled_reason",
         "cascade_summary",
         "category",
@@ -5029,6 +5112,7 @@
         "courseWork",
         "course_id",
         "courses",
+        "created",
         "created_by_name",
         "css",
         "css_pms_roll_no",
@@ -5073,6 +5157,7 @@
         "event",
         "exam_type",
         "exam_type_counts",
+        "expected_revision",
         "expiry_date",
         "father_name",
         "feedback",
@@ -5136,6 +5221,7 @@
         "late_submission_policy",
         "latest_degree",
         "limit",
+        "login",
         "major_weakness",
         "managed",
         "managed_by",
@@ -5184,6 +5270,7 @@
         "pagingCounter",
         "panel",
         "panel_id",
+        "panel_type",
         "panelist",
         "panelistData",
         "panelistId",
@@ -5278,9 +5365,11 @@
         "revision",
         "role",
         "roleId",
+        "role_name",
         "roll_nickname",
         "roll_number",
         "runtime_status",
+        "schedule_id",
         "schedule_index",
         "schedules",
         "scope",
@@ -5437,7 +5526,6 @@
         "father_phone",
         "ip_address",
         "login_email",
-        "normalized_phone",
         "phone",
         "phoneNumber",
         "phones",
@@ -5639,6 +5727,7 @@
         "latest_degree_image",
         "payment_evidence",
         "photo",
+        "photo_warning",
         "refund_evidence",
         "replace_evidence",
         "resume"
@@ -5661,6 +5750,7 @@
         "latest_degree_image",
         "payment_evidence",
         "photo",
+        "photo_warning",
         "refund_evidence",
         "replace_evidence",
         "resume"
@@ -5784,6 +5874,8 @@
       "accessCourseIds",
       "accessManaged",
       "accessRoleId",
+      "access_assignment",
+      "access_role",
       "account",
       "accountType",
       "acknowledged",
@@ -5812,7 +5904,6 @@
       "announcement_id",
       "answered_at",
       "answers",
-      "append_schedules",
       "approvedCount",
       "approved_at",
       "approved_by",
@@ -5858,6 +5949,7 @@
       "campaign_id",
       "can_view_all",
       "can_view_inbox",
+      "cancellation_reason",
       "cancelled",
       "cancelled_at",
       "cancelled_reason",
@@ -5889,6 +5981,7 @@
       "courseWork",
       "course_id",
       "courses",
+      "created",
       "createdAt",
       "created_by",
       "created_by_name",
@@ -5939,6 +6032,7 @@
       "event",
       "exam_type",
       "exam_type_counts",
+      "expected_revision",
       "expiry_date",
       "father_name",
       "feedback",
@@ -6002,6 +6096,8 @@
       "late_submission_policy",
       "latest_degree",
       "limit",
+      "login",
+      "login_setup_required",
       "major_weakness",
       "managed",
       "managed_by",
@@ -6050,6 +6146,7 @@
       "pagingCounter",
       "panel",
       "panel_id",
+      "panel_type",
       "panelist",
       "panelistData",
       "panelistId",
@@ -6146,9 +6243,11 @@
       "revision",
       "role",
       "roleId",
+      "role_name",
       "roll_nickname",
       "roll_number",
       "runtime_status",
+      "schedule_id",
       "schedule_index",
       "schedules",
       "scope",
@@ -6373,6 +6472,7 @@
       "latest_degree_image",
       "payment_evidence",
       "photo",
+      "photo_warning",
       "refund_evidence",
       "replace_evidence",
       "resume"
@@ -6418,7 +6518,14 @@
     "creation_pending",
     "creation_request",
     "creation_worker_epoch",
-    "processing_status"
+    "processing_status",
+    "access_assignment",
+    "access_role",
+    "normalized_phone",
+    "login_setup_required",
+    "required_panelist_ids",
+    "cancelled_at",
+    "cancelled_by"
   ],
   "workflows": [
     {
@@ -6680,6 +6787,180 @@
       ],
       "write": [
         "amount"
+      ]
+    },
+    {
+      "id": "panelist-account",
+      "label": "Create or link panelist login access",
+      "any": [
+        "panelists.add.panelist"
+      ],
+      "permissions": [
+        "panelists.lookup.panelist.identity"
+      ],
+      "write": [
+        "name",
+        "phone",
+        "email",
+        "description",
+        "is_active",
+        "photo",
+        "password"
+      ],
+      "read": [
+        "name",
+        "phone",
+        "email",
+        "description"
+      ]
+    },
+    {
+      "id": "panelist-status",
+      "label": "Activate/deactivate panelist access",
+      "any": [
+        "panelists.toggle.panelist.status"
+      ],
+      "write": [
+        "is_active"
+      ]
+    },
+    {
+      "id": "panel-members",
+      "label": "Create and manage Solo/Team panels",
+      "any": [
+        "interview-panels.add.interview.panel",
+        "interview-panels.update.interview.panel"
+      ],
+      "permissions": [
+        "panelists.get.panelists"
+      ],
+      "write": [
+        "title",
+        "description",
+        "panel_type",
+        "members",
+        "status",
+        "expected_revision"
+      ],
+      "read": [
+        "name",
+        "description",
+        "panel_type",
+        "members"
+      ]
+    },
+    {
+      "id": "interview-schedules",
+      "label": "Create interview slots",
+      "any": [
+        "interview-panels.add.interview.schedules"
+      ],
+      "permissions": [
+        "interview-panels.get.interview.panels",
+        "interview-panels.get.interview.panel"
+      ],
+      "write": [
+        "schedules",
+        "expected_revision"
+      ],
+      "read": [
+        "title",
+        "members",
+        "schedules",
+        "panel_type"
+      ]
+    },
+    {
+      "id": "interview-reschedule",
+      "label": "Reschedule available or unstarted interviews",
+      "any": [
+        "interview-panels.update.interview.schedules"
+      ],
+      "permissions": [
+        "interview-panels.get.interview.panel"
+      ],
+      "write": [
+        "schedules",
+        "expected_revision"
+      ],
+      "read": [
+        "title",
+        "members",
+        "schedules",
+        "panel_type"
+      ]
+    },
+    {
+      "id": "interview-cancel",
+      "label": "Cancel an interview slot with a reason",
+      "any": [
+        "interview-panels.cancel.interview.schedule"
+      ],
+      "write": [
+        "cancellation_reason",
+        "expected_revision"
+      ],
+      "read": [
+        "schedules",
+        "title"
+      ]
+    },
+    {
+      "id": "interview-booking",
+      "label": "Book a candidate into an interview slot",
+      "any": [
+        "interview-panels.book.interview.slot"
+      ],
+      "write": [
+        "schedule_id",
+        "schedule_index",
+        "booked_for",
+        "booked_phone",
+        "booked_notes",
+        "qualifier_id",
+        "forSelf",
+        "date",
+        "start_time"
+      ],
+      "read": [
+        "schedules",
+        "title",
+        "name",
+        "phone"
+      ]
+    },
+    {
+      "id": "interview-evaluation",
+      "label": "Conduct and submit own interview evaluation",
+      "any": [
+        "interview-panels.start.interview",
+        "interview-panels.submit.interview.evaluation"
+      ],
+      "write": [
+        "schedule_id",
+        "schedule_index",
+        "knowledge",
+        "analytical_ability",
+        "communication",
+        "confidence",
+        "personality",
+        "body_language",
+        "current_affairs",
+        "ethics_decision",
+        "key_strength",
+        "major_weakness",
+        "improvement_since_last_mock",
+        "verdict",
+        "final_remarks"
+      ],
+      "read": [
+        "schedules",
+        "members",
+        "name",
+        "education_background",
+        "evaluation",
+        "verdict",
+        "final_remarks"
       ]
     },
     {
@@ -7946,144 +8227,17 @@
       ]
     },
     {
-      "id": "fields:interview-panels.start.interview",
-      "label": "Form fields for start interview",
-      "any": [
-        "interview-panels.start.interview"
-      ],
-      "write": [
-        "schedule_index"
-      ],
-      "read": [
-        "schedule_index"
-      ]
-    },
-    {
-      "id": "fields:interview-panels.submit.interview.evaluation",
-      "label": "Form fields for submit interview evaluation",
-      "any": [
-        "interview-panels.submit.interview.evaluation"
-      ],
-      "write": [
-        "final_remarks",
-        "improvement_since_last_mock",
-        "key_strength",
-        "major_weakness",
-        "schedule_index",
-        "verdict"
-      ],
-      "read": [
-        "final_remarks",
-        "improvement_since_last_mock",
-        "key_strength",
-        "major_weakness",
-        "schedule_index",
-        "verdict"
-      ]
-    },
-    {
-      "id": "fields:interview-panels.add.interview.panel",
-      "label": "Form fields for add interview panel",
-      "any": [
-        "interview-panels.add.interview.panel"
-      ],
-      "write": [
-        "date",
-        "description",
-        "members",
-        "schedules",
-        "status",
-        "title",
-        "venue"
-      ],
-      "read": [
-        "date",
-        "description",
-        "members",
-        "schedules",
-        "status",
-        "title",
-        "venue"
-      ]
-    },
-    {
-      "id": "fields:interview-panels.update.interview.panel",
-      "label": "Form fields for update interview panel",
-      "any": [
-        "interview-panels.update.interview.panel"
-      ],
-      "write": [
-        "append_schedules",
-        "date",
-        "description",
-        "end_time",
-        "members",
-        "schedules",
-        "start_time",
-        "status",
-        "time",
-        "title",
-        "venue"
-      ],
-      "read": [
-        "append_schedules",
-        "date",
-        "description",
-        "end_time",
-        "members",
-        "schedules",
-        "start_time",
-        "status",
-        "time",
-        "title",
-        "venue"
-      ]
-    },
-    {
-      "id": "fields:interview-panels.book.interview.slot",
-      "label": "Form fields for book interview slot",
-      "any": [
-        "interview-panels.book.interview.slot"
-      ],
-      "write": [
-        "booked_for",
-        "booked_notes",
-        "booked_phone",
-        "booked_user_id",
-        "date",
-        "schedule_index",
-        "start_time"
-      ],
-      "read": [
-        "booked_for",
-        "booked_notes",
-        "booked_phone",
-        "booked_user_id",
-        "date",
-        "schedule_index",
-        "start_time"
-      ]
-    },
-    {
       "id": "fields:panelists.add.panelist",
       "label": "Form fields for add panelist",
       "any": [
         "panelists.add.panelist"
       ],
       "write": [
-        "description",
         "image",
-        "is_active",
-        "name",
-        "phone",
         "photo"
       ],
       "read": [
-        "description",
         "image",
-        "is_active",
-        "name",
-        "phone",
         "photo"
       ]
     },
@@ -8096,7 +8250,6 @@
       "write": [
         "description",
         "image",
-        "is_active",
         "name",
         "phone",
         "photo"
@@ -8104,10 +8257,22 @@
       "read": [
         "description",
         "image",
-        "is_active",
         "name",
         "phone",
         "photo"
+      ]
+    },
+    {
+      "id": "fields:panelists.toggle.panelist.status",
+      "label": "Form fields for toggle panelist status",
+      "any": [
+        "panelists.toggle.panelist.status"
+      ],
+      "write": [
+        "is_active"
+      ],
+      "read": [
+        "is_active"
       ]
     },
     {

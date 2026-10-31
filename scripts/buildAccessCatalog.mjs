@@ -30,7 +30,7 @@ const routes = [];
 const fieldGroups = { general: [], contact: [], identity: [], financial: [], evidence: [], internal: [], integration: [], credentials: [] };
 const readOnlyFields = ['_id', '__v', 'created_by', 'createdAt', 'updatedAt', 'user', 'actor', 'platformOwner',
   'accessManaged', 'accountType', 'disabledAt', 'accessOnboardingRole', 'creation_pending', 'creation_request',
-  'creation_worker_epoch', 'processing_status'];
+  'creation_worker_epoch', 'processing_status', 'access_assignment', 'access_role', 'normalized_phone', 'login_setup_required', 'required_panelist_ids', 'cancelled_at', 'cancelled_by'];
 const classifyField = (name) => /secret|token|lease|fingerprint|^plan$|migrationKey|accessOnboarding/i.test(name) ? null
   : /password/i.test(name) ? 'credentials'
   : /evidence|attachment|resume|avatar|photo|image/i.test(name) ? 'evidence'

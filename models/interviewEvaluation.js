@@ -19,6 +19,7 @@ const interviewEvaluationSchema = mongoose.Schema(
       required: true,
     },
     schedule_index: { type: Number, required: true },
+    schedule_id: { type: mongoose.Schema.Types.ObjectId },
     qualifier_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Qualifier",
@@ -73,6 +74,10 @@ const interviewEvaluationSchema = mongoose.Schema(
   { timestamps: true }
 );
 
+interviewEvaluationSchema.index(
+  { panel_id: 1, schedule_id: 1, evaluator_key: 1 },
+  { unique: true, name: 'panel_slot_evaluator_unique', partialFilterExpression: { schedule_id: { $type: 'objectId' }, evaluator_key: { $type: 'string', $gt: '' } } }
+);
 interviewEvaluationSchema.index(
   { panel_id: 1, schedule_index: 1, evaluator_key: 1 },
   {

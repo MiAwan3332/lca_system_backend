@@ -47,7 +47,7 @@ export const SECRET_FIELDS = /password|secret|credential|token|api[_-]?key|priva
 const STRUCTURAL_FIELDS = new Set(['_id', 'id', 'docs', 'page', 'limit', 'totalDocs', 'totalPages', 'pagingCounter', 'hasPrevPage', 'hasNextPage', 'prevPage', 'nextPage',
   'message', 'error', 'requestId', 'status', 'code', 'success', 'record_id', 'idempotency_key', 'submission_status', 'processing_status', 'jobs', 'protocol',
   // Display names of the user's roles (utils/accessRoleNames.js); visible wherever the user record itself is.
-  'accessRoleNames']);
+  'accessRoleNames', 'found', 'existing_user', 'existing_panelist', 'needs_login', 'login', 'login_ready', 'role_name', 'created', 'reused']);
 export function redactAccessFields(value, context) {
   if (typeof value === 'string') return privateMediaUrl(value, context);
   if (Array.isArray(value)) return value.map((item) => redactAccessFields(item, context));
@@ -57,7 +57,7 @@ export function redactAccessFields(value, context) {
   const recordOwner = source.user || source.recipient_user || source.student;
   const owned = recordOwner && ownIds.includes(String(recordOwner._id || recordOwner));
   const ownGoogleStatus = context.route?.resource === 'google' && context.route?.handler === 'getGoogleStatus';
-  const foreignRecord = source._id && !owned && !ownGoogleStatus && !ownIds.includes(String(source._id)) && ['student', 'teacher', 'qualifier', 'panelist'].includes(context.accountType);
+  const foreignRecord = source._id && !owned && !ownGoogleStatus && !(context.panelistId && context.route?.resource === 'interview-panels') && !ownIds.includes(String(source._id)) && ['student', 'teacher', 'qualifier', 'panelist'].includes(context.accountType);
   const result = {};
   for (const [key, child] of Object.entries(source)) {
     if (SECRET_FIELDS.test(key)) continue;

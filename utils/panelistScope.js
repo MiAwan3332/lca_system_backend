@@ -21,6 +21,7 @@ const phonesMatch = (a, b) => {
 };
 
 export const resolvePanelistId = async (req) => {
+  if (req.access?.panelistId) return String(req.access.panelistId);
   const tokenPanelistId = getPanelistIdFromToken(req);
   if (tokenPanelistId) {
     return String(tokenPanelistId);
@@ -31,6 +32,8 @@ export const resolvePanelistId = async (req) => {
 
   const user = await User.findById(userId);
   if (!user) return null;
+  const linked = await Panelist.findOne({ user: user._id }).select('_id');
+  if (linked) return String(linked._id);
 
   if (user.email) {
     const byEmail = await Panelist.findOne({ email: user.email }).select("_id");

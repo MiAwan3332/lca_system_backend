@@ -54,11 +54,15 @@ export async function scopedModelFilters(context, route, grants) {
       { 'schedules.booked_user_id': self }, { 'schedules.booked_qualifier_id': oid(context.qualifierId) }] };
     filters.InterviewEvaluation = { qualifier_id: oid(context.qualifierId) };
   }
-  if (context.accountType === 'panelist' && context.panelistId) {
-    filters.InterviewPanel = { 'members.panelist_id': oid(context.panelistId) };
-    const panels = mongoose.models.InterviewPanel ? await mongoose.models.InterviewPanel.find(filters.InterviewPanel).select('schedules').lean() : [];
-    filters.Qualifier = { _id: { $in: ids(panels.flatMap((panel) => (panel.schedules || []).map((slot) => slot.booked_qualifier_id))) } };
-    filters.InterviewEvaluation = { panel_id: { $in: panels.map((panel) => panel._id) }, panelist_id: oid(context.panelistId) };
+  if (context.panelistId) {
+    const assignedPanels = { 'members.panelist_id': oid(context.panelistId) };
+    const qualifierPanels = context.accountType==='qualifier' && context.qualifierId && ['getInterviewPanels','getInterviewPanel','getInterviewEvaluationDetails','bookInterviewSlot'].includes(route.handler) ? filters.InterviewPanel : null;
+    filters.InterviewPanel = qualifierPanels ? union([qualifierPanels,assignedPanels]) : assignedPanels;
+    const panels = mongoose.models.InterviewPanel ? await mongoose.models.InterviewPanel.find(assignedPanels).select('schedules members').lean() : [];
+    if(route.handler==='getInterviewEvaluationDetails')filters.Panelist={_id:{$in:ids(panels.flatMap(p=>(p.members||[]).map(m=>m.panelist_id)))}};
+    filters.Qualifier = { _id: { $in: ids([context.qualifierId,...panels.flatMap((panel) => (panel.schedules || []).map((slot) => slot.booked_qualifier_id))]) } };
+    const ownEvaluation={ panel_id: { $in: panels.map((panel) => panel._id) }, ...(route.handler === 'getInterviewEvaluationDetails' ? {} : { panelist_id: oid(context.panelistId) }) };
+    filters.InterviewEvaluation=context.qualifierId&&route.handler==='getInterviewEvaluationDetails'?union([ownEvaluation,{qualifier_id:oid(context.qualifierId)}]):ownEvaluation;
   }
   return filters;
 }

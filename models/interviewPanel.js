@@ -3,6 +3,7 @@ import mongoosePaginate from "mongoose-paginate-v2";
 
 const interviewPanelSchema = mongoose.Schema(
   {
+    panel_type: { type: String, enum: ['solo', 'team'] },
     title: {
       type: String,
       required: true,
@@ -81,7 +82,7 @@ const interviewPanelSchema = mongoose.Schema(
         },
         interview_status: {
           type: String,
-          enum: ["not_started", "in_progress", "completed"],
+          enum: ["not_started", "in_progress", "completed", "cancelled"],
           default: "not_started",
         },
         interview_started_at: { type: Date, default: null },
@@ -90,6 +91,10 @@ const interviewPanelSchema = mongoose.Schema(
           ref: "Panelist",
           default: null,
         },
+        required_panelist_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Panelist' }],
+        cancellation_reason: { type: String, default: '' },
+        cancelled_at: Date,
+        cancelled_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       },
     ],
     created_by: {
@@ -97,7 +102,7 @@ const interviewPanelSchema = mongoose.Schema(
       ref: "User",
     },
   },
-  { timestamps: true }
+  { timestamps: true, optimisticConcurrency: true }
 );
 
 interviewPanelSchema.plugin(mongoosePaginate);
