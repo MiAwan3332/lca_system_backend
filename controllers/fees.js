@@ -1509,7 +1509,7 @@ export const getFinanceReport = async (req, res) => {
                     { path: "batch", select: batchFeeSelect },
                 ],
             })
-            .sort({ action_date: -1 });
+            .sort({ action_date: -1, _id: -1 });
 
         const approvedExpenseFilter = {
             status: "Approved",
@@ -1773,10 +1773,10 @@ export const revertPayment = async (req, res) => {
         const { preview, reason, note, acknowledged } = req.body || {};
         const plan = await planPaymentReversal(req.params.id);
         const context = req.access;
-        // Same rule as the route check, applied to the whole collection: amount limit and "not their own payment".
+        // Same rule as the route check: amount limit and "not an entry they made".
         if (context && !context.owner && context.enforced !== false &&
-            !evaluateAccess(context, 'fees.revert.payment', { batchId: plan.student.batch?._id, ownerId: plan.student.user, amount: plan.total, createdBy: plan.log.action_by }).allowed) {
-            return res.status(403).json({ message: 'Your role cannot revert this payment (amount limit, or it was collected by you).', code: 'ACCESS_DENIED' });
+            !evaluateAccess(context, 'fees.revert.payment', { batchId: plan.student.batch?._id, ownerId: plan.student.user, amount: plan.amount, createdBy: plan.log.action_by }).allowed) {
+            return res.status(403).json({ message: `Your role cannot undo this ${plan.label.toLowerCase()} (amount limit, or you made it).`, code: 'ACCESS_DENIED' });
         }
         if (preview === true || preview === 'true') return res.status(200).json(await paymentReversalPreview(plan));
 
@@ -1785,16 +1785,16 @@ export const revertPayment = async (req, res) => {
             acknowledged: acknowledged === true || acknowledged === 'true', actorId, ip: req.ip });
         try {
             await AccessAudit.create({ actor: actorId, action: 'fees.revert.payment', target: `student:${reversal.student}`, requestId: req.requestId,
-                before: { payment_log: reversal.payment_log, amount: reversal.amount, totals: reversal.totals_before },
+                before: { payment_log: reversal.payment_log, step: reversal.step_type, amount: reversal.amount, totals: reversal.totals_before },
                 after: { reversal: reversal._id, totals: reversal.totals_after }, reason: `${reversal.reason_category}: ${reversal.reason_note}` });
             await logActivity({ req, action: 'delete', module: 'Fees', statusCode: 200, targetId: String(reversal.student), targetType: 'Student',
-                description: `Reverted Rs ${reversal.amount} payment for ${plan.student.name} (${reversal.reason_category})`,
+                description: `Undid ${plan.label.toLowerCase()} of Rs ${reversal.amount} for ${plan.student.name} (${reversal.reason_category})`,
                 metadata: { reversal_id: reversal._id, payment_log: reversal.payment_log, reason: reversal.reason_category, note: reversal.reason_note } });
         } catch (logError) {
             console.error('Audit log failed for payment reversal:', logError);
         }
         const { removed, ip, ...summary } = reversal;
-        res.status(200).json({ message: `Rs ${reversal.amount} payment reverted.`, reversal: summary });
+        res.status(200).json({ message: `${plan.label} of Rs ${reversal.amount} undone.`, reversal: summary });
     } catch (error) {
         res.status(error.status || 500).json({ message: error.message });
     }

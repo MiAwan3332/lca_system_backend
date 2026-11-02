@@ -1077,7 +1077,7 @@ export const getStudentsByBatch = async (req, res) => {
           { student: { $in: studentIds } },
           ...(feeIds.length ? [{ fee: { $in: feeIds } }] : [])
         ]
-      }).sort({ action_date: 1 }).lean();
+      }).sort({ action_date: 1, _id: 1 }).lean();
       
       const feeToStudent = {};
       fees.forEach(f => {
@@ -1153,7 +1153,7 @@ export const getStudentPaymentLogs = async (req, res) => {
     const paymentLogs = await FeeLog.find({
       $or: [{ student: id }, ...(feeIds.length ? [{ fee: { $in: feeIds } }] : [])],
     })
-      .sort({ action_date: -1 })
+      .sort({ action_date: -1, _id: -1 })
       .populate("action_by", "name email")
       .populate({
         path: "fee",
@@ -1253,7 +1253,7 @@ export const getStudentHistory = async (req, res) => {
         ...(feeIds.length ? [{ fee: { $in: feeIds } }] : []),
       ],
     })
-      .sort({ action_date: -1 })
+      .sort({ action_date: -1, _id: -1 })
       .populate("action_by", "name email")
       .populate({
         path: "fee",

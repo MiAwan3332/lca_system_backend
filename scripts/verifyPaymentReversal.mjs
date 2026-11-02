@@ -84,7 +84,7 @@ try {
   const slip = await Slip.findOne({ student: umee._id }).lean();
   assert.deepEqual([slip.payment_id, String(slip.payment_log)], [payment.payment_id, String(payment._id)]); checks++;
   const preview = await check(owner, 'POST', `/fees/payments/${payment._id}/revert`, { preview: true });
-  assert.deepEqual([preview.payment.amount, preview.receipts.length, preview.slips.length, preview.blockers.length, preview.legacy], [20000, 1, 1, 0, false]); checks++;
+  assert.deepEqual([preview.step.type, preview.step.amount, preview.receipts.length, preview.slips.length, preview.blockers.length, preview.legacy], ['Paid', 20000, 1, 1, 0, false]); checks++;
   assert.deepEqual([preview.totals_before.paid_fee, preview.totals_before.pending_fee, preview.totals_after.paid_fee, preview.totals_after.pending_fee], [20000, 5000, 0, 25000]); checks++;
   assert.equal(await FeeLog.countDocuments({ _id: payment._id }), 1, 'Preview changes nothing'); checks++;
   await check(owner, 'POST', `/fees/payments/${payment._id}/revert`, { reason: 'Payment never received', note: 'short' }, 400);
@@ -107,14 +107,18 @@ try {
   const again = await fetch(`${base}/fees/payments/${payment._id}/revert`, { method: 'POST', headers: { authorization: `Bearer ${token(owner)}`, 'Content-Type': 'application/json' }, body: JSON.stringify(reason) });
   assert.ok([403, 404, 409].includes(again.status), `Reverting twice is refused (${again.status})`); checks++;
 
-  // One collection spread over two fee records is reverted as a whole, from either entry.
+  // One collection spread over two fee records is two timeline steps, undone newest first; the receipt goes with the first undo.
   const split = await newStudent('Split student', [10000, 10000]);
   await collect(split, 15000);
   const parts = await paid(split);
   assert.equal(parts.length, 2); assert.equal(parts[0].payment_id, parts[1].payment_id); checks++;
+  const olderPart = await check(owner, 'POST', `/fees/payments/${parts[0]._id}/revert`, { preview: true });
+  assert.match(olderPart.blockers.join(' '), /newest first/); checks++;
   const splitPreview = await check(owner, 'POST', `/fees/payments/${parts[1]._id}/revert`, { preview: true });
-  assert.deepEqual([splitPreview.payment.amount, splitPreview.entries.length, splitPreview.fee_changes.length], [15000, 2, 2]); checks++;
+  assert.deepEqual([splitPreview.step.amount, splitPreview.receipts.length, splitPreview.fee_changes.length], [parts[1].action_amount, 1, 1]); checks++;
   await check(owner, 'POST', `/fees/payments/${parts[1]._id}/revert`, reason);
+  assert.equal(await FeeReceipt.countDocuments({ student: split._id }), 0); checks++;
+  await check(owner, 'POST', `/fees/payments/${parts[0]._id}/revert`, reason);
   assert.deepEqual((await Fee.find({ student: split._id }).sort({ due_date: 1 }).lean()).map((item) => [item.amount, item.status]), [[10000, 'Pending'], [10000, 'Pending']]); checks++;
   assert.equal((await Student.findById(split._id).lean()).pending_fee, 20000); checks++;
 
@@ -123,7 +127,7 @@ try {
   await collect(twice, 3000); await pause(20); await collect(twice, 4000);
   const [first, second] = await paid(twice);
   const blocked = await check(owner, 'POST', `/fees/payments/${first._id}/revert`, { preview: true });
-  assert.match(blocked.blockers.join(' '), /later payment/); checks++;
+  assert.match(blocked.blockers.join(' '), /newest first/); checks++;
   await check(owner, 'POST', `/fees/payments/${first._id}/revert`, reason, 409);
   await Student.updateOne({ _id: twice._id }, { $set: { batch: other._id } });
   const moved = await check(owner, 'POST', `/fees/payments/${second._id}/revert`, { preview: true });
@@ -179,6 +183,55 @@ try {
     removed: { logs: [resumed], fees: [resumeFee], receipts: [], slips: [] } });
   await check(owner, 'POST', `/fees/payments/${resumed._id}/revert`, {});
   assert.deepEqual([(await Reversal.findOne({ payment_log: resumed._id })).status, await FeeLog.countDocuments({ _id: resumed._id }), (await Fee.findById(resumeFee._id)).amount], ['completed', 0, 6000]); checks++;
+
+  // An admission saves fee, discount and payment at the same moment: the timeline keeps that order and each is undone in reverse.
+  const admitted = await Student.create({ name: 'Admission student', phone: '0300000088', batch: batch._id });
+  const admittedFee = await Fee.create({ student: admitted._id, batch: batch._id, amount: 50000, status: 'Pending', due_date: '2035-02-01' });
+  const at = new Date(Date.now() - 1000);
+  const [assigned, discounted, admissionPayment] = await FeeLog.create([
+    { student: admitted._id, fee: admittedFee._id, amount: 100000, action_amount: 100000, action_type: 'Created', action_by: owner._id, action_date: at },
+    { student: admitted._id, fee: admittedFee._id, amount: 100000, action_amount: 20000, action_type: 'Discounted', action_by: owner._id, action_date: at, description: 'Merit' },
+    { student: admitted._id, fee: admittedFee._id, amount: 80000, action_amount: 30000, action_type: 'Paid', action_by: owner._id, action_date: at, payment_method: 'Cash', payment_id: 'admission-payment' },
+  ], { ordered: true });
+  const ordered = await check(owner, 'GET', `/students/history/${admitted._id}`);
+  assert.deepEqual(ordered.payment_logs.map((item) => item.action_type), ['Paid', 'Discounted', 'Created']); checks++;
+  assert.match((await check(owner, 'POST', `/fees/payments/${discounted._id}/revert`, { preview: true })).blockers.join(' '), /payment of Rs 30,000/); checks++;
+  await check(owner, 'POST', `/fees/payments/${admissionPayment._id}/revert`, reason);
+  assert.deepEqual([(await Fee.findById(admittedFee._id)).amount, (await Student.findById(admitted._id)).pending_fee], [80000, 80000]); checks++;
+  const discountPreview = await check(owner, 'POST', `/fees/payments/${discounted._id}/revert`, { preview: true });
+  assert.deepEqual([discountPreview.step.type, discountPreview.step.amount, discountPreview.blockers.length, discountPreview.receipts.length], ['Discounted', 20000, 0, 0]); checks++;
+  await check(owner, 'POST', `/fees/payments/${discounted._id}/revert`, { reason: 'Wrong amount', note: 'Discount was not approved by the principal' });
+  assert.deepEqual([(await Fee.findById(admittedFee._id)).amount, (await Fee.findById(admittedFee._id)).status, await FeeLog.countDocuments({ _id: discounted._id })], [100000, 'Pending', 0]); checks++;
+  const feePreview = await check(owner, 'POST', `/fees/payments/${assigned._id}/revert`, { preview: true });
+  assert.deepEqual([feePreview.step.type, feePreview.fee_changes[0].removes_fee, feePreview.totals_after.total_fee], ['Created', true, 0]); checks++;
+  await check(owner, 'POST', `/fees/payments/${assigned._id}/revert`, { reason: 'Wrong student', note: 'Fee was assigned to the wrong student' });
+  assert.deepEqual([await Fee.countDocuments({ _id: admittedFee._id }), await FeeLog.countDocuments({ student: admitted._id }), (await Student.findById(admitted._id)).total_fee], [0, 0, 0]); checks++;
+  const undone = await check(owner, 'GET', `/students/history/${admitted._id}`);
+  assert.deepEqual(undone.payment_reversals.map((item) => item.step_type), ['Created', 'Discounted', 'Paid']); checks++;
+
+  // A discount given with the Discount button is its own step.
+  const discountOnly = await newStudent('Discount student', [40000]);
+  const discountFeeRecord = await Fee.findOne({ student: discountOnly._id });
+  await check(owner, 'POST', `/fees/discount/${discountFeeRecord._id}`, { amount: 5000, description: 'Sibling discount' });
+  const [buttonDiscount] = await FeeLog.find({ student: discountOnly._id, action_type: 'Discounted' }).lean();
+  await check(owner, 'POST', `/fees/payments/${buttonDiscount._id}/revert`, reason);
+  assert.equal((await Fee.findById(discountFeeRecord._id)).amount, 40000); checks++;
+
+  // Undoing a paid-out refund puts the request back to approved and the student back to active; the open request then blocks undoing the payment.
+  const refundee = await newStudent('Refund undo student', [10000]);
+  await collect(refundee, 6000);
+  const [refundeePayment] = await paid(refundee);
+  const request = await Refund.create({ student: refundee._id, amount: 2000, requested_by: owner._id, reason: 'Left the course', status: 'Approved' });
+  await check(owner, 'POST', `/refund-requests/process/${request._id}`, { payment_method: 'Cash' });
+  const refundLog = await FeeLog.findOne({ student: refundee._id, action_type: 'Refund' }).lean();
+  assert.deepEqual([(await Student.findById(refundee._id)).is_active, (await Student.findById(refundee._id)).paid_fee], [false, 4000]); checks++;
+  const refundPreview = await check(owner, 'POST', `/fees/payments/${refundLog._id}/revert`, { preview: true });
+  assert.deepEqual([refundPreview.step.type, refundPreview.refund_request.amount, refundPreview.fee_changes.length], ['Refund', 2000, 0]); checks++;
+  await check(owner, 'POST', `/fees/payments/${refundLog._id}/revert`, { reason: 'Other', note: 'Refund was paid out to the wrong student' });
+  const reopened = await Refund.findById(request._id).lean();
+  assert.deepEqual([reopened.status, reopened.is_refunded, reopened.fee_log, reopened.refunded_at], ['Approved', false, undefined, undefined]); checks++;
+  assert.deepEqual([(await Student.findById(refundee._id)).is_active, (await Student.findById(refundee._id)).paid_fee, await FeeLog.countDocuments({ _id: refundLog._id })], [true, 6000, 0]); checks++;
+  await check(owner, 'POST', `/fees/payments/${refundeePayment._id}/revert`, reason, 409);
 
   // Finance report: refunds are shown per batch, separately from the net cash and online totals.
   const refundFee = await Fee.findOne({ student: split._id }).lean();
