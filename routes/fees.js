@@ -1,5 +1,5 @@
 import express from "express"
-import { getFees, getFeeById, createFee, payFee, collectPendingFee, discountFee, deleteFee, getFeeLogs, getFeesByStudentId, getFinanceReport, getStudentFeesReport } from "../controllers/fees.js";
+import { getFees, getFeeById, createFee, payFee, collectPendingFee, discountFee, deleteFee, getFeeLogs, getFeesByStudentId, getFinanceReport, getStudentFeesReport, revertPayment } from "../controllers/fees.js";
 import auth from "../middlewares/auth.js";
 
 const router = express.Router();
@@ -10,6 +10,7 @@ router.get('/',auth,getFees)
 router.post('/collect-pending/:studentId', auth, collectPendingFee)
 router.post('/pay/:id',auth,payFee)
 router.post('/discount/:id',auth,discountFee)
+router.post('/payments/:id/revert', auth, revertPayment)
 router.delete('/delete/:id',auth,deleteFee)
 router.get('/logs/:id',auth,getFeeLogs)
 router.get('/student/:id',auth,getFeesByStudentId)

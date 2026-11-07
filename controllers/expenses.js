@@ -162,7 +162,7 @@ export const updateExpense = async (req, res) => {
       });
     }
 
-    if (!title || !amount || amount <= 0) {
+    if (!(title === undefined ? existingExpense.title : title) || !Number.isFinite(Number(amount === undefined ? existingExpense.amount : amount)) || Number(amount === undefined ? existingExpense.amount : amount) <= 0) {
       return res
         .status(400)
         .json({ message: "Title and a valid amount are required" });

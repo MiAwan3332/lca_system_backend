@@ -1,4 +1,12 @@
+import { accessContext } from '../utils/accessContext.js';
 import Student from "../models/students.js";
+import { permissionGrants } from '../utils/accessPolicy.js';
+import { assertDiscountAccess } from '../utils/discountAccess.js';
+import { studentPaymentReversals } from '../utils/paymentReversal.js';
+import { stageCreationFiles, prepareCreation, commitCreation, creationResponse } from '../utils/creationService.js';
+import CreationRequest from '../models/creationRequests.js';
+import { pendingStudentDues, normalizedStudentPhone } from '../utils/studentIdentity.js';
+import { DEFAULT_STUDENT_PASSWORD } from '../utils/creationDefaults.js';
 import mongoose from "mongoose";
 import Batch from "../models/batches.js";
 import User from "../models/users.js";
@@ -120,7 +128,6 @@ const buildPendingFeeBlockPayload = async (studentId, pendingAmount) => {
 
 // const crypto = require("crypto");
 
-const DEFAULT_STUDENT_PASSWORD = "lca@123456";
 
 const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
 
@@ -154,7 +161,7 @@ const findStudentByPhoneDigits = async (phone) => {
  * Numbers that exist only in Deleted Students archive may be re-added.
  * Orphan student login users left after older deletes are cleaned up.
  */
-const assertPhoneAvailableForNewStudent = async (phone) => {
+const assertPhoneAvailableForNewStudent = async (phone, allowOrphanCleanup = true) => {
   const existingByPhone = await findStudentByPhoneDigits(phone);
   if (existingByPhone) {
     throw new Error(
@@ -173,8 +180,8 @@ const assertPhoneAvailableForNewStudent = async (phone) => {
   const existingUser = await User.findOne({ email });
   if (existingUser) {
     const role = String(existingUser.role || "").toLowerCase();
-    // Leftover login from a deleted student — allow re-create.
-    if (role === "student") {
+    // Leftover login from a deleted student â€” allow re-create.
+    if (role === "student" && allowOrphanCleanup) {
       await User.findByIdAndDelete(existingUser._id);
     } else {
       throw new Error("A login account already exists for this phone");
@@ -192,8 +199,6 @@ export const addStudent = async (req, res) => {
   let payingNow = Number(req.body.paying_now) || 0;
   const paymentMethod = req.body.payment_method;
   const nextInstallmentDate = req.body.next_installment_date;
-  let createdUserId = null;
-  let createdStudentId = null;
 
   try {
     if (!name?.trim()) {
@@ -202,12 +207,30 @@ export const addStudent = async (req, res) => {
     if (!phone?.trim()) {
       return res.status(400).json({ message: "Phone number is required" });
     }
+    for (const field of ['paying_now', 'discount_amount']) {
+      if (req.body[field] !== undefined && req.body[field] !== '' && !Number.isFinite(Number(req.body[field]))) {
+        return res.status(400).json({ message: 'Payment and discount amounts must be valid numbers' });
+      }
+    }
 
-    let email;
-    try {
-      email = await assertPhoneAvailableForNewStudent(phone);
-    } catch (err) {
-      return res.status(400).json({ message: err.message });
+    const existingStudent = req.studentIdentity?.student;
+    const existingUser = req.studentIdentity?.user;
+    let email = existingUser?.email;
+    if (existingStudent) {
+      if (!batch) return res.status(400).json({ message: 'Select a destination batch for the existing student' });
+      if (existingStudent.creation_pending) return res.status(409).json({ message: 'The existing admission is still processing. Inspect its status before retrying.' });
+      const dues = await pendingStudentDues(existingStudent._id);
+      if (dues.length) return res.status(409).json({ code: 'PENDING_FEE_BLOCK', message: 'Clear existing pending dues before admission', dues,
+        pending_total: dues.reduce((sum, item) => sum + item.pending, 0) });
+      if (String(existingStudent.batch) === String(batch)) return res.status(409).json({ message: 'This student is already in the selected batch. Use their existing record.' });
+      if (await Fee.exists({ student: existingStudent._id, batch })) return res.status(409).json({ message: 'A fee record already exists for this student and batch. Use the existing enrollment.' });
+      const locked = await Student.updateOne({ _id: existingStudent._id, $or: [{ admission_request: { $exists: false } }, { admission_request: null }] },
+        { $set: { admission_request: req.creationRequest._id } });
+      if (!locked.modifiedCount) return res.status(409).json({ message: 'Another admission is processing for this student. Check its status.' });
+    }
+    if (!email) {
+      try { email = await assertPhoneAvailableForNewStudent(phone, false); }
+      catch (err) { return res.status(400).json({ message: err.message }); }
     }
 
     let batchRecord = null;
@@ -222,6 +245,7 @@ export const addStudent = async (req, res) => {
       if (!batchRecord) {
         return res.status(400).json({ message: "Selected batch not found" });
       }
+      if (!await canAccessBatch(req, batch)) return res.status(403).json({ message: 'Destination batch access denied' });
       if (batchRecord.is_active === false) {
         return res.status(400).json({ message: "Selected batch is inactive" });
       }
@@ -314,6 +338,9 @@ export const addStudent = async (req, res) => {
           message: "Next installment date is required for partial payment",
         });
       }
+      if (!moment(nextInstallmentDate, moment.ISO_8601, true).isValid()) {
+        return res.status(400).json({ message: 'Next installment date must be a valid date' });
+      }
       if (moment(nextInstallmentDate).isBefore(moment(), "day")) {
         return res.status(400).json({
           message: "Next installment date must be today or in the future",
@@ -325,27 +352,27 @@ export const addStudent = async (req, res) => {
 
     // Generate a random password
     // const randomPassword = crypto.randomBytes(4).toString("hex"); 
-    const randomPassword = "lca@123456";
+    const randomPassword = DEFAULT_STUDENT_PASSWORD;
 
     // Hash the password
     const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(randomPassword, saltRounds);
+    const hashedPassword = existingUser?.password || await bcrypt.hash(randomPassword, saltRounds);
 
     const newUser = new User({
       name,
       email,
       password: hashedPassword, // Save the hashed password
       role: "student", // Assign the role
+      phone,
     });
 
-    await newUser.save();
-    createdUserId = newUser._id;
-
     const newStudent = new Student({
+      created_by: req.user.user.id,
       roll_number: rollNumber,
       name,
       email,
       phone,
+      normalized_phone: normalizedStudentPhone(phone),
       admission_date,
       batch: batch || undefined,
       remarks: remarks || "",
@@ -373,30 +400,6 @@ export const addStudent = async (req, res) => {
       image: "",
     });
 
-    await newStudent.save();
-    createdStudentId = newStudent._id;
-
-    // Ensure roll number is persisted (same defensive check as import flow)
-    if (!newStudent.roll_number && rollNumber) {
-      await Student.updateOne(
-        { _id: newStudent._id },
-        { $set: { roll_number: rollNumber } }
-      );
-      newStudent.roll_number = rollNumber;
-    } else if (!newStudent.roll_number && batchRecord) {
-      const assignedRoll = await getNextStudentRollNumber({
-        batchId: batchRecord._id,
-        batchName: batchRecord.name,
-        rollNickname: batchRecord.roll_nickname,
-        batchType: batchRecord.batch_type,
-      });
-      await Student.updateOne(
-        { _id: newStudent._id },
-        { $set: { roll_number: assignedRoll } }
-      );
-      newStudent.roll_number = assignedRoll;
-    }
-
     if (batchRecord && !String(newStudent.roll_number || "").trim()) {
       const rollError = new Error(
         "Roll number could not be assigned. Set batch type (Online / On Campus) and roll nickname, then try again."
@@ -405,142 +408,31 @@ export const addStudent = async (req, res) => {
       throw rollError;
     }
 
-    const imageFile = req.files?.image;
-    if (imageFile) {
-      const filesStorageUrl = process.env.FILES_STORAGE_URL;
-      const filesStoragePath = process.env.FILES_STORAGE_PATH;
-      const fileExt = path.extname(imageFile.name) || ".jpg";
-      const fileName = `avatar_${newStudent._id}${fileExt}`;
-      await uploadFile(imageFile, fileName, `${filesStoragePath}/students/avatars`);
-      const webpFileName = `avatar_${newStudent._id}.jpeg`;
-      await compressImage(
-        `${filesStoragePath}/students/avatars/${fileName}`,
-        `${filesStoragePath}/students/avatars/${webpFileName}`,
-        50
-      );
-      newStudent.image = `${filesStorageUrl}/files/students/avatars/${webpFileName}`;
-      await newStudent.save();
-    }
-
-    await generateQrCode(newStudent._id);
-
-    let paymentEvidence = "";
-    if (
-      payingNow > 0 &&
-      (paymentMethod === "Online" || paymentMethod === "Online Payment")
-    ) {
-      try {
-        const urls = await uploadPaymentEvidenceFiles(
-          req.files?.payment_evidence,
-          newStudent._id
-        );
-        paymentEvidence = normalizePaymentEvidenceForStorage(urls);
-      } catch (evidenceError) {
-        console.error("Payment evidence upload failed:", evidenceError);
-        const uploadError = new Error(
-          evidenceError?.message ||
-            "Could not upload online payment evidence. Please try again."
-        );
-        uploadError.status = 400;
-        throw uploadError;
-      }
-    }
-
-    if (batch && grossFee > 0) {
-      const actionUserId = req.user?.user?.id;
-      await createStudentAdmissionFee({
-        studentId: newStudent._id,
-        batchId: batch,
-        totalFee: grossFee,
-        payingNow,
-        discountAmount,
-        discountDescription,
-        actionUserId,
-        paymentMethod: payingNow > 0 ? paymentMethod : undefined,
-        paymentEvidence,
-        nextInstallmentDate: isPartialPayment ? nextInstallmentDate : undefined,
-      });
-    }
-
-    // Send welcome email to the student with the random password
-    // await addEmailToQueue(email, name, randomPassword);
-
-    const savedStudent = await Student.findById(newStudent._id).populate("batch");
-
-    // Final guard: never return a student without a roll number when batch is set
-    if (
-      savedStudent?.batch &&
-      !String(savedStudent.roll_number || "").trim()
-    ) {
-      const batchDoc =
-        savedStudent.batch && typeof savedStudent.batch === "object"
-          ? savedStudent.batch
-          : batchRecord;
-      if (batchDoc?._id) {
-        const assignedRoll = await getNextStudentRollNumber({
-          batchId: batchDoc._id,
-          batchName: batchDoc.name,
-          rollNickname: batchDoc.roll_nickname,
-          batchType: batchDoc.batch_type,
-        });
-        await Student.updateOne(
-          { _id: savedStudent._id },
-          { $set: { roll_number: assignedRoll } }
-        );
-        savedStudent.roll_number = assignedRoll;
-      }
-    }
-
-    let whatsappWelcome = { sent: false, skipped: true };
-    try {
-      whatsappWelcome = await sendStudentWelcomeWhatsApp({
-        student: savedStudent,
-        batch: savedStudent?.batch || batchRecord,
-        password: randomPassword,
-        paymentMethod: payingNow > 0 ? paymentMethod : "Pay Later",
-        ...(await resolveWhatsAppSenderFromReq(req)),
-      });
-    } catch (whatsappError) {
-      console.error("WhatsApp welcome failed after student add:", whatsappError);
-      whatsappWelcome = {
-        sent: false,
-        error: whatsappError?.message || "WhatsApp welcome failed",
-      };
-    }
-
-    const payload =
-      typeof savedStudent.toObject === "function"
-        ? savedStudent.toObject()
-        : { ...savedStudent };
-    payload.whatsapp_welcome = whatsappWelcome;
-
-    res.status(200).json(payload);
+    const request = req.creationRequest;
+    const assets = await stageCreationFiles(request, req.files,
+      payingNow > 0 && ["Online", "Online Payment"].includes(paymentMethod));
+    const { _id: unusedUserId, ...userPlan } = newUser.toObject();
+    const { _id: unusedStudentId, ...studentPlan } = newStudent.toObject();
+    const prepared = await prepareCreation(request, {
+      user: userPlan, student: studentPlan, assets,
+      existingStudent, existingUser,
+      fee: batch ? { batchId: batch, totalFee: grossFee, payingNow, discountAmount, discountDescription,
+        paymentMethod, nextInstallmentDate: isPartialPayment ? nextInstallmentDate : undefined } : null,
+    });
+    await commitCreation(prepared);
+    res.status(201).json(await creationResponse(prepared));
   } catch (error) {
-    if (createdStudentId || createdUserId) {
-      try {
-        if (createdStudentId) {
-          await Promise.all([
-            FeeLog.deleteMany({ student: createdStudentId }),
-            Fee.deleteMany({ student: createdStudentId }),
-            PendingFeeSlip.deleteMany({ student: createdStudentId }),
-            RefundRequest.deleteMany({ student: createdStudentId }),
-            Enrollment.deleteMany({ student: createdStudentId }),
-          ]);
-          await Student.findByIdAndDelete(createdStudentId);
-        }
-        if (createdUserId) {
-          await User.findByIdAndDelete(createdUserId);
-        }
-      } catch (rollbackError) {
-        console.error(
-          `Student creation rollback failed (${req.requestId || "no-request-id"}):`,
-          rollbackError
-        );
-      }
+    const durable = req.creationRequest && await CreationRequest.findById(req.creationRequest._id).catch(() => null);
+    if (!durable) return res.status(202).json({ idempotency_key: req.creationRequest?.key, submission_status: 'unknown', processing_status: 'pending' });
+    if (durable?.state === 'committing' || durable?.state === 'complete') {
+      // A DB acknowledgement may be lost after a successful write. Never delete committed data.
+      const payload = await creationResponse(durable).catch(() => ({ idempotency_key: durable.key, submission_status: 'unknown', processing_status: 'pending' }));
+      return res.status(202).json(payload);
     }
 
     res.status(error.status || 500).json({
       message: error.message,
+      ...(error.code === 'CREATION_NOT_COMMITTED' ? { code: error.code } : {}),
       requestId: req.requestId || null,
     });
   }
@@ -791,6 +683,18 @@ export const bulkImportStudents = async (req, res) => {
     }
 
     const actionUserId = req.user?.user?.id;
+    if (req.access?.enforced && !req.access.owner) {
+      const collecting = students.some((row) => Number(row?.paid_fee) > 0);
+      const discounting = students.some((row) => Number.isFinite(Number(row?.total_fee)) && Number(row.total_fee) < Number(batchRecord.batch_fee));
+      if (collecting && !permissionGrants(req.access, 'fees.pay.fee').length) return res.status(403).json({ message: 'Importing paid amounts requires fee-collection permission' });
+      if (discounting && !permissionGrants(req.access, 'fees.discount.fee').length) return res.status(403).json({ message: 'Importing a discounted fee requires discount authority' });
+      for (const row of students) {
+        if (Number.isFinite(Number(row?.total_fee))) {
+          try { assertDiscountAccess(req.access, Math.max(0, Number(batchRecord.batch_fee) - Number(row.total_fee)), { batchId: String(batchId) }); }
+          catch (error) { return res.status(error.status || 403).json({ message: error.message }); }
+        }
+      }
+    }
     const results = {
       imported: 0,
       failed: [],
@@ -909,7 +813,7 @@ export const getStudents = async (req, res) => {
 
     const rawQuery = query ? query.trim() : "";
     const searchQuery = rawQuery ? escapeRegex(rawQuery) : "";
-    const filter = {};
+    const filter = { creation_pending: { $ne: true } };
 
     if (searchQuery) {
       const regex = { $regex: searchQuery, $options: "i" };
@@ -1153,7 +1057,8 @@ export const getStudentsByBatch = async (req, res) => {
 
     const students = await Student.paginate(
       { 
-        batch: batchId 
+        batch: batchId,
+        creation_pending: { $ne: true },
       },
       {
         page: parseInt(req.query.page),
@@ -1162,7 +1067,7 @@ export const getStudentsByBatch = async (req, res) => {
         sort: { roll_number: 1, name: 1, _id: 1 },
       });
 
-    // Natural roll order: OC-Marathon-1, 2, 3…10 (by trailing digits), not lexical.
+    // Natural roll order: OC-Marathon-1, 2, 3â€¦10 (by trailing digits), not lexical.
     const compareByRollSeq = (a, b) => {
       const rollA = String(a?.roll_number || "").trim();
       const rollB = String(b?.roll_number || "").trim();
@@ -1195,7 +1100,7 @@ export const getStudentsByBatch = async (req, res) => {
           { student: { $in: studentIds } },
           ...(feeIds.length ? [{ fee: { $in: feeIds } }] : [])
         ]
-      }).sort({ action_date: 1 }).lean();
+      }).sort({ action_date: 1, _id: 1 }).lean();
       
       const feeToStudent = {};
       fees.forEach(f => {
@@ -1271,7 +1176,7 @@ export const getStudentPaymentLogs = async (req, res) => {
     const paymentLogs = await FeeLog.find({
       $or: [{ student: id }, ...(feeIds.length ? [{ fee: { $in: feeIds } }] : [])],
     })
-      .sort({ action_date: -1 })
+      .sort({ action_date: -1, _id: -1 })
       .populate("action_by", "name email")
       .populate({
         path: "fee",
@@ -1371,7 +1276,7 @@ export const getStudentHistory = async (req, res) => {
         ...(feeIds.length ? [{ fee: { $in: feeIds } }] : []),
       ],
     })
-      .sort({ action_date: -1 })
+      .sort({ action_date: -1, _id: -1 })
       .populate("action_by", "name email")
       .populate({
         path: "fee",
@@ -1555,6 +1460,7 @@ export const getStudentHistory = async (req, res) => {
       pending_fee_slips: pendingFeeSlips,
       activity_logs: activityLogs,
       refund_requests: refundRequests || [],
+      payment_reversals: await studentPaymentReversals(id),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -1627,6 +1533,7 @@ export const getStudent = async (req, res) => {
     }
 
     const student = await Student.findById(id);
+    if (!student) return res.status(404).json({ message: 'Student not found' });
     res.status(200).json(student);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -1801,114 +1708,32 @@ export const changeStudentPassword = async (req, res) => {
 
 export const updateStudent = async (req, res) => {
   const { id } = req.params;
-  const {
-    name,
-    email,
-    phone,
-    cnic,
-    admission_date,
-    city,
-    province,
-    date_of_birth,
-    father_name,
-    father_phone,
-    latest_degree,
-    university,
-    completion_year,
-    marks_cgpa,
-    batch,
-    paid_fee,
-    pending_fee,
-    total_fee,
-  } = req.body;
-  const { image, cnic_image, cnic_back_image, latest_degree_image } = req.files;
-
   try {
     const student = await Student.findById(id);
-    if (!student) {
-      return res.status(404).json({ message: "Student not found" });
+    if (!student) return res.status(404).json({ message: "Student not found" });
+    const fields = ['name', 'email', 'phone', 'cnic', 'admission_date', 'city', 'province', 'date_of_birth',
+      'father_name', 'father_phone', 'latest_degree', 'university', 'completion_year', 'marks_cgpa',
+      'batch', 'paid_fee', 'pending_fee', 'total_fee'];
+    const updateData = Object.fromEntries(fields.filter((key) => Object.hasOwn(req.body, key)).map((key) => [key, req.body[key]]));
+    if (updateData.email && updateData.email !== student.email && await Student.exists({ email: updateData.email, _id: { $ne: id } })) {
+      return res.status(400).json({ message: "Email already exists" });
     }
-
-    // Check if the new email is already in use by another student
-    if (email && email !== student.email) {
-      const existingStudent = await Student.findOne({ email });
-      if (existingStudent) {
-        return res.status(400).json({ message: "Email already exists" });
-      }
+    if (updateData.admission_date) updateData.admission_date = normalizeAdmissionDate(updateData.admission_date);
+    const uploads = { image: ['avatars', 'avatar'], cnic_image: ['cnic_images', 'cnic_front'],
+      cnic_back_image: ['cnic_images', 'cnic_back'], latest_degree_image: ['latest_degree', 'latest_degree'] };
+    for (const [field, [folder, prefix]] of Object.entries(uploads)) {
+      const file = req.files?.[field];
+      if (!file) continue;
+      const fileName = `${prefix}_${id}${path.extname(file.name) || '.jpg'}`;
+      const converted = `${prefix}_${id}.jpeg`;
+      const directory = `${process.env.FILES_STORAGE_PATH}/students/${folder}`;
+      await uploadFile(file, fileName, directory);
+      await compressImage(`${directory}/${fileName}`, `${directory}/${converted}`, 50);
+      updateData[field] = `${process.env.FILES_STORAGE_URL}/files/students/${folder}/${converted}`;
     }
-
-    const filesStorageUrl = process.env.FILES_STORAGE_URL;
-    const filesStoragePath = process.env.FILES_STORAGE_PATH;
-
-    // Save image to File Storage
-    const imageFile = image;
-    const imageFileExt = path.extname(imageFile.name);
-    const imageFileName = `avatar_${id}${imageFileExt}`;
-    await uploadFile(imageFile, imageFileName, `${filesStoragePath}/students/avatars`);
-    const imageWebpFileName = `avatar_${id}.jpeg`;
-    await compressImage(`${filesStoragePath}/students/avatars/${imageFileName}`, `${filesStoragePath}/students/avatars/${imageWebpFileName}`, 50);
-    const imagePath = `${filesStorageUrl}/files/students/avatars/${imageWebpFileName}`
-
-    // Save CNIC image to Firebase storage
-    const cnicImageFile = cnic_image;
-    const cnicImageFileExt = path.extname(cnicImageFile.name);
-    const cnicImageFileName = `cnic_front_${id}${cnicImageFileExt}`;
-    await uploadFile(cnicImageFile, cnicImageFileName, `${filesStoragePath}/students/cnic_images`);
-    const cnicImageWebpFileName = `cnic_front_${id}.jpeg`;
-    await compressImage(`${filesStoragePath}/students/cnic_images/${cnicImageFileName}`, `${filesStoragePath}/students/cnic_images/${cnicImageWebpFileName}`, 50);
-    const cnic_imagePath = `${filesStorageUrl}/files/students/cnic_images/${cnicImageWebpFileName}`
-
-    // Save CNIC back image to Firebase storage
-    const cnicBackImageFile = cnic_back_image;
-    const cnicBackImageFileExt = path.extname(cnicBackImageFile.name);
-    const cnicBackImageFileName = `cnic_back_${id}${cnicBackImageFileExt}`;
-    await uploadFile(cnicBackImageFile, cnicBackImageFileName, `${filesStoragePath}/students/cnic_images`);
-    const cnicBackImageWebpFileName = `cnic_back_${id}.jpeg`;
-    await compressImage(`${filesStoragePath}/students/cnic_images/${cnicBackImageFileName}`, `${filesStoragePath}/students/cnic_images/${cnicBackImageWebpFileName}`, 50);
-    const cnic_back_imagePath = `${filesStorageUrl}/files/students/cnic_images/${cnicBackImageWebpFileName}`
-
-
-    // Save Letest Degree image to Firebase storage
-    const latestDegreeImageFile = latest_degree_image;
-    const latestDegreeImageFileExt = path.extname(latestDegreeImageFile.name);
-    const latestDegreeImageFileName = `latest_degree_${id}${latestDegreeImageFileExt}`;
-    await uploadFile(latestDegreeImageFile, latestDegreeImageFileName, `${filesStoragePath}/students/latest_degree`);
-    const latestDegreeImageWebpFileName = `latest_degree_${id}.jpeg`;
-    await compressImage(`${filesStoragePath}/students/latest_degree/${latestDegreeImageFileName}`, `${filesStoragePath}/students/latest_degree/${latestDegreeImageWebpFileName}`, 50);
-    const latest_degree_imagePath = `${filesStorageUrl}/files/students/latest_degree/${latestDegreeImageWebpFileName}`
-
-    // Update the student record
-    await Student.findByIdAndUpdate(id, {
-      name,
-      email,
-      phone,
-      cnic,
-      admission_date: admission_date
-        ? normalizeAdmissionDate(admission_date)
-        : admission_date,
-      city,
-      province,
-      date_of_birth,
-      father_name,
-      father_phone,
-      latest_degree,
-      university,
-      completion_year,
-      marks_cgpa,
-      batch,
-      cnic_image: cnic_imagePath,
-      image: imagePath,
-      cnic_back_image: cnic_back_imagePath,
-      latest_degree_image: latest_degree_imagePath,
-      paid_fee,
-      pending_fee,
-      total_fee,
-    });
-
+    await Student.findByIdAndUpdate(id, updateData);
     res.status(200).json("Student updated successfully");
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+  } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
 const generateQrCode = async (studentId) => {
@@ -2142,6 +1967,7 @@ export const transferStudentBatch = async (req, res) => {
       return res.status(404).json({ message: "Student not found" });
     }
 
+    if (student.admission_request) return res.status(409).json({ message: 'An admission is processing for this student. Wait before shifting batches.' });
     if (String(student.batch || "") === String(batch)) {
       return res.status(400).json({
         message: "Student is already assigned to this batch",
@@ -2236,7 +2062,7 @@ export const transferStudentBatch = async (req, res) => {
             new_batch_fee: newFeeAmount,
           });
         }
-        // Discount = Original New Batch Fee − Previous Pending; Payable = Previous Pending
+        // Discount = Original New Batch Fee âˆ’ Previous Pending; Payable = Previous Pending
         newBatchDiscount = Math.max(newFeeAmount - pendingAmount, 0);
         newBatchPayable = Math.max(newFeeAmount - newBatchDiscount, 0);
         if (newBatchPayable !== pendingAmount || newBatchDiscount < 0) {
@@ -2287,6 +2113,20 @@ export const transferStudentBatch = async (req, res) => {
       }
     }
 
+    if (transferPendingDues) {
+      // This path records real discounts on both ledgers; shift permission alone is insufficient.
+      assertDiscountAccess(req.access, newFeeAmount, { batchId: String(batchRecord._id) });
+      const pendingFees = await accessContext.run(undefined, () => Fee.find({
+        student: id, status: "Pending", amount: { $gt: 0 },
+      }).select("batch amount").lean());
+      const amountsByBatch = new Map();
+      for (const fee of pendingFees) {
+        const key = String(fee.batch || previousBatchId || "");
+        amountsByBatch.set(key, (amountsByBatch.get(key) || 0) + Number(fee.amount));
+      }
+      for (const [batchId, amount] of amountsByBatch) assertDiscountAccess(req.access, amount, { batchId });
+    }
+
     const actionUserId = req.user?.user?.id;
     const actorUserId = getRequestUserId(req);
     let assignedFee = null;
@@ -2300,12 +2140,19 @@ export const transferStudentBatch = async (req, res) => {
       if (!lockedStudent) {
         throw new Error("Student not found");
       }
+      if (String(lockedStudent.batch || "") !== String(previousBatchId || "") ||
+          Number(lockedStudent.pending_fee || 0) !== pendingAmount || lockedStudent.admission_request) {
+        throw Object.assign(new Error("Student or pending balance changed. Refresh and try again."), { status: 409 });
+      }
+      if (assignNewFee && await Fee.findOne({ student: id, batch: batchRecord._id }).session(txnSession)) {
+        throw Object.assign(new Error("A destination fee already exists. Refresh and try again."), { status: 409 });
+      }
 
       if (transferPendingDues && pendingAmount > 0) {
         discountResult = await applyStudentPendingDiscount({
           studentId: lockedStudent._id,
           discountAmount: pendingAmount,
-          description: `${PENDING_DUES_TRANSFER_LABEL} — ${trimmedRemarks}`,
+          description: `${PENDING_DUES_TRANSFER_LABEL} â€” ${trimmedRemarks}`,
           actionUserId,
           session: txnSession,
         });
@@ -2344,7 +2191,7 @@ export const transferStudentBatch = async (req, res) => {
           payingNow: 0,
           discountAmount: transferPendingDues ? newBatchDiscount : 0,
           discountDescription: transferPendingDues
-            ? `New batch fee adjusted after ${PENDING_DUES_TRANSFER_LABEL} — ${trimmedRemarks}`
+            ? `New batch fee adjusted after ${PENDING_DUES_TRANSFER_LABEL} â€” ${trimmedRemarks}`
             : "Discount applied on batch shift",
           createdDescription: transferPendingDues
             ? `Fee assigned on pending-dues transfer to ${
@@ -2418,7 +2265,8 @@ export const transferStudentBatch = async (req, res) => {
       if (!transactionsUnsupported) {
         throw txnError;
       }
-      // Fallback for deployments without replica-set transactions.
+      // Never clear old debt without an atomic new ledger on standalone MongoDB.
+      if (transferPendingDues) throw Object.assign(new Error("Pending-dues transfer requires database transactions"), { status: 503 });
       await runTransfer(null);
     }
 
@@ -2483,9 +2331,9 @@ export const transferStudentBatch = async (req, res) => {
     ) {
       return res.status(400).json({ message });
     }
-    res.status(500).json({ message });
+    res.status([400, 403, 404, 409, 503].includes(error.status) ? error.status : 500).json({ message });
   } finally {
-    session.endSession();
+    await session.endSession();
   }
 };
 

@@ -1,0 +1,12 @@
+import { spawnSync } from 'node:child_process';
+const commands = [
+  ['scripts/buildAccessCatalog.mjs', '--check'], ['--test'],
+  ['scripts/verifyAccessHttp.mjs'], ['scripts/verifyAccessAdminHttp.mjs'], ['scripts/verifyApprovedAccess.mjs'], ['scripts/verifyCreation.mjs'], ['scripts/verifyCreationHttp.mjs'], ['scripts/verifyAccountWorkflows.mjs'], ['scripts/verifyConfigurableFinance.mjs'], ['scripts/verifyPaymentReversal.mjs'], ['scripts/verifyInterviewWorkflow.mjs'], ['scripts/verifyPendingDuesTransfer.mjs'], ['scripts/verifyPendingDuesTransfer.mjs', '--standalone'],
+];
+for (const command of commands) {
+  const result = spawnSync(process.execPath, command, { stdio: 'inherit', timeout: 600000, windowsHide: true });
+  if (result.error || result.status !== 0) {
+    console.error(result.error?.message || `Verification failed: ${command.join(' ')}`);
+    process.exit(result.status || 1);
+  }
+}

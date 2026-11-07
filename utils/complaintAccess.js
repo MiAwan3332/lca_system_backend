@@ -71,6 +71,7 @@ export const findUsersByComplaintTarget = async (targetRole) => {
 };
 
 export const canViewComplaint = async (req, complaint) => {
+  if (req.access?.enforced) return Boolean(complaint && req.access.routeAllowed);
   const userId = String(req.user?.user?.id || "");
   if (!complaint) return false;
   if (isFullAccessRole(req)) return true;
@@ -97,6 +98,7 @@ export const canViewComplaint = async (req, complaint) => {
 };
 
 export const buildComplaintListFilter = async (req, query = {}) => {
+  if (req.access?.enforced) return { filter: { ...(query.status ? { status: query.status } : {}) } };
   const { view = "mine", status, target_role } = query;
   const filter = {};
 

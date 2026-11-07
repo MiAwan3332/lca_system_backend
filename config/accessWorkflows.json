@@ -1,0 +1,438 @@
+[
+  {
+    "id": "student-admission",
+    "label": "Admit students and choose their batch",
+    "any": [
+      "students.add.student"
+    ],
+    "write": [
+      "name",
+      "phone",
+      "batch",
+      "reuse_existing",
+      "special_selected_options",
+      "admission_date"
+    ],
+    "read": [
+      "name",
+      "phone",
+      "batch_fee",
+      "special_fee_options"
+    ]
+  },
+  {
+    "id": "admission-collection",
+    "label": "Collect a payment during admission",
+    "all": [
+      "students.add.student"
+    ],
+    "any": [
+      "fees.pay.fee",
+      "fees.collect.pending.fee"
+    ],
+    "write": [
+      "paying_now",
+      "payment_method",
+      "next_installment_date",
+      "payment_evidence"
+    ],
+    "read": [
+      "batch_fee",
+      "pending_fee",
+      "paid_fee",
+      "total_fee"
+    ]
+  },
+  {
+    "id": "qualifier-admission-collection",
+    "label": "Collect a payment when adding a qualifier",
+    "all": [
+      "qualifiers.add.qualifier"
+    ],
+    "any": [
+      "fees.pay.fee",
+      "fees.collect.pending.fee"
+    ],
+    "write": [
+      "paying_now",
+      "payment_method",
+      "payment_evidence"
+    ],
+    "read": [
+      "batch_fee",
+      "pending_fee",
+      "paid_fee",
+      "total_fee"
+    ]
+  },
+  {
+    "id": "batch-transfer",
+    "label": "Transfer students, including special-batch fee options",
+    "any": [
+      "students.transfer.student.batch"
+    ],
+    "write": [
+      "batch",
+      "assign_new_fee",
+      "special_selected_options",
+      "transfer_pending_dues",
+      "remarks"
+    ],
+    "read": [
+      "batch_fee",
+      "special_fee_options",
+      "pending_fee"
+    ]
+  },
+  {
+    "id": "student-status",
+    "label": "Change student and batch-student status",
+    "any": [
+      "students.toggle.student.status",
+      "students.toggle.batch.students.status"
+    ],
+    "write": [
+      "is_active"
+    ]
+  },
+  {
+    "id": "student-import",
+    "label": "Import student rows into a batch",
+    "any": [
+      "students.bulk.import.students"
+    ],
+    "write": [
+      "batch",
+      "batch_id",
+      "students"
+    ],
+    "read": [
+      "name",
+      "batch_fee"
+    ]
+  },
+  {
+    "id": "batch-edit",
+    "label": "Create and edit complete batch details",
+    "any": [
+      "batches.add.batch",
+      "batches.update.batch"
+    ],
+    "write": [
+      "name",
+      "description",
+      "roll_nickname",
+      "batch_type",
+      "startdate",
+      "enddate",
+      "class_start_time",
+      "class_end_time",
+      "batch_fee",
+      "special_fee_options",
+      "is_paid_batch",
+      "is_special_batch",
+      "is_interview_batch"
+    ],
+    "read": [
+      "name",
+      "batch_fee",
+      "special_fee_options"
+    ]
+  },
+  {
+    "id": "batch-status",
+    "label": "Activate and deactivate batches",
+    "any": [
+      "batches.toggle.batch.status"
+    ],
+    "write": [
+      "is_active"
+    ]
+  },
+  {
+    "id": "batch-courses",
+    "label": "Assign courses to batches",
+    "any": [
+      "batches.assign.courses.to.batch"
+    ],
+    "write": [
+      "batchId",
+      "courseIds",
+      "courses"
+    ],
+    "read": [
+      "name"
+    ],
+    "permissions": [
+      "batches.get.batch.assignment.options"
+    ]
+  },
+  {
+    "id": "batch-teachers",
+    "label": "Assign teachers to batch courses",
+    "any": [
+      "batches.assign.teacher.courses.to.batch",
+      "batches.assign.teachers.to.batch"
+    ],
+    "write": [
+      "batchId",
+      "teacherIds",
+      "assignments"
+    ],
+    "read": [
+      "name"
+    ],
+    "permissions": [
+      "batches.get.batch.assignment.options"
+    ]
+  },
+  {
+    "id": "fee-picker",
+    "label": "Choose students and batches for fee collection",
+    "any": [
+      "fees.collect.pending.fee",
+      "students.get.or.create.pending.fee.slip"
+    ],
+    "write": [
+      "batch"
+    ],
+    "read": [
+      "name",
+      "pending_fee"
+    ]
+  },
+  {
+    "id": "fee-discounts",
+    "label": "Apply discounts on fees, admission and collection",
+    "any": [
+      "fees.discount.fee"
+    ],
+    "write": [
+      "amount",
+      "discount_amount",
+      "discount_description",
+      "description",
+      "remarks"
+    ],
+    "read": [
+      "amount",
+      "pending_fee",
+      "total_fee",
+      "discount_amount"
+    ]
+  },
+  {
+    "id": "expense-rejection",
+    "label": "Record expense rejection reasons",
+    "any": [
+      "expenses.reject.expense"
+    ],
+    "write": [
+      "rejection_reason"
+    ],
+    "read": [
+      "amount",
+      "status",
+      "rejection_reason"
+    ]
+  },
+  {
+    "id": "refund-decisions",
+    "label": "Approve and reject refund requests",
+    "any": [
+      "refund-requests.approve.refund.request",
+      "refund-requests.reject.refund.request"
+    ],
+    "write": [
+      "comment"
+    ],
+    "read": [
+      "amount",
+      "requested_amount",
+      "status"
+    ]
+  },
+  {
+    "id": "refund-approval-amount",
+    "label": "Confirm the approved refund amount",
+    "any": [
+      "refund-requests.approve.refund.request"
+    ],
+    "write": [
+      "amount"
+    ]
+  },
+  {
+    "id": "panelist-account",
+    "label": "Create or link panelist login access",
+    "any": [
+      "panelists.add.panelist"
+    ],
+    "permissions": [
+      "panelists.lookup.panelist.identity"
+    ],
+    "write": [
+      "name",
+      "phone",
+      "email",
+      "description",
+      "is_active",
+      "photo"
+    ],
+    "read": [
+      "name",
+      "phone",
+      "email",
+      "description"
+    ]
+  },
+  {
+    "id": "panelist-status",
+    "label": "Activate/deactivate panelist access",
+    "any": [
+      "panelists.toggle.panelist.status"
+    ],
+    "write": [
+      "is_active"
+    ]
+  },
+  {
+    "id": "panel-members",
+    "label": "Create and manage Solo/Team panels",
+    "any": [
+      "interview-panels.add.interview.panel",
+      "interview-panels.update.interview.panel"
+    ],
+    "permissions": [
+      "panelists.get.panelists"
+    ],
+    "write": [
+      "title",
+      "description",
+      "panel_type",
+      "members",
+      "status",
+      "expected_revision"
+    ],
+    "read": [
+      "name",
+      "description",
+      "panel_type",
+      "members"
+    ]
+  },
+  {
+    "id": "interview-schedules",
+    "label": "Create interview slots",
+    "any": [
+      "interview-panels.add.interview.schedules"
+    ],
+    "permissions": [
+      "interview-panels.get.interview.panels",
+      "interview-panels.get.interview.panel"
+    ],
+    "write": [
+      "schedules",
+      "expected_revision"
+    ],
+    "read": [
+      "title",
+      "members",
+      "schedules",
+      "panel_type"
+    ]
+  },
+  {
+    "id": "interview-reschedule",
+    "label": "Reschedule available or unstarted interviews",
+    "any": [
+      "interview-panels.update.interview.schedules"
+    ],
+    "permissions": [
+      "interview-panels.get.interview.panel"
+    ],
+    "write": [
+      "schedules",
+      "expected_revision"
+    ],
+    "read": [
+      "title",
+      "members",
+      "schedules",
+      "panel_type"
+    ]
+  },
+  {
+    "id": "interview-cancel",
+    "label": "Cancel an interview slot with a reason",
+    "any": [
+      "interview-panels.cancel.interview.schedule"
+    ],
+    "write": [
+      "cancellation_reason",
+      "expected_revision"
+    ],
+    "read": [
+      "schedules",
+      "title"
+    ]
+  },
+  {
+    "id": "interview-booking",
+    "label": "Book a candidate into an interview slot",
+    "any": [
+      "interview-panels.book.interview.slot"
+    ],
+    "write": [
+      "schedule_id",
+      "schedule_index",
+      "booked_for",
+      "booked_phone",
+      "booked_notes",
+      "qualifier_id",
+      "forSelf",
+      "date",
+      "start_time"
+    ],
+    "read": [
+      "schedules",
+      "title",
+      "name",
+      "phone"
+    ]
+  },
+  {
+    "id": "interview-evaluation",
+    "label": "Conduct and submit own interview evaluation",
+    "any": [
+      "interview-panels.start.interview",
+      "interview-panels.submit.interview.evaluation"
+    ],
+    "write": [
+      "schedule_id",
+      "schedule_index",
+      "knowledge",
+      "analytical_ability",
+      "communication",
+      "confidence",
+      "personality",
+      "body_language",
+      "current_affairs",
+      "ethics_decision",
+      "key_strength",
+      "major_weakness",
+      "improvement_since_last_mock",
+      "verdict",
+      "final_remarks"
+    ],
+    "read": [
+      "schedules",
+      "members",
+      "name",
+      "education_background",
+      "evaluation",
+      "verdict",
+      "final_remarks"
+    ]
+  }
+]

@@ -30,11 +30,19 @@ import {
   fillNullStudentField,
 } from '../controllers/students.js';
 import auth from '../middlewares/auth.js';
+import { lookupStudentIdentity } from '../utils/studentIdentity.js';
+import { editPaymentEvidence, listEvidencePayments } from '../utils/paymentEvidenceEdit.js';
+import { latestFeeReceipt } from '../utils/feeReceiptRead.js';
+import { claimCreation, getCreationByKey, getCreationStatus, retryCreation } from '../utils/creationService.js';
 
 const router = express.Router();
 
 //make routes with auth middle ware
 router.get('/',auth,getStudents)
+router.post('/identity/lookup', auth, lookupStudentIdentity);
+router.post('/:id/payment-evidence/:logId', auth, editPaymentEvidence);
+router.get('/:id/evidence-payments', auth, listEvidencePayments);
+router.get('/:id/last-payment-receipt', auth, latestFeeReceipt);
 router.get('/deletion-archives', auth, getDeletedStudents);
 router.get('/deletion-archives/:id', auth, getDeletedStudentArchive);
 router.get('/batch-shifts', auth, getBatchShifts);
@@ -50,8 +58,11 @@ router.post('/ensure-roll/:id', auth, ensureStudentRollNumber);
 router.post('/transfer-batch/:id', auth, transferStudentBatch);
 router.get('/pending-fee-slip/:id', auth, getPendingFeeSlip);
 router.post('/pending-fee-slip/:id', auth, getOrCreatePendingFeeSlip);
+router.get('/by-key/:key', auth, getCreationByKey('student'));
+router.get('/:id/processing', auth, getCreationStatus('student'));
+router.post('/:id/processing/retry', auth, retryCreation('student'));
 router.get('/:id',auth,getStudent)
-router.post('/add',auth,addStudent);
+router.post('/add',auth,claimCreation('student'),addStudent);
 router.post('/update/:id',auth,updateStudent);
 router.delete('/delete/:id',auth,deleteStudent);
 router.get('/qrcode/:id',auth,getQrCode);

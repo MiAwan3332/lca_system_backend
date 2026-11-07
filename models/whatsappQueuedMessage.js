@@ -11,6 +11,7 @@ import mongoosePaginate from "mongoose-paginate-v2";
  */
 const whatsappQueuedMessageSchema = mongoose.Schema(
   {
+    managed_by: { type: String, enum: ['queue', 'creation'], default: 'queue' },
     recipient_name: {
       type: String,
       default: "",

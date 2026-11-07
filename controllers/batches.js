@@ -15,6 +15,27 @@ import {
 import { parseBatchSpecialFees } from "../utils/specialFeeOptions.js";
 import { deleteBatchCascade } from "../utils/deleteBatchCascade.js";
 import BatchDeletionArchive from "../models/batchDeletionArchives.js";
+import Teacher from '../models/teachers.js';
+import Course from '../models/courses.js';
+import { evaluateAccess } from '../utils/accessPolicy.js';
+
+// Assignment pickers need names, never the teacher's contact details, salary or login.
+export const getBatchAssignmentOptions = async (req, res) => {
+  try {
+    if (denyUnlessInstitutionAdmin(req, res)) return;
+    if (req.access?.enforced && !req.access.owner && !req.access.grants.some(g =>
+      ['batches.assign.courses.to.batch', 'batches.assign.teachers.to.batch', 'batches.assign.teacher.courses.to.batch'].includes(g.permission) &&
+      evaluateAccess(req.access, g.permission, { batchId: req.params.id }).allowed)) {
+      return res.status(403).json({ message: 'Batch assignment permission is required' });
+    }
+    const batch = await Batch.findById(req.params.id).select('_id');
+    if (!batch) return res.status(404).json({ message: 'Batch not found or outside your access' });
+    // The destination batch was scoped above; available institution-wide choices are names only.
+    const [teachers, courses] = await Promise.all([Teacher.collection.find({}, { projection: { _id: 1, name: 1 } }).sort({ name: 1 }).limit(1000).toArray(),
+      Course.collection.find({}, { projection: { _id: 1, name: 1 } }).sort({ name: 1 }).limit(1000).toArray()]);
+    return res.json({ teachers, courses });
+  } catch (error) { return res.status(500).json({ message: error.message }); }
+};
 
 const getBatchEnrolledStudentCount = async (batchId) =>
   Student.countDocuments({ batch: batchId });
@@ -310,7 +331,7 @@ export const updateBatch = async (req, res) => {
     }
 
     const parsedFees = parseBatchSpecialFees(
-      req.body,
+      { ...existingBatch.toObject(), ...req.body },
       isSpecialBatch,
       isPaidBatch
     );
@@ -387,6 +408,15 @@ export const updateBatch = async (req, res) => {
       is_paid_batch: isPaidBatch,
       special_fee_options: parsedFees.fees,
     };
+    // A partial edit must not rewrite unrelated fields from a stale form snapshot.
+    const dependencies = {
+      special_fee_options: ['special_fee_options', 'is_special_batch', 'is_paid_batch'],
+      batch_fee: ['batch_fee', 'is_special_batch', 'is_paid_batch'],
+      class_start_time: ['class_start_time'], class_end_time: ['class_end_time'],
+    };
+    for (const key of Object.keys(updatePayload)) {
+      if (!(dependencies[key] || [key]).some((input) => Object.hasOwn(req.body, input))) delete updatePayload[key];
+    }
     let studentsDeactivated = 0;
     if (is_active !== undefined) {
       const nextActive = is_active === true || is_active === "true";

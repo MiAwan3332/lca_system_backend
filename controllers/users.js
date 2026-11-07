@@ -1,4 +1,9 @@
 import User from "../models/users.js";
+import { repairDefaultAccess, chosenAccessPlan } from '../utils/defaultAccess.js';
+import AccessAudit from '../models/accessAudit.js';
+import CreationRequest from '../models/creationRequests.js';
+import { DEFAULT_STAFF_PASSWORD } from '../utils/creationDefaults.js';
+import { prepareCreation, commitCreation, creationResponse, tombstoneCreation } from '../utils/creationService.js';
 import Student from "../models/students.js";
 import Teacher from "../models/teachers.js";
 import Qualifier from "../models/qualifiers.js";
@@ -21,11 +26,28 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const DEFAULT_AVATAR =
   "https://images.unsplash.com/photo-1619946794135-5bc917a27793?ixlib=rb-0.3.5&q=80&fm=jpg&crop=faces&fit=crop&h=200&w=200&s=b616b2c5b373a80ffc9636ba24f7a4a9";
 import Role from "../models/roles.js";
+import AccessAssignment from '../models/accessAssignment.js';
+import { withAccessRoleNames } from '../utils/accessRoleNames.js';
 import Permission from "../models/permissions.js";
+import { resolveLegacyLoginRole, loginRoleIdentity } from '../utils/legacyLoginRole.js';
+import { loadAccessContext, accessMode } from '../utils/accessRuntime.js';
+import { redactAccessFields } from '../utils/accessCatalog.js';
+import { legacyAccountType } from '../utils/accessPolicy.js';
+import { getPagination } from '../utils/pagination.js';
+
+async function resolveLoginRole(user) {
+  if (user.platformOwner) return { name: user.role || 'Platform Owner', permissions: [] };
+  if (!user.accessManaged) return loginRoleIdentity(user, await resolveLegacyLoginRole(user.role));
+  const roles = await AccessAssignment.distinct('role', { user: user._id, revokedAt: null,
+    $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] });
+  return loginRoleIdentity(user, await Role.findOne({ _id: { $in: roles }, managed: true, active: true }));
+}
 import { compressImage, uploadFile } from "../utils/fileStorage.js";
 import { JWT_EXPIRES_IN, JWT_COOKIE_MAX_AGE_MS } from "../utils/jwtConfig.js";
 import { logLoginActivity } from "../utils/activityLogger.js";
 import { sendUserWelcomeWhatsApp, resolveWhatsAppSenderFromReq } from "../utils/whatsappMessaging.js";
+
+const STAFF_CATEGORY = 'Staff';
 
 const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
 
@@ -132,6 +154,7 @@ const findPanelistByPhone = async (rawPhone) => {
 /** Ensure Role document exists for qualifier logins. */
 const ensureQualifierRole = async () => {
   let role = await Role.findOne({
+    managed: { $ne: true },
     name: { $regex: /^qualifier$/i },
   });
   if (!role) {
@@ -147,6 +170,7 @@ const ensureQualifierRole = async () => {
 /** Ensure Role document exists for panelist logins. */
 const ensurePanelistRole = async () => {
   let role = await Role.findOne({
+    managed: { $ne: true },
     name: { $regex: /^panelist$/i },
   });
   if (!role) {
@@ -271,42 +295,10 @@ const resolveLoginUser = async ({ email, phone, identifier }) => {
         error: "Invalid credentials",
       };
     }
-    if (panelistFromPhone.is_active === false) {
-      return {
-        user: null,
-        studentFromPhone: null,
-        qualifierFromPhone: null,
-        panelistFromPhone,
-        error: "Your panelist account is inactive. Please contact the academy.",
-        status: 403,
-      };
-    }
-
-    await ensurePanelistRole();
-
-    const user =
-      (await User.findOne({
-        email: panelistFromPhone.email,
-        role: { $regex: /^panelist$/i },
-      })) ||
-      (await User.findOne({
-        phone: panelistFromPhone.phone,
-        role: { $regex: /^panelist$/i },
-      })) ||
-      (await User.findOne({ email: panelistFromPhone.email }));
-
-    if (!user || String(user.role).toLowerCase() !== "panelist") {
-      return {
-        user: null,
-        studentFromPhone: null,
-        qualifierFromPhone: null,
-        panelistFromPhone,
-        error:
-          "Panelist login account not found. Ask admin to set a password first.",
-        status: 403,
-      };
-    }
-
+    const user = panelistFromPhone.user ? await User.findById(panelistFromPhone.user) :
+      (await User.findOne({email:panelistFromPhone.email})) || (await User.findOne({phone:panelistFromPhone.phone}));
+    if(!user)return {user:null,studentFromPhone:null,qualifierFromPhone:null,panelistFromPhone,error:'Panelist login is not set up. Ask an administrator to complete login setup.',status:403};
+    if(panelistFromPhone.is_active===false && (user.accountType==='panelist'||String(user.role).toLowerCase()==='panelist'))return {user:null,studentFromPhone:null,qualifierFromPhone:null,panelistFromPhone,error:'Panelist access is inactive. Contact the academy.',status:403};
     return {
       user,
       studentFromPhone: null,
@@ -330,7 +322,7 @@ const resolveLoginUser = async ({ email, phone, identifier }) => {
   if (user && String(user.role).toLowerCase() === "qualifier") {
     await ensureQualifierRole();
   }
-  if (user && String(user.role).toLowerCase() === "panelist") {
+  if (user && !user.accessManaged && String(user.role).toLowerCase() === "panelist") {
     await ensurePanelistRole();
   }
   return {
@@ -343,28 +335,7 @@ const resolveLoginUser = async ({ email, phone, identifier }) => {
 };
 
 export const register = async (req, res) => {
-  const { name, email, password, role } = req.body;
-  try {
-    const user = await User.findOne({ email });
-    if (user) {
-      return res.status(400).json({ message: "User already exists" });
-    }
-    const hashedPassword = await bcrypt.hash(password, 12);
-    const newUser = new User({
-      name,
-      email,
-      password: hashedPassword,
-      role,
-      avatar: DEFAULT_AVATAR,
-    });
-    await newUser.save();
-    const data = { user: { id: newUser._id } };
-    const authToken = jwt.sign(data, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
-
-    res.status(200).json({ authToken });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+  return res.status(403).json({ message: 'Public registration is disabled. Ask an authorized administrator to create an account.' });
 };
 
 const resolveTeacherLoginContext = async (user) => {
@@ -403,6 +374,7 @@ export const login = async (req, res) => {
     if (!user) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
+    if (user.creation_pending) return res.status(503).json({ message: 'Account creation is still processing. Please try again shortly.' });
 
     // Check if the password is correct
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
@@ -410,17 +382,19 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
+    await repairDefaultAccess(user);
     // Fetch the role associated with the user
-    let role = await Role.findOne({ name: user.role });
-    if (!role && String(user.role).toLowerCase() === "qualifier") {
+    if (user.disabledAt) return res.status(403).json({ message: 'Account is disabled' });
+    let role = await resolveLoginRole(user);
+    if (!role && !user.accessManaged && String(user.role).toLowerCase() === "qualifier") {
       role = await ensureQualifierRole();
     }
-    if (!role && String(user.role).toLowerCase() === "panelist") {
+    if (!role && !user.accessManaged && String(user.role).toLowerCase() === "panelist") {
       role = await ensurePanelistRole();
     }
 
     if (!role) {
-      return res.status(500).json({ message: "Role not found" });
+      return res.status(403).json({ message: "No active role is assigned. Contact an access administrator." });
     }
 
     // Fetch the permissions associated with the role
@@ -535,6 +509,13 @@ export const login = async (req, res) => {
       maxAge: JWT_COOKIE_MAX_AGE_MS,
     });
 
+    if (user.accessManaged || accessMode() === 'enforce') {
+      const context = await loadAccessContext(user);
+      studentData = redactAccessFields(studentData, context);
+      teacherData = redactAccessFields(teacherData, context);
+      qualifierData = redactAccessFields(qualifierData, context);
+      panelistData = redactAccessFields(panelistData, context);
+    }
     res.status(200).json({
       authToken,
       permissions: permissions.map((permission) => permission.name),
@@ -578,6 +559,7 @@ export const adminlogin = async (req, res) => {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
+    if (user.creation_pending) return res.status(503).json({ message: 'Account creation is still processing. Please try again shortly.' });
     // Check if the password is correct
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
     if (!isPasswordCorrect) {
@@ -585,10 +567,12 @@ export const adminlogin = async (req, res) => {
     }
 
     // Fetch the role associated with the user
-    const role = await Role.findOne({ name: user.role });
+    await repairDefaultAccess(user);
+    if (user.disabledAt) return res.status(403).json({ message: 'Account is disabled' });
+    const role = await resolveLoginRole(user);
 
     if (!role) {
-      return res.status(500).json({ message: "Role not found" });
+      return res.status(403).json({ message: "No active role is assigned. Contact an access administrator." });
     }
 
     // Fetch the permissions associated with the role
@@ -634,6 +618,7 @@ export const adminlogin = async (req, res) => {
       maxAge: JWT_COOKIE_MAX_AGE_MS,
     });
 
+    if (user.accessManaged || accessMode() === 'enforce') teacherData = redactAccessFields(teacherData, await loadAccessContext(user));
     res.status(200).json({
       authToken,
       permissions: permissions.map((permission) => permission.name),
@@ -647,17 +632,29 @@ export const adminlogin = async (req, res) => {
   }
 };
 
+export const getFeeCollectors = async (req, res) => {
+  if (!req.access?.owner && req.access?.accountType !== 'staff') return res.status(403).json({ message: 'Staff finance access is required' });
+  try {
+    const { page, limit } = getPagination({ page: req.query.page, limit: req.query.limit });
+    const filter = { accountType: 'staff', creation_pending: { $ne: true } };
+    const query = String(req.query.query || '').trim().slice(0, 100);
+    if (query) filter.name = { $regex: query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+    const collectors = await User.paginate(filter, { page, limit, select: '_id name platformOwner', sort: { name: 1, _id: 1 }, lean: true, leanWithId: false });
+    return res.json({ ...collectors, docs: (await withAccessRoleNames(collectors.docs)).map(({ platformOwner, ...user }) => user) });
+  } catch { return res.status(500).json({ message: 'Unable to load fee collectors' }); }
+};
+
 export const getUsers = async (req, res) => {
   const { query } = req.query;
   try {
     if (isStudentRole(req)) {
       const userId = req.user?.user?.id;
-      const user = await User.findById(userId);
+      const user = await User.findById(userId).select('-password');
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
       return res.status(200).json({
-        docs: [user],
+        docs: await withAccessRoleNames([user]),
         totalDocs: 1,
         limit: 1,
         totalPages: 1,
@@ -672,12 +669,12 @@ export const getUsers = async (req, res) => {
 
     if (isTeacherRole(req)) {
       const userId = req.user?.user?.id;
-      const user = await User.findById(userId);
+      const user = await User.findById(userId).select('-password');
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
       return res.status(200).json({
-        docs: [user],
+        docs: await withAccessRoleNames([user]),
         totalDocs: 1,
         limit: 1,
         totalPages: 1,
@@ -710,6 +707,7 @@ export const getUsers = async (req, res) => {
 
     const users = await User.paginate(
       {
+        creation_pending: { $ne: true },
         $and: [
           {
             $or: [
@@ -730,9 +728,10 @@ export const getUsers = async (req, res) => {
       {
         page: parseInt(req.query.page),
         limit: parseInt(req.query.limit),
+        select: '-password',
       }
     );
-    res.status(200).json(users);
+    res.status(200).json({ ...users, docs: await withAccessRoleNames(users.docs) });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -744,11 +743,13 @@ export const addUser = async (req, res) => {
     const trimmedName = String(name || "").trim();
     const trimmedEmail = String(email || "").trim().toLowerCase();
     const trimmedPhone = String(phone || "").trim();
-    const trimmedRole = String(role || "").trim();
+    // The old job title is no longer asked for; what a person does comes from their access role.
+    // Staff accounts keep "Staff" as their account category.
+    const trimmedRole = String(role || "").trim() || STAFF_CATEGORY;
 
-    if (!trimmedName || !trimmedEmail || !trimmedRole) {
+    if (!trimmedName || !trimmedEmail) {
       return res.status(400).json({
-        message: "Name, email, and role are required",
+        message: "Name and email are required",
       });
     }
     if (!trimmedPhone) {
@@ -757,11 +758,15 @@ export const addUser = async (req, res) => {
       });
     }
 
+    const selectedRole = trimmedRole === STAFF_CATEGORY || await Role.findOne({ name: trimmedRole, managed: { $ne: true } });
+    if (!selectedRole || selectedRole.managed) return res.status(400).json({ message: 'Choose an existing account category; assign managed access roles in Access Management after creation' });
+    if (/secrate|super.?admin/i.test(trimmedRole) && !req.access?.owner) return res.status(403).json({ message: 'Protected administrator category' });
+
     const user = await User.findOne({ email: trimmedEmail });
     if (user) {
       return res.status(400).json({ message: "User already exists" });
     }
-    const randomPassword = "lcaadmin@123456";
+    const randomPassword = DEFAULT_STAFF_PASSWORD;
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(randomPassword, saltRounds);
     const newUser = new User({
@@ -772,34 +777,25 @@ export const addUser = async (req, res) => {
       role: trimmedRole,
       avatar: DEFAULT_AVATAR,
     });
-    await newUser.save();
-
-    const userPayload =
-      typeof newUser.toObject === "function" ? newUser.toObject() : newUser;
-
-    let whatsappWelcome = { sent: false, skipped: true };
-    try {
-      whatsappWelcome = await sendUserWelcomeWhatsApp({
-        user: userPayload,
-        password: randomPassword,
-        ...(await resolveWhatsAppSenderFromReq(req)),
-      });
-      if (!whatsappWelcome?.sent) {
-        console.error("WhatsApp welcome not sent after user add:", whatsappWelcome);
-      }
-    } catch (whatsappError) {
-      console.error("WhatsApp welcome failed after user add:", whatsappError);
-      whatsappWelcome = {
-        sent: false,
-        error: whatsappError?.message || "WhatsApp welcome failed",
-      };
+    const { _id, ...userPlan } = newUser.toObject();
+    let access = null;
+    if (req.body.accessRoleId) {
+      try { access = await chosenAccessPlan(req.access, userPlan, { roleId: String(req.body.accessRoleId), batchIds: req.body.accessBatchIds || [], courseIds: req.body.accessCourseIds || [] }); }
+      catch (error) { return res.status(error.status || 400).json({ message: error.message }); }
+      await new AccessAudit({ actor: req.access.userId, action: 'assignment.create.intent', target: `onboarding:${req.creationRequest.recordId}`, requestId: req.requestId,
+        after: { user: req.creationRequest.recordId, role: access.role, batchIds: access.batchIds, courseIds: access.courseIds },
+        reason: 'Access role chosen when the account was created' }).save({ writeConcern: { w: 1, j: true } });
     }
-
-    res.status(200).json({
-      message: "User added successfully",
-      whatsapp_welcome: whatsappWelcome,
-    });
+    const prepared = await prepareCreation(req.creationRequest, { user: userPlan, access });
+    await commitCreation(prepared);
+    res.status(201).json(await creationResponse(prepared));
   } catch (error) {
+    const durable = req.creationRequest && await CreationRequest.findById(req.creationRequest._id).catch(() => null);
+    if (!durable) return res.status(202).json({ idempotency_key: req.creationRequest?.key, submission_status: 'unknown', processing_status: 'pending' });
+    if (durable?.state === 'committing' || durable?.state === 'complete') {
+      const payload = await creationResponse(durable).catch(() => ({ idempotency_key: durable.key, submission_status: 'unknown', processing_status: 'pending' }));
+      return res.status(202).json(payload);
+    }
     res.status(500).json({ message: error.message });
   }
 };
@@ -813,9 +809,14 @@ export const updateUser = async (req, res) => {
       return res.status(400).json({ message: "User does not exist" });
     }
 
+    if (user.platformOwner || /secrate|super.?admin/i.test(user.role || '')) return res.status(403).json({ message: 'Protected owner accounts must be maintained through the offline recovery procedure' });
+    if (req.access?.enforced && !req.access.owner && (user.accountType || legacyAccountType(user.role)) !== 'staff' && String(user._id) !== req.access.userId)
+      return res.status(403).json({ message: 'Use the dedicated student/teacher/qualifier profile workflow for linked accounts' });
+    if (password) return res.status(403).json({ message: 'Use the dedicated password-change procedure' });
+
     if (name !== undefined) user.name = String(name || "").trim();
     if (email !== undefined) user.email = String(email || "").trim().toLowerCase();
-    if (role !== undefined) user.role = String(role || "").trim();
+    if (role !== undefined && String(role).trim() !== user.role) return res.status(403).json({ message: 'Use Access Management to change role assignments' });
     if (phone !== undefined) {
       const trimmedPhone = String(phone || "").trim();
       if (!trimmedPhone) {
@@ -835,6 +836,36 @@ export const updateUser = async (req, res) => {
   }
 };
 
+export const MIN_PASSWORD_LENGTH = 8;
+
+// Access a person holds beyond their own records; someone setting their password must hold all of it themselves,
+// so this permission can never be used to sign in as a more powerful account.
+const widerAccess = (target, actor) => actor.owner ? [] : target.owner ? ['Owner access']
+  : [...new Set(target.grants.filter((grant) => grant.scope !== 'own').map((grant) => grant.permission))]
+    .filter((permission) => !actor.grants.some((held) => held.permission === permission));
+
+export const setUserPassword = async (req, res) => {
+  const { newPassword } = req.body;
+  try {
+    const password = String(newPassword || '');
+    if (password.trim().length < MIN_PASSWORD_LENGTH) return res.status(400).json({ message: `The new password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+    const user = await User.findById(req.params.id);
+    if (!user || user.creation_pending) return res.status(404).json({ message: 'User not found' });
+    if (user.platformOwner || /secrate|super.?admin/i.test(user.role || '')) return res.status(403).json({ message: 'Protected owner accounts must be maintained through the offline recovery procedure' });
+    if (req.access?.enforced) {
+      const missing = widerAccess(await loadAccessContext(user, { repair: false }), req.access);
+      if (missing.length) return res.status(403).json({ message: `${user.name} has access you do not hold, so only the Owner or someone with that access can set their password` });
+    }
+    user.password = await bcrypt.hash(password, 10);
+    await user.save();
+    await AccessAudit.create({ actor: req.access?.userId || req.user?.user?.id, action: 'users.set.user.password', target: `user:${user._id}`, requestId: req.requestId,
+      reason: String(user._id) === String(req.user?.user?.id) ? 'Set their own password' : `Password set for ${user.name}` });
+    res.status(200).json({ message: `Password updated for ${user.name}` });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 export const deleteUser = async (req, res) => {
   const { id } = req.params;
   try {
@@ -842,7 +873,14 @@ export const deleteUser = async (req, res) => {
     if (!user) {
       return res.status(400).json({ message: "User does not exist" });
     }
+    if (user.platformOwner || /secrate|super.?admin/i.test(user.role || '')) return res.status(403).json({ message: 'Protected platform administrator cannot be deleted through this endpoint' });
+    if (req.access?.enforced && !req.access.owner && (user.accountType || legacyAccountType(user.role)) !== 'staff')
+      return res.status(403).json({ message: 'Linked learning accounts cannot be deleted through staff management' });
+    if (user.creation_pending) return res.status(409).json({ message: 'Account creation must finish before deletion. Inspect its processing status.' });
+    const creation = user.creation_request ? await CreationRequest.findById(user.creation_request).select('state') : null;
+    if (creation && !['complete', 'deleted'].includes(creation.state)) return res.status(409).json({ message: 'Creation recovery must finish before account deletion.' });
     await User.findByIdAndDelete(id);
+    await tombstoneCreation('user', id);
     res.status(200).json("User deleted successfully");
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -856,11 +894,11 @@ export const getUser = async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    const user = await User.findById(id);
+    const user = await User.findById(id).select('-password');
     if (!user) {
       return res.status(400).json({ message: "User does not exist" });
     }
-    res.status(200).json(user);
+    res.status(200).json((await withAccessRoleNames([user]))[0]);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

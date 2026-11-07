@@ -30,6 +30,12 @@ const admissionSlipVerificationSchema = mongoose.Schema(
       ref: "User",
       default: null,
     },
+    // Links a fee slip to its payment so a payment reversal can cancel it.
+    student: { type: mongoose.Schema.Types.ObjectId, ref: "Student", default: null, index: true },
+    payment_log: { type: mongoose.Schema.Types.ObjectId, ref: "FeeLog", default: null },
+    payment_id: { type: String, default: null, index: true },
+    cancelled_at: { type: Date, default: null },
+    cancelled_reason: { type: String, default: "" },
   },
   { timestamps: true }
 );

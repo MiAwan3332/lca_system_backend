@@ -10,8 +10,51 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
+import { retryUpload } from './uploadRetry.js';
+import { creationAudit } from './creationAudit.js';
+import { serveCachedImage, invalidatePublicImage } from './publicImageCache.js';
 
 let s3Client = null;
+let creationS3Client = null;
+
+export async function uploadCreationAsset(asset, recordId) {
+  const storageRoot = path.resolve(process.env.FILES_STORAGE_PATH || 'public');
+  const token = path.basename(asset.stagedPath, asset.ext);
+  const image = asset.ext !== '.pdf';
+  const relative = asset.type === 'avatar' ? `students/avatars/avatar_${recordId}_${token}.jpeg`
+    : `students/payment-evidence/${recordId}/${token}${image ? '.jpeg' : '.pdf'}`;
+  const output = path.join(storageRoot, relative);
+  await fs.promises.mkdir(path.dirname(output), { recursive: true });
+  if (image) {
+    await sharp(asset.stagedPath, { limitInputPixels: 40000000 }).rotate().jpeg({ quality: 65 }).toFile(output);
+  } else {
+    const file = await fs.promises.open(asset.stagedPath, 'r');
+    try {
+      const header = Buffer.alloc(5);
+      await file.read(header, 0, 5, 0);
+      if (header.toString() !== '%PDF-') throw new Error('Invalid PDF attachment');
+    } finally { await file.close(); }
+    await fs.promises.copyFile(asset.stagedPath, output);
+  }
+  if (isS3Enabled()) {
+    creationS3Client ||= new S3Client({
+      region: process.env.S3_REGION || 'eu2', endpoint: process.env.S3_ENDPOINT, forcePathStyle: true,
+      requestChecksumCalculation: 'WHEN_REQUIRED', maxAttempts: 1,
+      requestHandler: new NodeHttpHandler({ connectionTimeout: 5000, socketTimeout: 15000 }),
+      credentials: { accessKeyId: process.env.S3_ACCESS_KEY_ID, secretAccessKey: process.env.S3_SECRET_ACCESS_KEY },
+    });
+    const body = fs.createReadStream(output);
+    const started = Date.now();
+    try {
+      await creationS3Client.send(new PutObjectCommand({ Bucket: process.env.S3_BUCKET, Key: toObjectKey(output), Body: body,
+        ContentLength: (await fs.promises.stat(output)).size, ContentType: image ? 'image/jpeg' : 'application/pdf',
+        ACL: process.env.S3_OBJECT_ACL || 'public-read' }), { abortSignal: AbortSignal.timeout(15000) });
+      creationAudit('creation_storage_upload', { durationMs: Date.now() - started, outcome: 'complete' });
+    } finally { body.destroy(); await fs.promises.unlink(output).catch(() => {}); }
+  }
+  const base = String(process.env.FILES_STORAGE_URL || '/public').replace(/\/$/, '');
+  return `${base}/${process.env.S3_KEY_PREFIX || 'files'}/${relative}`;
+}
 
 const isS3Enabled = () => Boolean(
   process.env.S3_ENDPOINT &&
@@ -30,6 +73,7 @@ const getS3Client = () => {
       region: process.env.S3_REGION || 'eu2',
       endpoint: process.env.S3_ENDPOINT,
       forcePathStyle: true,
+      requestChecksumCalculation: 'WHEN_REQUIRED',
       maxAttempts: 3,
       requestHandler: new NodeHttpHandler({
         connectionTimeout: Number(process.env.S3_CONNECTION_TIMEOUT_MS) || 5000,
@@ -87,15 +131,39 @@ const uploadObject = async (filePath) => {
 
   const contentType = mime.lookup(filePath) || 'application/octet-stream';
 
-  await client.send(
-    new PutObjectCommand({
-      Bucket: process.env.S3_BUCKET,
-      Key: toObjectKey(filePath),
-      Body: fs.createReadStream(filePath),
-      ContentType: contentType,
-      ACL: process.env.S3_OBJECT_ACL || 'public-read',
-    })
-  );
+  const size = (await fs.promises.stat(filePath)).size;
+  const key = toObjectKey(filePath);
+  await invalidatePublicImage(key);
+  // A consumed file stream cannot be replayed by the SDK; reopen it for each attempt.
+  await retryUpload({
+    attempts: Number(process.env.S3_UPLOAD_MAX_ATTEMPTS) || 3,
+    deadlineMs: Number(process.env.S3_UPLOAD_DEADLINE_MS) || 60000,
+    attemptTimeoutMs: Number(process.env.S3_UPLOAD_ATTEMPT_TIMEOUT_MS) || 15000,
+    run: async ({ signal }) => {
+      const body = fs.createReadStream(filePath);
+      try {
+        return await client.send(new PutObjectCommand({
+          Bucket: process.env.S3_BUCKET,
+          Key: key,
+          Body: body,
+          ContentLength: size,
+          ContentType: contentType,
+          ACL: process.env.S3_OBJECT_ACL || 'public-read',
+        }), { abortSignal: signal });
+      } finally {
+        body.destroy();
+      }
+    },
+    onAttempt: ({ attempt, durationMs, error, result }) => {
+      const metadata = (error || result)?.$metadata;
+      console.log(JSON.stringify({
+        event: 's3_upload', level: error ? 'error' : 'info',
+        endpoint: process.env.S3_ENDPOINT, key, bytes: size, attempt, durationMs,
+        status: metadata?.httpStatusCode, storageRequestId: metadata?.requestId,
+        errorName: error?.name, errorCode: error?.code, message: error?.message,
+      }));
+    },
+  });
 };
 
 export const serveStoredPublicFile = async (req, res, next) => {
@@ -107,11 +175,14 @@ export const serveStoredPublicFile = async (req, res, next) => {
 
   try {
     const key = toPublicObjectKey(req.path);
+    if (await serveCachedImage(key, (signal) => client.send(new GetObjectCommand({
+      Bucket: process.env.S3_BUCKET, Key: key,
+    }), { abortSignal: signal }), res, next)) return;
     const object = await client.send(
       new GetObjectCommand({
         Bucket: process.env.S3_BUCKET,
         Key: key,
-      })
+      }), { abortSignal: AbortSignal.timeout(15000) }
     );
 
     if (object.ContentType) {
@@ -122,7 +193,7 @@ export const serveStoredPublicFile = async (req, res, next) => {
       res.setHeader('Content-Length', object.ContentLength.toString());
     }
 
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Cache-Control', 'public, max-age=300');
     object.Body.on('error', next);
     object.Body.pipe(res);
   } catch (error) {
@@ -134,7 +205,35 @@ export const serveStoredPublicFile = async (req, res, next) => {
   }
 };
 
+export async function serveAuthorizedObject(key, res, next) {
+  try {
+    key = toPublicObjectKey(key);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'");
+    const client = getS3Client();
+    if (client) {
+      const object = await client.send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key }), { abortSignal: AbortSignal.timeout(15000) });
+      res.setHeader('Content-Type', object.ContentType || 'application/octet-stream');
+      if (object.ContentLength) res.setHeader('Content-Length', String(object.ContentLength));
+      object.Body.on('error', next); object.Body.pipe(res);
+    } else {
+      const root = path.resolve(process.env.FILES_STORAGE_PATH || 'public');
+      const relative = key.replace(new RegExp(`^${process.env.S3_KEY_PREFIX || 'files'}/`), '');
+      const target = path.resolve(root, relative);
+      if (!target.startsWith(`${root}${path.sep}`)) throw new Error('Invalid file path');
+      await fs.promises.access(target);
+      res.setHeader('Content-Type', mime.lookup(target) || 'application/octet-stream');
+      fs.createReadStream(target).on('error', next).pipe(res);
+    }
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.$metadata?.httpStatusCode === 404) return res.status(404).send('File not found');
+    next(error);
+  }
+}
+
 const deleteObject = async (filePath) => {
+  await invalidatePublicImage(toObjectKey(filePath));
   const client = getS3Client();
 
   if (!client) {
@@ -150,6 +249,8 @@ const deleteObject = async (filePath) => {
 };
 
 const renameObject = async (oldFilePath, newFilePath) => {
+  await invalidatePublicImage(toObjectKey(oldFilePath));
+  await invalidatePublicImage(toObjectKey(newFilePath));
   const client = getS3Client();
 
   if (!client) {

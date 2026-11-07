@@ -5,6 +5,7 @@ import Role from "../models/roles.js";
  * Copies permission IDs from Information Office when available.
  */
 export const ensureAccountsRole = async () => {
+  if (process.env.AUTHORIZATION_MODE === 'enforce') return null;
   let accountsRole = await Role.findOne({
     name: { $regex: /^accounts$/i },
   });
@@ -28,7 +29,7 @@ export const ensureAccountsRole = async () => {
   }
 
   // Keep Accounts at least as permissioned as Information Office.
-  if (officePermissions.length) {
+  if (officePermissions.length && !accountsRole.managed) {
     const existing = new Set(
       (accountsRole.permissions || []).map((id) => String(id))
     );

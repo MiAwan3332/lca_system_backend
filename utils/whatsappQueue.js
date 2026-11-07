@@ -206,14 +206,14 @@ export const cancelAllInQueue = async ({ campaign_id } = {}) => {
 
 const recoverStuckSending = async () => {
   await WhatsAppQueuedMessage.updateMany(
-    { status: "sending" },
+    { status: "sending", managed_by: { $ne: 'creation' } },
     { $set: { status: "in_queue", error: "" } }
   );
 };
 
 const processNextQueuedMessage = async () => {
   const next = await WhatsAppQueuedMessage.findOneAndUpdate(
-    { status: "in_queue" },
+    { status: "in_queue", managed_by: { $ne: 'creation' } },
     { $set: { status: "sending", error: "" } },
     { sort: { createdAt: 1 }, new: true }
   );

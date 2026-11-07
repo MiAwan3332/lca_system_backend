@@ -1,4 +1,8 @@
 import Fee from "../models/fees.js";
+import FeeReceipt from '../models/feeReceipts.js';
+import { feeStatement, batchFeeStatements } from '../utils/feeStatement.js';
+import Enrollment from '../models/enrollments.js';
+import StudentBatchShift from '../models/studentBatchShifts.js';
 import FeeLog from "../models/feeLogs.js";
 import Expense from "../models/expenses.js";
 import User from "../models/users.js";
@@ -23,6 +27,9 @@ import {
   uploadPaymentEvidenceFiles,
 } from "../utils/paymentEvidence.js";
 import { logActivity } from "../utils/activityLogger.js";
+import AccessAudit from '../models/accessAudit.js';
+import { evaluateAccess } from '../utils/accessPolicy.js';
+import { planPaymentReversal, paymentReversalPreview, revertPayment as applyPaymentReversal } from '../utils/paymentReversal.js';
 import { sendFeePaymentWhatsApp, resolveWhatsAppSenderFromReq } from "../utils/whatsappMessaging.js";
 
 const notifyFeePaymentWhatsApp = async ({
@@ -712,6 +719,20 @@ export const collectPendingFee = async (req, res) => {
             console.error("Activity log failed for pending fee collection:", logError);
         }
 
+        const receiptStudent = await Student.findById(studentId).populate('batch').lean();
+        const receiptTotals = await feeStatement(studentId, receiptStudent.batch ? [receiptStudent.batch._id] : undefined);
+        const receiptPayload = { ...receiptTotals, name: receiptStudent.name, phone: receiptStudent.phone,
+            cnic: receiptStudent.cnic, rollNumber: receiptStudent.roll_number, batchName: receiptStudent.batch?.name || 'Unassigned',
+            payingNow: result.amount_paid, discountAmount: result.discount_applied, outstandingBalance: result.outstanding_before,
+            paymentOption: option, paymentMethod: result.payment_method, nextInstallmentDate: result.next_installment_date,
+            authorizedBy: actionUser?.name || '', photoUrl: receiptStudent.image || '',
+            classStartTime: receiptStudent.batch?.class_start_time || '', classEndTime: receiptStudent.batch?.class_end_time || '' };
+        let receipt = null;
+        try { receipt = await FeeReceipt.create({ student: studentId, created_by: actionUser?._id, payload: receiptPayload, payment_id: result.payment_id }); }
+        catch {
+            // A receipt failure must not report an already-recorded payment as failed.
+            console.error(JSON.stringify({ event: 'receipt_snapshot_failed', requestId: req.requestId }));
+        }
         const whatsappPayment = await notifyFeePaymentWhatsApp({
             studentId,
             amountReceived: result.amount_paid || paymentAmount,
@@ -722,6 +743,8 @@ export const collectPendingFee = async (req, res) => {
         res.status(200).json({
             message: "Payment recorded successfully",
             ...result,
+            receipt: { ...receiptPayload, receiptId: receipt ? String(receipt._id) : null },
+            receipt_saved: Boolean(receipt),
             payment_evidence: paymentEvidence || "",
             whatsapp_payment: whatsappPayment,
         });
@@ -1021,6 +1044,13 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
                         { $toDouble: { $ifNull: ["$action_amount", 0] } }
                     ]
                 },
+                refundAmount: {
+                    $cond: [
+                        { $eq: ["$action_type", "Refund"] },
+                        { $abs: { $toDouble: { $ifNull: ["$action_amount", 0] } } },
+                        0
+                    ]
+                },
                 isOnline: isOnlinePaymentMethodExpr,
                 batchId: "$batchDoc._id",
                 batchName: {
@@ -1038,12 +1068,14 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
                     },
                 },
                 total: { $sum: "$paidAmount" },
+                refund: { $sum: "$refundAmount" },
             },
         },
     ]);
 
     let total_cash = 0;
     let total_online = 0;
+    let total_refund = 0;
     const byBatch = {};
 
     for (const row of rows) {
@@ -1061,9 +1093,13 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
                 total_cash: 0,
                 total_online: 0,
                 total_pending: 0,
+                total_refund: 0,
                 total: 0,
             };
         }
+        // Refunds are already netted into the cash/online totals; this shows how much went back out.
+        byBatch[batchKey].total_refund += Number(row.refund) || 0;
+        total_refund += Number(row.refund) || 0;
 
         if (channel === "online") {
             total_online += amount;
@@ -1126,7 +1162,8 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
             (b) =>
                 Math.abs(Number(b.total_cash) || 0) > 0 ||
                 Math.abs(Number(b.total_online) || 0) > 0 ||
-                Math.abs(Number(b.total) || 0) > 0
+                Math.abs(Number(b.total) || 0) > 0 ||
+                Number(b.total_refund) > 0
         )
         .sort((a, b) =>
             String(a.batch_name).localeCompare(String(b.batch_name), undefined, {
@@ -1138,6 +1175,7 @@ const getPaidCollectionsBreakdown = async (dateFilter, feeIds, changedByIds = []
         total_cash,
         total_online,
         total_pending,
+        total_refund,
         batch_wise,
     };
 };
@@ -1443,9 +1481,10 @@ export const getFinanceReport = async (req, res) => {
             changedByIds
         );
 
+        // Discounts move no money, but a fully discounted student has no other entry and must still be listed.
         const transactionFilter = {
             ...dateFilter,
-            action_type: { $in: ["Paid", "Refund"] },
+            action_type: { $in: ["Paid", "Refund", "Discounted"] },
         };
         if (feeIds) {
             transactionFilter.fee = { $in: feeIds };
@@ -1457,7 +1496,7 @@ export const getFinanceReport = async (req, res) => {
         }
 
         const studentFeeSelect =
-            "name _id email phone paid_fee pending_fee total_fee cash_amount online_amount image roll_number";
+            "name _id email phone paid_fee pending_fee total_fee cash_amount online_amount image roll_number batch";
         const batchFeeSelect = "name batch_fee";
 
         const transactions = await FeeLog.find(transactionFilter)
@@ -1470,7 +1509,7 @@ export const getFinanceReport = async (req, res) => {
                     { path: "batch", select: batchFeeSelect },
                 ],
             })
-            .sort({ action_date: -1 });
+            .sort({ action_date: -1, _id: -1 });
 
         const approvedExpenseFilter = {
             status: "Approved",
@@ -1496,19 +1535,29 @@ export const getFinanceReport = async (req, res) => {
             .populate("approved_by", "name email")
             .sort({ approved_at: -1 });
 
+        const reportStudentIds = [...new Set(transactions.map((log) => String((log.fee?.student || log.student)?._id || '')).filter(Boolean))];
+        const statements = await batchFeeStatements(reportStudentIds);
+        const enrollments = await Enrollment.find({ student: { $in: reportStudentIds } }).select('student batch roll_number').lean();
+        const historicalRolls = new Map(enrollments.filter((item) => item.roll_number).map((item) => [`${item.student}:${item.batch}`, item.roll_number]));
+        const shifts = await StudentBatchShift.find({ student: { $in: reportStudentIds } }).select('student from_batch from_roll_number to_batch to_roll_number').sort({ shifted_at: 1 }).lean();
+        for (const shift of shifts) {
+            if (shift.from_roll_number) historicalRolls.set(`${shift.student}:${shift.from_batch}`, shift.from_roll_number);
+            if (shift.to_roll_number) historicalRolls.set(`${shift.student}:${shift.to_batch}`, shift.to_roll_number);
+        }
         const feeTransactions = transactions.map((log) => {
             const studentDoc = log.fee?.student || log.student;
-            const paidFee = Number(studentDoc?.paid_fee) || 0;
+            const statement = statements.get(`${studentDoc?._id}:${log.fee?.batch?._id}`);
+            const paidFee = statement?.paidFee ?? (Number(studentDoc?.paid_fee) || 0);
             const pendingFee =
                 studentDoc?.pending_fee != null && studentDoc?.pending_fee !== ""
-                    ? Number(studentDoc.pending_fee) || 0
+                    ? (statement?.remainingAfter ?? (Number(studentDoc.pending_fee) || 0))
                     : log.fee?.status === "Pending"
                       ? Number(log.fee?.amount) || 0
                       : 0;
-            const totalBatchFee =
+            const totalBatchFee = statement?.totalFee ?? (
                 Number(studentDoc?.total_fee) ||
                 Number(log.fee?.batch?.batch_fee) ||
-                0;
+                0);
             const nextInstallmentDate =
                 pendingFee > 0 ? log.fee?.due_date || null : null;
 
@@ -1522,9 +1571,11 @@ export const getFinanceReport = async (req, res) => {
                 action_by: log.action_by?.name || "N/A",
                 student_name: studentDoc?.name || "N/A",
                 student_id: studentDoc?._id?.toString() || "N/A",
+                batch_id: log.fee?.batch?._id?.toString() || null,
                 student_phone: studentDoc?.phone || "",
                 student_image: studentDoc?.image || null,
-                roll_number: studentDoc?.roll_number || null,
+                roll_number: historicalRolls.get(`${studentDoc?._id}:${log.fee?.batch?._id}`) ||
+                    (String(studentDoc?.batch) === String(log.fee?.batch?._id) ? studentDoc?.roll_number : null),
                 batch_name: log.fee?.batch?.name || "N/A",
                 program: log.fee?.batch?.name || "N/A",
                 title: null,
@@ -1713,5 +1764,38 @@ export const getFinanceReport = async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ message: error.message });
+    }
+};
+
+/** Preview (preview: true) or revert a recorded payment with everything it created, keeping a full copy and the reason. */
+export const revertPayment = async (req, res) => {
+    try {
+        const { preview, reason, note, acknowledged } = req.body || {};
+        const plan = await planPaymentReversal(req.params.id);
+        const context = req.access;
+        // Same rule as the route check: amount limit and "not an entry they made".
+        if (context && !context.owner && context.enforced !== false &&
+            !evaluateAccess(context, 'fees.revert.payment', { batchId: plan.student.batch?._id, ownerId: plan.student.user, amount: plan.amount, createdBy: plan.log.action_by }).allowed) {
+            return res.status(403).json({ message: `Your role cannot undo this ${plan.label.toLowerCase()} (amount limit, or you made it).`, code: 'ACCESS_DENIED' });
+        }
+        if (preview === true || preview === 'true') return res.status(200).json(await paymentReversalPreview(plan));
+
+        const actorId = req.access?.userId || req.user?.user?.id;
+        const reversal = await applyPaymentReversal({ logId: req.params.id, reasonCategory: reason, reasonNote: note,
+            acknowledged: acknowledged === true || acknowledged === 'true', actorId, ip: req.ip });
+        try {
+            await AccessAudit.create({ actor: actorId, action: 'fees.revert.payment', target: `student:${reversal.student}`, requestId: req.requestId,
+                before: { payment_log: reversal.payment_log, step: reversal.step_type, amount: reversal.amount, totals: reversal.totals_before },
+                after: { reversal: reversal._id, totals: reversal.totals_after }, reason: `${reversal.reason_category}: ${reversal.reason_note}` });
+            await logActivity({ req, action: 'delete', module: 'Fees', statusCode: 200, targetId: String(reversal.student), targetType: 'Student',
+                description: `Undid ${plan.label.toLowerCase()} of Rs ${reversal.amount} for ${plan.student.name} (${reversal.reason_category})`,
+                metadata: { reversal_id: reversal._id, payment_log: reversal.payment_log, reason: reversal.reason_category, note: reversal.reason_note } });
+        } catch (logError) {
+            console.error('Audit log failed for payment reversal:', logError);
+        }
+        const { removed, ip, ...summary } = reversal;
+        res.status(200).json({ message: `${plan.label} of Rs ${reversal.amount} undone.`, reversal: summary });
+    } catch (error) {
+        res.status(error.status || 500).json({ message: error.message });
     }
 };

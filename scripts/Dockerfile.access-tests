@@ -1,0 +1,11 @@
+FROM node:20-bookworm-slim AS dependencies
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+
+FROM mongo:7.0
+COPY --from=dependencies /usr/local/bin/node /usr/local/bin/node
+WORKDIR /app
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY . .
+CMD ["node", "scripts/verifyAccessSuite.mjs"]

@@ -281,9 +281,9 @@ export const updateTeacher = async (req, res) => {
       teacher.resume = newResumePath;
     }
 
-    const trimmedName = String(name || "").trim();
-    const trimmedEmail = String(email || "").trim();
-    const trimmedPhone = String(phone || "").trim();
+    const trimmedName = String(name === undefined ? teacher.name || '' : name || "").trim();
+    const trimmedEmail = String(email === undefined ? teacher.email || '' : email || "").trim();
+    const trimmedPhone = String(phone === undefined ? teacher.phone || '' : phone || "").trim();
 
     if (!trimmedName || !trimmedEmail) {
       return res.status(400).json({ message: "Name and email are required" });
@@ -292,18 +292,18 @@ export const updateTeacher = async (req, res) => {
       return res.status(400).json({ message: "Contact number is required" });
     }
 
-    teacher.name = trimmedName;
-    teacher.email = trimmedEmail;
-    teacher.phone = trimmedPhone;
+    if (name !== undefined) teacher.name = trimmedName;
+    if (email !== undefined) teacher.email = trimmedEmail;
+    if (phone !== undefined) teacher.phone = trimmedPhone;
 
     await teacher.save();
 
     if (teacher.user) {
       const linkedUser = await User.findById(teacher.user);
       if (linkedUser) {
-        linkedUser.name = trimmedName;
-        linkedUser.email = trimmedEmail;
-        linkedUser.phone = trimmedPhone;
+        if (name !== undefined) linkedUser.name = trimmedName;
+        if (email !== undefined) linkedUser.email = trimmedEmail;
+        if (phone !== undefined) linkedUser.phone = trimmedPhone;
         await linkedUser.save();
       }
     }
