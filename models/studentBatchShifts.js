@@ -44,6 +44,13 @@ const studentBatchShiftSchema = mongoose.Schema(
       index: true,
     },
     notes: { type: String, default: "" },
+    /** Pending-dues transfer audit (optional). */
+    pending_dues_transferred: { type: Boolean, default: false },
+    previous_pending_amount: { type: Number, default: 0 },
+    new_batch_original_fee: { type: Number, default: 0 },
+    new_batch_discount: { type: Number, default: 0 },
+    new_batch_payable: { type: Number, default: 0 },
+    transfer_remarks: { type: String, default: "" },
   },
   {
     timestamps: { createdAt: "created_at", updatedAt: false },

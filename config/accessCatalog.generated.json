@@ -4756,6 +4756,7 @@
         "negative_mark_value",
         "negative_marking",
         "negative_marks",
+        "new_batch_payable",
         "nextAttempt",
         "nextPage",
         "nextRun",
@@ -4794,6 +4795,7 @@
         "penalty_applied",
         "pendingCount",
         "pending_assignment_reviews",
+        "pending_dues_transferred",
         "pending_total",
         "percentage",
         "period",
@@ -4977,6 +4979,7 @@
         "totals_after",
         "totals_before",
         "transactions",
+        "transfer_pending_dues",
         "type",
         "university",
         "unreadCount",
@@ -5249,6 +5252,7 @@
         "negative_mark_value",
         "negative_marking",
         "negative_marks",
+        "new_batch_payable",
         "nextAttempt",
         "nextPage",
         "nextRun",
@@ -5287,6 +5291,7 @@
         "penalty_applied",
         "pendingCount",
         "pending_assignment_reviews",
+        "pending_dues_transferred",
         "pending_total",
         "percentage",
         "period",
@@ -5468,6 +5473,7 @@
         "totals_after",
         "totals_before",
         "transactions",
+        "transfer_pending_dues",
         "type",
         "university",
         "unreadCount",
@@ -5590,6 +5596,9 @@
         "is_paid_batch",
         "is_refunded",
         "net_balance",
+        "new_batch_discount",
+        "new_batch_fee",
+        "new_batch_original_fee",
         "new_fee_amount",
         "online_amount",
         "overallFeeStatistics",
@@ -5607,6 +5616,7 @@
         "pending_fee",
         "pending_fee_record",
         "pending_fee_slips",
+        "previous_pending_amount",
         "refund_payment_method",
         "refund_requests",
         "refundedCount",
@@ -5668,6 +5678,9 @@
         "is_paid_batch",
         "is_refunded",
         "net_balance",
+        "new_batch_discount",
+        "new_batch_fee",
+        "new_batch_original_fee",
         "new_fee_amount",
         "online_amount",
         "overallFeeStatistics",
@@ -5685,6 +5698,7 @@
         "pending_fee",
         "pending_fee_record",
         "pending_fee_slips",
+        "previous_pending_amount",
         "refund_payment_method",
         "refund_requests",
         "refundedCount",
@@ -5768,7 +5782,8 @@
         "final_remarks",
         "rejection_comment",
         "rejection_reason",
-        "remarks"
+        "remarks",
+        "transfer_remarks"
       ]
     },
     {
@@ -5781,7 +5796,8 @@
         "final_remarks",
         "rejection_comment",
         "rejection_reason",
-        "remarks"
+        "remarks",
+        "transfer_remarks"
       ]
     },
     {
@@ -6126,6 +6142,7 @@
       "negative_mark_value",
       "negative_marking",
       "negative_marks",
+      "new_batch_payable",
       "nextAttempt",
       "nextPage",
       "nextRun",
@@ -6164,6 +6181,7 @@
       "penalty_applied",
       "pendingCount",
       "pending_assignment_reviews",
+      "pending_dues_transferred",
       "pending_total",
       "percentage",
       "period",
@@ -6347,6 +6365,7 @@
       "totals_after",
       "totals_before",
       "transactions",
+      "transfer_pending_dues",
       "type",
       "university",
       "unreadCount",
@@ -6420,6 +6439,9 @@
       "is_paid_batch",
       "is_refunded",
       "net_balance",
+      "new_batch_discount",
+      "new_batch_fee",
+      "new_batch_original_fee",
       "new_fee_amount",
       "online_amount",
       "overallFeeStatistics",
@@ -6437,6 +6459,7 @@
       "pending_fee",
       "pending_fee_record",
       "pending_fee_slips",
+      "previous_pending_amount",
       "refund_payment_method",
       "refund_requests",
       "refundedCount",
@@ -6485,7 +6508,8 @@
       "final_remarks",
       "rejection_comment",
       "rejection_reason",
-      "remarks"
+      "remarks",
+      "transfer_remarks"
     ],
     "integration": [
       "google_calendar_event_id",
@@ -6606,7 +6630,9 @@
       "write": [
         "batch",
         "assign_new_fee",
-        "special_selected_options"
+        "special_selected_options",
+        "transfer_pending_dues",
+        "remarks"
       ],
       "read": [
         "batch_fee",
@@ -7288,12 +7314,16 @@
       "write": [
         "assign_new_fee",
         "batch",
-        "special_selected_options"
+        "remarks",
+        "special_selected_options",
+        "transfer_pending_dues"
       ],
       "read": [
         "assign_new_fee",
         "batch",
-        "special_selected_options"
+        "remarks",
+        "special_selected_options",
+        "transfer_pending_dues"
       ]
     },
     {

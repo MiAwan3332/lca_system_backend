@@ -74,7 +74,9 @@
     "write": [
       "batch",
       "assign_new_fee",
-      "special_selected_options"
+      "special_selected_options",
+      "transfer_pending_dues",
+      "remarks"
     ],
     "read": [
       "batch_fee",
