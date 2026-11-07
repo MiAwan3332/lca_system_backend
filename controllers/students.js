@@ -43,7 +43,9 @@ import {
 import { isPakistanProvince } from "../utils/pakistanProvinces.js";
 import {
   createStudentAdmissionFee,
+  applyStudentPendingDiscount,
   syncStudentFeeFromLogs,
+  PENDING_DUES_TRANSFER_LABEL,
 } from "../utils/feePayment.js";
 import Fee from "../models/fees.js";
 import RefundRequest from "../models/refundRequests.js";
@@ -86,6 +88,19 @@ const buildPendingFeeBlockPayload = async (studentId, pendingAmount) => {
     studentId,
     pendingAmount
   );
+
+  const student = await Student.findById(studentId)
+    .populate("batch", "name")
+    .select("batch");
+  const earliestPendingFee = await Fee.findOne({
+    student: studentId,
+    status: "Pending",
+    amount: { $gt: 0 },
+  })
+    .sort({ due_date: 1, _id: 1 })
+    .select("due_date amount batch")
+    .populate("batch", "name");
+
   return {
     code: "PENDING_FEE_BLOCK",
     message: PENDING_FEE_BLOCK_MESSAGE,
@@ -93,6 +108,13 @@ const buildPendingFeeBlockPayload = async (studentId, pendingAmount) => {
     student_id: studentId,
     has_pending_fee_slip: Boolean(existingSlip),
     slip_url: existingSlip?.slip_url || null,
+    previous_batch_id: student?.batch?._id || student?.batch || null,
+    previous_batch_name:
+      earliestPendingFee?.batch?.name ||
+      student?.batch?.name ||
+      "Previous batch",
+    due_date: earliestPendingFee?.due_date || "",
+    can_transfer_pending_dues: true,
   };
 };
 
@@ -2085,12 +2107,27 @@ export const checkStudentFields = async (req, res) => {
 
 export const transferStudentBatch = async (req, res) => {
   const { id } = req.params;
-  const { batch, assign_new_fee, special_selected_options } = req.body;
-  const assignNewFee =
+  const {
+    batch,
+    assign_new_fee,
+    special_selected_options,
+    transfer_pending_dues,
+    remarks,
+  } = req.body;
+
+  const transferPendingDues =
+    transfer_pending_dues === true ||
+    transfer_pending_dues === "true" ||
+    transfer_pending_dues === 1 ||
+    transfer_pending_dues === "1";
+
+  let assignNewFee =
     assign_new_fee === true ||
     assign_new_fee === "true" ||
     assign_new_fee === 1 ||
     assign_new_fee === "1";
+
+  const trimmedRemarks = String(remarks || "").trim();
 
   if (denyUnlessCanShiftStudentBatch(req, res)) return;
 
@@ -2098,6 +2135,7 @@ export const transferStudentBatch = async (req, res) => {
     return res.status(400).json({ message: "Destination batch is required" });
   }
 
+  const session = await mongoose.startSession();
   try {
     const student = await Student.findById(id);
     if (!student) {
@@ -2125,11 +2163,27 @@ export const transferStudentBatch = async (req, res) => {
     }
 
     if (!(await canAccessBatch(req, batch))) {
-      return res.status(403).json({ message: "You do not have access to this batch" });
+      return res
+        .status(403)
+        .json({ message: "You do not have access to this batch" });
     }
 
     const pendingAmount = await getSyncedPendingAmount(id);
-    if (pendingAmount > 0) {
+
+    if (transferPendingDues) {
+      if (pendingAmount <= 0) {
+        return res.status(400).json({
+          message: "Student has no pending dues to transfer",
+          pending_amount: 0,
+        });
+      }
+      if (!trimmedRemarks) {
+        return res.status(400).json({
+          message: "Remarks are required when transferring pending dues",
+        });
+      }
+      assignNewFee = true;
+    } else if (pendingAmount > 0) {
       return res
         .status(409)
         .json(await buildPendingFeeBlockPayload(id, pendingAmount));
@@ -2137,14 +2191,18 @@ export const transferStudentBatch = async (req, res) => {
 
     let newFeeAmount = 0;
     let specialFeeOptions = {};
+    let newBatchDiscount = 0;
+    let newBatchPayable = 0;
+
     if (assignNewFee) {
       const unpaidBatch = !batchIsPaid(batchRecord);
       const isSpecialBatch = batchRecord.is_special_batch === true;
 
       if (unpaidBatch) {
         return res.status(400).json({
-          message:
-            "Destination batch has no fee configured. Transfer without assigning a new fee.",
+          message: transferPendingDues
+            ? "Destination batch has no fee configured. Cannot transfer pending dues without a new batch fee."
+            : "Destination batch has no fee configured. Transfer without assigning a new fee.",
         });
       }
 
@@ -2164,8 +2222,28 @@ export const transferStudentBatch = async (req, res) => {
 
       if (!(newFeeAmount > 0)) {
         return res.status(400).json({
-          message: "Destination batch fee must be greater than 0 to assign a new fee",
+          message:
+            "Destination batch fee must be greater than 0 to assign a new fee",
         });
+      }
+
+      if (transferPendingDues) {
+        if (pendingAmount > newFeeAmount) {
+          return res.status(400).json({
+            code: "PENDING_EXCEEDS_NEW_FEE",
+            message: `Previous pending dues (${pendingAmount}) exceed the new batch fee (${newFeeAmount}). Transfer is not allowed.`,
+            pending_amount: pendingAmount,
+            new_batch_fee: newFeeAmount,
+          });
+        }
+        // Discount = Original New Batch Fee − Previous Pending; Payable = Previous Pending
+        newBatchDiscount = Math.max(newFeeAmount - pendingAmount, 0);
+        newBatchPayable = Math.max(newFeeAmount - newBatchDiscount, 0);
+        if (newBatchPayable !== pendingAmount || newBatchDiscount < 0) {
+          return res.status(400).json({
+            message: "Invalid fee adjustment for pending dues transfer",
+          });
+        }
       }
 
       const existingDestFee = await Fee.findOne({
@@ -2186,69 +2264,181 @@ export const transferStudentBatch = async (req, res) => {
       ? await Batch.findById(previousBatchId).select("name")
       : null;
 
-    student.batch = batch;
-    
-    // Assign new roll number for the new batch
-    const newRollNumber = await getNextStudentRollNumber({
-      batchId: batchRecord._id,
-      batchName: batchRecord.name,
-      rollNickname: batchRecord.roll_nickname,
-      batchType: batchRecord.batch_type,
-    });
-    student.roll_number = newRollNumber;
-
-    if (assignNewFee && Object.keys(specialFeeOptions).length > 0) {
-      student.special_fee_options = specialFeeOptions;
+    if (transferPendingDues && previousBatchId) {
+      const priorTransfer = await StudentBatchShift.findOne({
+        student: id,
+        from_batch: previousBatchId,
+        pending_dues_transferred: true,
+      }).select("_id");
+      if (priorTransfer) {
+        const stillPendingOnPrevious = await Fee.exists({
+          student: id,
+          batch: previousBatchId,
+          status: "Pending",
+          amount: { $gt: 0 },
+        });
+        if (stillPendingOnPrevious) {
+          return res.status(400).json({
+            code: "PENDING_ALREADY_TRANSFERRED",
+            message:
+              "Pending dues from this previous batch have already been transferred once",
+          });
+        }
+      }
     }
 
-    await student.save();
-
-    let assignedFee = null;
-    if (assignNewFee && newFeeAmount > 0) {
-      const actionUserId = req.user?.user?.id;
-      assignedFee = await createStudentAdmissionFee({
-        studentId: student._id,
-        batchId: batchRecord._id,
-        totalFee: newFeeAmount,
-        payingNow: 0,
-        discountAmount: 0,
-        createdDescription: `Fee assigned on batch shift to ${batchRecord.name || "new batch"}`,
-        actionUserId,
-      });
-    }
-
+    const actionUserId = req.user?.user?.id;
     const actorUserId = getRequestUserId(req);
-    const actorUser = actorUserId
-      ? await User.findById(actorUserId).select("name email role")
-      : null;
+    let assignedFee = null;
+    let newRollNumber = "";
+    let discountResult = { discounted: 0, fee_ids: [] };
 
-    await StudentBatchShift.create({
-      student: student._id,
-      student_name: student.name || "",
-      student_phone: student.phone || "",
-      student_email: student.email || "",
-      from_batch: previousBatchId || null,
-      from_batch_name: previousBatch?.name || (previousBatchId ? "Unknown batch" : "Unassigned"),
-      to_batch: batchRecord._id,
-      to_batch_name: batchRecord.name || "",
-      from_roll_number: oldRollNumber || "",
-      to_roll_number: newRollNumber || "",
-      shifted_by: actorUserId || null,
-      shifted_by_name: actorUser?.name || "",
-      shifted_by_email: actorUser?.email || "",
-      shifted_by_role: req.user?.user?.role || actorUser?.role || "",
-      shifted_at: new Date(),
-    });
+    const runTransfer = async (txnSession = null) => {
+      const lockedStudent = txnSession
+        ? await Student.findById(id).session(txnSession)
+        : await Student.findById(id);
+      if (!lockedStudent) {
+        throw new Error("Student not found");
+      }
+
+      if (transferPendingDues && pendingAmount > 0) {
+        discountResult = await applyStudentPendingDiscount({
+          studentId: lockedStudent._id,
+          discountAmount: pendingAmount,
+          description: `${PENDING_DUES_TRANSFER_LABEL} — ${trimmedRemarks}`,
+          actionUserId,
+          session: txnSession,
+        });
+      }
+
+      lockedStudent.batch = batch;
+      newRollNumber = await getNextStudentRollNumber({
+        batchId: batchRecord._id,
+        batchName: batchRecord.name,
+        rollNickname: batchRecord.roll_nickname,
+        batchType: batchRecord.batch_type,
+      });
+      lockedStudent.roll_number = newRollNumber;
+
+      if (assignNewFee && Object.keys(specialFeeOptions).length > 0) {
+        lockedStudent.special_fee_options = specialFeeOptions;
+      }
+
+      if (transferPendingDues && trimmedRemarks) {
+        lockedStudent.discount_remarks = [
+          lockedStudent.discount_remarks,
+          `${PENDING_DUES_TRANSFER_LABEL}: ${trimmedRemarks}`,
+        ]
+          .filter(Boolean)
+          .join(" | ")
+          .slice(0, 2000);
+      }
+
+      await lockedStudent.save(txnSession ? { session: txnSession } : undefined);
+
+      if (assignNewFee && newFeeAmount > 0) {
+        assignedFee = await createStudentAdmissionFee({
+          studentId: lockedStudent._id,
+          batchId: batchRecord._id,
+          totalFee: newFeeAmount,
+          payingNow: 0,
+          discountAmount: transferPendingDues ? newBatchDiscount : 0,
+          discountDescription: transferPendingDues
+            ? `New batch fee adjusted after ${PENDING_DUES_TRANSFER_LABEL} — ${trimmedRemarks}`
+            : "Discount applied on batch shift",
+          createdDescription: transferPendingDues
+            ? `Fee assigned on pending-dues transfer to ${
+                batchRecord.name || "new batch"
+              }`
+            : `Fee assigned on batch shift to ${
+                batchRecord.name || "new batch"
+              }`,
+          actionUserId,
+          session: txnSession,
+        });
+      }
+
+      const actorUser = actorUserId
+        ? txnSession
+          ? await User.findById(actorUserId)
+              .select("name email role")
+              .session(txnSession)
+          : await User.findById(actorUserId).select("name email role")
+        : null;
+
+      const shiftPayload = {
+        student: lockedStudent._id,
+        student_name: lockedStudent.name || "",
+        student_phone: lockedStudent.phone || "",
+        student_email: lockedStudent.email || "",
+        from_batch: previousBatchId || null,
+        from_batch_name:
+          previousBatch?.name ||
+          (previousBatchId ? "Unknown batch" : "Unassigned"),
+        to_batch: batchRecord._id,
+        to_batch_name: batchRecord.name || "",
+        from_roll_number: oldRollNumber || "",
+        to_roll_number: newRollNumber || "",
+        shifted_by: actorUserId || null,
+        shifted_by_name: actorUser?.name || "",
+        shifted_by_email: actorUser?.email || "",
+        shifted_by_role: req.user?.user?.role || actorUser?.role || "",
+        shifted_at: new Date(),
+        notes: transferPendingDues
+          ? `${PENDING_DUES_TRANSFER_LABEL}: ${trimmedRemarks}`
+          : "",
+        pending_dues_transferred: transferPendingDues,
+        previous_pending_amount: transferPendingDues ? pendingAmount : 0,
+        new_batch_original_fee: assignNewFee ? newFeeAmount : 0,
+        new_batch_discount: transferPendingDues ? newBatchDiscount : 0,
+        new_batch_payable: transferPendingDues
+          ? newBatchPayable
+          : assignNewFee
+            ? newFeeAmount
+            : 0,
+        transfer_remarks: transferPendingDues ? trimmedRemarks : "",
+      };
+
+      if (txnSession) {
+        await StudentBatchShift.create([shiftPayload], { session: txnSession });
+      } else {
+        await StudentBatchShift.create(shiftPayload);
+      }
+    };
+
+    try {
+      await session.withTransaction(async () => {
+        await runTransfer(session);
+      });
+    } catch (txnError) {
+      const txnMessage = String(txnError?.message || "");
+      const transactionsUnsupported =
+        /transaction numbers are only allowed/i.test(txnMessage) ||
+        /Transactions? are not supported/i.test(txnMessage);
+      if (!transactionsUnsupported) {
+        throw txnError;
+      }
+      // Fallback for deployments without replica-set transactions.
+      await runTransfer(null);
+    }
 
     await logActivity({
       req,
-      action: "batch_shift",
+      action: transferPendingDues
+        ? "batch_shift_pending_dues_transfer"
+        : "batch_shift",
       module: "students",
-      description: `Shifted student ${student.name} from ${
-        previousBatch?.name || "Unassigned"
-      } (${oldRollNumber || "no roll"}) to ${batchRecord.name} (${newRollNumber})${
-        assignNewFee ? ` and assigned new fee of Rs. ${newFeeAmount}` : ""
-      }`,
+      description: transferPendingDues
+        ? `Transferred pending dues (Rs. ${pendingAmount}) and shifted ${
+            student.name
+          } from ${previousBatch?.name || "Unassigned"} (${
+            oldRollNumber || "no roll"
+          }) to ${batchRecord.name} (${newRollNumber}). New fee Rs. ${newFeeAmount}, discount Rs. ${newBatchDiscount}, payable Rs. ${newBatchPayable}. Remarks: ${trimmedRemarks}`
+        : `Shifted student ${student.name} from ${
+            previousBatch?.name || "Unassigned"
+          } (${oldRollNumber || "no roll"}) to ${batchRecord.name} (${newRollNumber})${
+            assignNewFee ? ` and assigned new fee of Rs. ${newFeeAmount}` : ""
+          }`,
       targetId: student._id,
       targetType: "Student",
       metadata: {
@@ -2261,6 +2451,12 @@ export const transferStudentBatch = async (req, res) => {
         assign_new_fee: assignNewFee,
         new_fee_amount: assignNewFee ? newFeeAmount : 0,
         assigned_fee_id: assignedFee?._id || null,
+        transfer_pending_dues: transferPendingDues,
+        previous_pending_amount: transferPendingDues ? pendingAmount : 0,
+        new_batch_discount: transferPendingDues ? newBatchDiscount : 0,
+        new_batch_payable: transferPendingDues ? newBatchPayable : 0,
+        transfer_remarks: transferPendingDues ? trimmedRemarks : "",
+        previous_batch_cleared_amount: discountResult.discounted || 0,
       },
     });
 
@@ -2272,9 +2468,24 @@ export const transferStudentBatch = async (req, res) => {
       assign_new_fee: assignNewFee,
       new_fee_amount: assignNewFee ? newFeeAmount : 0,
       assigned_fee_id: assignedFee?._id || null,
+      transfer_pending_dues: transferPendingDues,
+      previous_pending_amount: transferPendingDues ? pendingAmount : 0,
+      new_batch_discount: transferPendingDues ? newBatchDiscount : 0,
+      new_batch_payable: transferPendingDues ? newBatchPayable : 0,
+      transfer_remarks: transferPendingDues ? trimmedRemarks : "",
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const message = error?.message || "Failed to transfer student batch";
+    if (
+      message.includes("already been transferred") ||
+      message.includes("Remarks are required") ||
+      message.includes("exceed")
+    ) {
+      return res.status(400).json({ message });
+    }
+    res.status(500).json({ message });
+  } finally {
+    session.endSession();
   }
 };
 

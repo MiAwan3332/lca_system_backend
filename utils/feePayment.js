@@ -12,6 +12,9 @@ const logAmount = (log) =>
 const isOnlineChannel = (method) =>
   isOnlinePaymentMethod(method) || method === "Bank Transfer";
 
+const withSession = (query, session) =>
+  session ? query.session(session) : query;
+
 export async function createStudentAdmissionFee({
   studentId,
   batchId,
@@ -25,12 +28,16 @@ export async function createStudentAdmissionFee({
   paymentEvidence,
   nextInstallmentDate,
   paymentBreakdown,
+  session = null,
 }) {
   if (!studentId || !batchId || totalFee <= 0) {
     return null;
   }
 
-  const existingFee = await Fee.findOne({ student: studentId, batch: batchId });
+  const existingFee = await withSession(
+    Fee.findOne({ student: studentId, batch: batchId }),
+    session
+  );
   if (existingFee) {
     throw new Error("Fee record already exists for this student and batch");
   }
@@ -71,6 +78,7 @@ export async function createStudentAdmissionFee({
     dueDate = moment(nextInstallmentDate).tz("Asia/Karachi").format("YYYY-MM-DD");
   }
 
+  const saveOpts = session ? { session } : {};
   const newFee = new Fee({
     student: studentId,
     batch: batchId,
@@ -78,7 +86,7 @@ export async function createStudentAdmissionFee({
     due_date: dueDate,
     status: "Pending",
   });
-  await newFee.save();
+  await newFee.save(saveOpts);
 
   await new FeeLog({
     amount: totalFee,
@@ -89,7 +97,7 @@ export async function createStudentAdmissionFee({
     fee: newFee._id,
     student: studentId,
     description: createdDescription || "Fee assigned on student admission",
-  }).save();
+  }).save(saveOpts);
 
   if (discount > 0) {
     const originalAmount = newFee.amount;
@@ -98,7 +106,7 @@ export async function createStudentAdmissionFee({
       newFee.amount = 0;
       newFee.status = "Paid";
     }
-    await newFee.save();
+    await newFee.save(saveOpts);
 
     await new FeeLog({
       amount: originalAmount,
@@ -109,13 +117,12 @@ export async function createStudentAdmissionFee({
       fee: newFee._id,
       student: studentId,
       description: discountDescription || "Discount applied on student admission",
-    }).save();
+    }).save(saveOpts);
   }
 
   if (breakdownParts.length > 0) {
-    let feeDoc = newFee;
     for (const part of breakdownParts) {
-      feeDoc = await Fee.findById(newFee._id);
+      const feeDoc = await withSession(Fee.findById(newFee._id), session);
       await recordFeePayment({
         fee: feeDoc,
         paymentAmount: part.amount,
@@ -125,14 +132,15 @@ export async function createStudentAdmissionFee({
         paymentEvidence:
           part.paymentMethod === paymentMethod ? paymentEvidence : undefined,
         description: `Payment received on student admission (${part.paymentMethod})`,
+        session,
       });
     }
 
     if (isPartialPayment) {
-      const updatedFee = await Fee.findById(newFee._id);
+      const updatedFee = await withSession(Fee.findById(newFee._id), session);
       if (updatedFee) {
         updatedFee.due_date = dueDate;
-        await updatedFee.save();
+        await updatedFee.save(saveOpts);
       }
     }
   } else if (resolvedPayingNow > 0) {
@@ -144,17 +152,18 @@ export async function createStudentAdmissionFee({
       paymentMethod,
       paymentEvidence,
       description: `Payment received on student admission (${paymentMethod || "Cash"})`,
+      session,
     });
 
     if (isPartialPayment) {
-      const updatedFee = await Fee.findById(newFee._id);
+      const updatedFee = await withSession(Fee.findById(newFee._id), session);
       if (updatedFee) {
         updatedFee.due_date = dueDate;
-        await updatedFee.save();
+        await updatedFee.save(saveOpts);
       }
     }
   } else {
-    await syncStudentFeeFromLogs(studentId);
+    await syncStudentFeeFromLogs(studentId, session);
   }
 
   return newFee;
@@ -170,8 +179,11 @@ export async function recordFeePayment({
   paymentEvidence,
   description = "",
   nextInstallmentDate,
+  session = null,
 }) {
-  const fee = feeDoc || (feeId ? await Fee.findById(feeId) : null);
+  const fee =
+    feeDoc ||
+    (feeId ? await withSession(Fee.findById(feeId), session) : null);
   if (!fee) {
     throw new Error("Fee not found");
   }
@@ -191,6 +203,7 @@ export async function recordFeePayment({
     throw new Error("Fee already paid");
   }
 
+  const saveOpts = session ? { session } : {};
   const originalAmount = fee.amount;
   fee.amount -= amount;
 
@@ -203,7 +216,7 @@ export async function recordFeePayment({
       .format("YYYY-MM-DD");
   }
 
-  await fee.save();
+  await fee.save(saveOpts);
 
   await new FeeLog({
     amount: originalAmount,
@@ -216,27 +229,30 @@ export async function recordFeePayment({
     payment_method: paymentMethod || "Cash",
     payment_evidence: normalizePaymentEvidenceForStorage(paymentEvidence),
     description,
-  }).save();
+  }).save(saveOpts);
 
   if (resolvedStudentId) {
-    await syncStudentFeeFromLogs(resolvedStudentId);
+    await syncStudentFeeFromLogs(resolvedStudentId, session);
   }
 
   return fee;
 }
 
-async function ensurePendingFees(studentId, nextInstallmentDate) {
-  let pendingFees = await Fee.find({
-    student: studentId,
-    status: "Pending",
-    amount: { $gt: 0 },
-  }).sort({ due_date: 1, _id: 1 });
+async function ensurePendingFees(studentId, nextInstallmentDate, session = null) {
+  let pendingFees = await withSession(
+    Fee.find({
+      student: studentId,
+      status: "Pending",
+      amount: { $gt: 0 },
+    }).sort({ due_date: 1, _id: 1 }),
+    session
+  );
 
   if (pendingFees.length) {
     return pendingFees;
   }
 
-  const student = await Student.findById(studentId);
+  const student = await withSession(Student.findById(studentId), session);
   const studentPending = Math.max(Number(student?.pending_fee) || 0, 0);
   if (!student || studentPending <= 0) {
     throw new Error("No pending fee found for this student");
@@ -251,16 +267,20 @@ async function ensurePendingFees(studentId, nextInstallmentDate) {
     ? moment(nextInstallmentDate).tz("Asia/Karachi").format("YYYY-MM-DD")
     : moment().tz("Asia/Karachi").format("YYYY-MM-DD");
 
+  const saveOpts = session ? { session } : {};
   const recoveryFee = await new Fee({
     student: studentId,
     batch: student.batch,
     amount: studentPending,
     due_date: dueDate,
     status: "Pending",
-  }).save();
+  }).save(saveOpts);
 
   return [recoveryFee];
 }
+
+export const PENDING_DUES_TRANSFER_LABEL =
+  "Pending Dues Transferred to New Batch";
 
 /**
  * Apply a discount against a student's pending fee records (oldest due first).
@@ -271,6 +291,7 @@ export async function applyStudentPendingDiscount({
   description,
   actionUserId,
   nextInstallmentDate,
+  session = null,
 }) {
   const discount = Math.round(Number(discountAmount) || 0);
   if (discount <= 0) {
@@ -282,7 +303,11 @@ export async function applyStudentPendingDiscount({
     throw new Error("Discount description is required");
   }
 
-  const pendingFees = await ensurePendingFees(studentId, nextInstallmentDate);
+  const pendingFees = await ensurePendingFees(
+    studentId,
+    nextInstallmentDate,
+    session
+  );
   const outstanding = pendingFees.reduce(
     (sum, fee) => sum + (Number(fee.amount) || 0),
     0
@@ -294,6 +319,25 @@ export async function applyStudentPendingDiscount({
     );
   }
 
+  const pendingFeeIds = pendingFees.map((fee) => fee._id);
+  const alreadyTransferred = await withSession(
+    FeeLog.findOne({
+      fee: { $in: pendingFeeIds },
+      action_type: "Discounted",
+      description: { $regex: `^${PENDING_DUES_TRANSFER_LABEL}` },
+    }).select("_id"),
+    session
+  );
+  if (
+    alreadyTransferred &&
+    trimmedDescription.startsWith(PENDING_DUES_TRANSFER_LABEL)
+  ) {
+    throw new Error(
+      "Pending dues for these fee records have already been transferred to another batch"
+    );
+  }
+
+  const saveOpts = session ? { session } : {};
   let remaining = discount;
   const feeIds = [];
 
@@ -308,7 +352,7 @@ export async function applyStudentPendingDiscount({
       fee.amount = 0;
       fee.status = "Paid";
     }
-    await fee.save();
+    await fee.save(saveOpts);
 
     await new FeeLog({
       amount: originalAmount,
@@ -319,13 +363,13 @@ export async function applyStudentPendingDiscount({
       fee: fee._id,
       student: studentId,
       description: trimmedDescription,
-    }).save();
+    }).save(saveOpts);
 
     feeIds.push(fee._id);
     remaining -= applyNow;
   }
 
-  await syncStudentFeeFromLogs(studentId);
+  await syncStudentFeeFromLogs(studentId, session);
 
   return {
     discounted: discount - remaining,
@@ -509,18 +553,18 @@ export async function collectStudentPendingPayment({
   };
 }
 
-export async function syncStudentFeeFromLogs(studentId) {
-  const student = await Student.findById(studentId);
+export async function syncStudentFeeFromLogs(studentId, session = null) {
+  const student = await withSession(Student.findById(studentId), session);
   if (!student) return;
 
-  const fees = await Fee.find({ student: studentId });
+  const fees = await withSession(Fee.find({ student: studentId }), session);
   const feeIds = fees.map((item) => item._id);
 
   const logFilter = feeIds.length
     ? { $or: [{ fee: { $in: feeIds } }, { student: studentId }] }
     : { student: studentId };
 
-  const logs = await FeeLog.find(logFilter);
+  const logs = await withSession(FeeLog.find(logFilter), session);
 
   let totalFee = 0;
   let discountedFee = 0;
@@ -577,6 +621,6 @@ export async function syncStudentFeeFromLogs(studentId) {
   student.paid_fee = student.cash_amount + student.online_amount;
   student.pending_fee = Math.max(pendingFee, 0);
 
-  await student.save();
+  await student.save(session ? { session } : undefined);
   return student;
 }
