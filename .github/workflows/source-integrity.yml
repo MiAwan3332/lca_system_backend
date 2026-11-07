@@ -1,0 +1,17 @@
+name: Source Integrity
+on:
+  pull_request:
+  push:
+    branches: [main, master, dev]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check source before executing application code
+        run: |
+          python3 scripts/testSourceIntegrity.py
+          python3 scripts/checkSourceIntegrity.py

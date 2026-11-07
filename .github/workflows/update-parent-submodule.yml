@@ -18,6 +18,13 @@ jobs:
       PARENT_REPO_TOKEN: ${{ secrets.PARENT_REPO_TOKEN }}
 
     steps:
+      - name: Checkout source for inspection
+        uses: actions/checkout@v4
+        with:
+          path: source
+      - name: Reject conflicted or injected source before updating production pointer
+        working-directory: source
+        run: python3 scripts/checkSourceIntegrity.py
       - name: Skip when parent repository token is not configured
         if: ${{ env.PARENT_REPO_TOKEN == '' }}
         run: |
