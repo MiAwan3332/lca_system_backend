@@ -180,7 +180,7 @@ const assertPhoneAvailableForNewStudent = async (phone, allowOrphanCleanup = tru
   const existingUser = await User.findOne({ email });
   if (existingUser) {
     const role = String(existingUser.role || "").toLowerCase();
-    // Leftover login from a deleted student â€” allow re-create.
+    // Leftover login from a deleted student — allow re-create.
     if (role === "student" && allowOrphanCleanup) {
       await User.findByIdAndDelete(existingUser._id);
     } else {
@@ -1067,7 +1067,7 @@ export const getStudentsByBatch = async (req, res) => {
         sort: { roll_number: 1, name: 1, _id: 1 },
       });
 
-    // Natural roll order: OC-Marathon-1, 2, 3â€¦10 (by trailing digits), not lexical.
+    // Natural roll order: OC-Marathon-1, 2, 3…10 (by trailing digits), not lexical.
     const compareByRollSeq = (a, b) => {
       const rollA = String(a?.roll_number || "").trim();
       const rollB = String(b?.roll_number || "").trim();
@@ -2152,7 +2152,7 @@ export const transferStudentBatch = async (req, res) => {
         discountResult = await applyStudentPendingDiscount({
           studentId: lockedStudent._id,
           discountAmount: pendingAmount,
-          description: `${PENDING_DUES_TRANSFER_LABEL} â€” ${trimmedRemarks}`,
+          description: `${PENDING_DUES_TRANSFER_LABEL} — ${trimmedRemarks}`,
           actionUserId,
           session: txnSession,
         });
@@ -2191,7 +2191,7 @@ export const transferStudentBatch = async (req, res) => {
           payingNow: 0,
           discountAmount: transferPendingDues ? newBatchDiscount : 0,
           discountDescription: transferPendingDues
-            ? `New batch fee adjusted after ${PENDING_DUES_TRANSFER_LABEL} â€” ${trimmedRemarks}`
+            ? `New batch fee adjusted after ${PENDING_DUES_TRANSFER_LABEL} — ${trimmedRemarks}`
             : "Discount applied on batch shift",
           createdDescription: transferPendingDues
             ? `Fee assigned on pending-dues transfer to ${
