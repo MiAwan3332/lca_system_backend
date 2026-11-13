@@ -33,6 +33,21 @@ const QUALIFIER_ROLE = "qualifier";
 
 const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
 
+const escapeRegex = (value) =>
+  String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Match CNIC with or without dashes/spaces (e.g. 35202-7161986-3 ↔ 3520271619863). */
+const buildCnicSearchClause = (rawQuery) => {
+  const trimmed = String(rawQuery || "").trim();
+  if (!trimmed) return null;
+  const digits = digitsOnly(trimmed);
+  if (digits.length >= 4) {
+    const flexible = digits.split("").join("[\\s-]*");
+    return { cnic: { $regex: flexible, $options: "i" } };
+  }
+  return { cnic: { $regex: escapeRegex(trimmed), $options: "i" } };
+};
+
 const ALLOWED_CLASS_TYPES = new Set(["Online", "On Campus"]);
 const ALLOWED_EXAM_TYPES = new Set(["CSS", "PMS"]);
 
@@ -732,17 +747,18 @@ export const getQualifiers = async (req, res) => {
         } else if (field === "email") {
           filter.email = { $regex: searchQuery, $options: "i" };
         } else if (field === "cnic") {
-          filter.cnic = { $regex: searchQuery, $options: "i" };
+          Object.assign(filter, buildCnicSearchClause(searchQuery) || {});
         } else if (field === "css_pms_roll_no") {
           filter.css_pms_roll_no = { $regex: searchQuery, $options: "i" };
         } else if (field === "city") {
           filter.city = { $regex: searchQuery, $options: "i" };
         } else {
+          const cnicClause = buildCnicSearchClause(searchQuery);
           filter.$or = [
             { name: { $regex: searchQuery, $options: "i" } },
             { phone: { $regex: searchQuery, $options: "i" } },
             { email: { $regex: searchQuery, $options: "i" } },
-            { cnic: { $regex: searchQuery, $options: "i" } },
+            ...(cnicClause ? [cnicClause] : []),
             { css_pms_roll_no: { $regex: searchQuery, $options: "i" } },
             { class_type: { $regex: searchQuery, $options: "i" } },
             { city: { $regex: searchQuery, $options: "i" } },
@@ -910,9 +926,17 @@ export const updateQualifier = async (req, res) => {
     no_of_attempts,
     latest_degree,
     education_background,
+    total_fee,
+    discount_amount,
+    discount_description,
+    paid_fee,
+    pending_fee,
+    payment_method,
   } = req.body || {};
   const photoFile = asSingleFile(req.files?.photo || req.files?.image);
   const isSelfQualifier = isQualifierRole(req);
+  const bodyHas = (key) =>
+    Object.prototype.hasOwnProperty.call(req.body || {}, key);
 
   try {
     if (isSelfQualifier) {
@@ -1081,7 +1105,7 @@ export const updateQualifier = async (req, res) => {
       return res.status(400).json({ message: "Photo is required" });
     }
 
-    // Batch / active status: staff only
+    // Batch / active status / fee ledger: staff only
     if (!isSelfQualifier) {
       if (is_active !== undefined) {
         qualifier.is_active = parseIsActive(is_active, qualifier.is_active);
@@ -1104,6 +1128,53 @@ export const updateQualifier = async (req, res) => {
         return res.status(400).json({
           message: "Interview batch is required",
         });
+      }
+
+      const feeTouched =
+        bodyHas("total_fee") ||
+        bodyHas("discount_amount") ||
+        bodyHas("discount_description") ||
+        bodyHas("paid_fee") ||
+        bodyHas("pending_fee") ||
+        bodyHas("payment_method");
+
+      if (feeTouched) {
+        const nextTotal = bodyHas("total_fee")
+          ? parseMoney(total_fee)
+          : Number(qualifier.total_fee) || 0;
+        const nextDiscount = bodyHas("discount_amount")
+          ? parseMoney(discount_amount)
+          : Number(qualifier.discount_amount) || 0;
+        if (nextDiscount > nextTotal) {
+          return res.status(400).json({
+            message: "Discount cannot exceed total fee",
+          });
+        }
+        const nextPaid = bodyHas("paid_fee")
+          ? parseMoney(paid_fee)
+          : Number(qualifier.paid_fee) || 0;
+        const payable = Math.max(nextTotal - nextDiscount, 0);
+        if (nextPaid > payable) {
+          return res.status(400).json({
+            message: "Paid fee cannot exceed payable fee (total − discount)",
+          });
+        }
+        const nextPending = bodyHas("pending_fee")
+          ? parseMoney(pending_fee)
+          : Math.max(payable - nextPaid, 0);
+
+        qualifier.total_fee = nextTotal;
+        qualifier.discount_amount = nextDiscount;
+        qualifier.paid_fee = nextPaid;
+        qualifier.pending_fee = nextPending;
+        if (bodyHas("discount_description")) {
+          qualifier.discount_description = trimOrEmpty(discount_description);
+        } else if (nextDiscount <= 0) {
+          qualifier.discount_description = "";
+        }
+        if (bodyHas("payment_method")) {
+          qualifier.payment_method = trimOrEmpty(payment_method);
+        }
       }
     } else if (!qualifier.batch) {
       return res.status(400).json({
